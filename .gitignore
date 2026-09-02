@@ -1,0 +1,25 @@
+# ── Node ──
+node_modules/
+dist/
+build/
+.vite/
+*.tsbuildinfo
+coverage/
+.npm/
+
+# ── 日志 ──
+*.log
+npm-debug.log*
+yarn-error.log*
+/dev-logs/
+
+# ── 本地配置与密钥（绝不入库）──
+.env
+.env.*
+!.env.example
+
+# ── 编辑器 / 系统 ──
+.DS_Store
+.idea/
+.vscode/
+*.swp
