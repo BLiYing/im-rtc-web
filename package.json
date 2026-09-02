@@ -1,0 +1,21 @@
+{
+  "name": "im-rtc-web",
+  "private": true,
+  "version": "0.0.0",
+  "description": "im-rtc Web 客户端 SDK：call-engine（无 UI）+ call-uikit-react + Demo",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "typecheck": "tsc -b --pretty"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

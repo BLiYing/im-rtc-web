@@ -1,0 +1,20 @@
+{
+  "name": "@im-rtc/call-engine",
+  "version": "0.0.1",
+  "description": "im-rtc 的无 UI 核心：信令、状态机、媒体、设备。框架无关，禁止依赖任何 UI 库。",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run"
+  },
+  "license": "UNLICENSED"
+}

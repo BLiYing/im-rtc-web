@@ -1,0 +1,87 @@
+/**
+ * `@im-rtc/call-engine` —— im-rtc 的无 UI 核心。
+ *
+ * **框架无关**：本包禁止依赖 react 或任何 UI 库，且必须能在无 DOM 的环境构造
+ * （一致性向量测试就跑在 Node 里）。DOM / WebRTC 的接触点收敛在 media/ 与 devices/。
+ *
+ * **协议契约在 `im-rtc-server/docs/RTC_PROTOCOL.md`，本仓只读引用**——
+ * 不得单方面加字段。改协议 = 改四个仓 + 同步一致性向量。
+ *
+ * 当前进度（P2 第一刀）：信令帧的编解码与协议常量。
+ * 状态机、WS 客户端、媒体适配器随后落地。
+ */
+
+export {
+  ERROR_DEFINITIONS,
+  ErrorCode,
+  RtcError,
+  errorName,
+  isLocalError,
+  isRetryable,
+  isRtcError,
+  lookupError,
+} from './errors.js';
+export type { ErrorCodeName, ErrorCodeValue, ErrorDefinition } from './errors.js';
+
+export {
+  CallEndReason,
+  GROUP_DOMINANT_PRIORITY,
+  callDurationSec,
+  dominantReason,
+  normalizeReason,
+} from './reasons.js';
+export type { CallEndReasonValue } from './reasons.js';
+
+export { logger, redact, setLogLevel, setLogSink } from './logger.js';
+export type { LogFields, LogLevel, LogSink } from './logger.js';
+
+export {
+  MAX_FRAME_BYTES,
+  OK_SUFFIX,
+  decodeEnvelope,
+  encodeEnvelope,
+  isEvent,
+  okType,
+} from './signaling/envelope.js';
+export type { Envelope } from './signaling/envelope.js';
+
+export { checkDiscipline } from './signaling/discipline.js';
+
+export {
+  DEFAULT_TIMEOUT_SEC,
+  LAYERS,
+  MAX_TIMEOUT_SEC,
+  MEDIA_TYPES,
+  MIN_TIMEOUT_SEC,
+  PC_ROLES,
+  REASONS,
+  ROOM_KINDS,
+  TRACK_KINDS,
+  TRACK_SOURCES,
+} from './signaling/enums.js';
+export type {
+  HandledAction,
+  Layer,
+  MediaType,
+  PcRole,
+  RoomKind,
+  TrackKind,
+  TrackSource,
+} from './signaling/enums.js';
+
+export {
+  FrameType,
+  REQUEST_TYPES,
+  RESERVED_TYPES,
+  decodeFrame,
+  encodeFrame,
+  isRequestType,
+  isReservedType,
+  knownFrameTypes,
+  lookupFrame,
+  newFrameData,
+} from './signaling/registry.js';
+
+export type { FieldSpec, FrameData, FrameFields } from './signaling/fieldSpec.js';
+
+export * as frames from './signaling/frames.room.js';
