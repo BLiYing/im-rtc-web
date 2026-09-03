@@ -4,11 +4,14 @@ import type { EngineEventHandler, EngineEventName } from './events.js';
 import { MACHINE_EVENT_NAMES } from './events.js';
 import { logger } from './logger.js';
 import type { MediaAdapter } from './media/mediaAdapter.js';
+import type { ViewElement } from './media/viewRegistry.js';
+import { ViewRegistry } from './media/viewRegistry.js';
 import { WebRTCAdapter } from './media/webrtcAdapter.js';
+import { camelizeArgs } from './signaling/caseMapping.js';
 import type { HelloOk } from './signaling/connection.js';
 import { Connection } from './signaling/connection.js';
-import type { MediaType, PcRole } from './signaling/enums.js';
-import { lookupFrame } from './signaling/registry.js';
+import type { Layer, MediaType, PcRole } from './signaling/enums.js';
+import { FrameSender } from './signaling/frameSender.js';
 import type { WebSocketFactory } from './signaling/webSocket.js';
 import type { EngineContext } from './state/engineMachine.js';
 import { initialEngineContext, reduceEngine } from './state/engineMachine.js';
@@ -45,16 +48,18 @@ export class CallEngine {
   private readonly media: MediaAdapter;
   private readonly options: EngineOptions;
 
+  private readonly sender: FrameSender;
   private connection: Connection | null = null;
   private ctx: EngineContext = initialEngineContext;
-  /** 服务端最近一次下发的 sub offer，答复时要用。 */
-  private lastSubOfferSdp = '';
   /** 已经抛过 firstVideoFrame 的轨道，避免重复抛。 */
   private readonly seenVideo = new Set<string>();
+  /** uid ↔ 视频元素的挂载登记（uikit 只能经它挂画面，CONVENTIONS §1）。 */
+  private readonly views = new ViewRegistry();
 
   constructor(options: EngineOptions) {
     this.options = options;
     this.media = options.media ?? new WebRTCAdapter();
+    this.sender = new FrameSender(this.media);
   }
 
   /** on 订阅事件，返回退订函数。事件表见 events.ts（= 设计文档 §7.5）。 */
@@ -111,6 +116,7 @@ export class CallEngine {
     this.connection?.close();
     this.connection = null;
     this.media.close();
+    this.views.clear();
     this.seenVideo.clear();
     this.ctx = initialEngineContext;
   }
@@ -198,6 +204,41 @@ export class CallEngine {
     return this.media.localTrack(cid);
   }
 
+  /**
+   * attachView 把某个 uid 的远端画面挂到一个 `<video>` 上；传 `null` 卸载。
+   *
+   * **这是 UI 拿到画面的唯一途径**（CONVENTIONS §1）：uikit 不许自己碰
+   * `RTCPeerConnection`，也不该自己拼 `MediaStream`。
+   */
+  attachView(uid: string, el: ViewElement | null): void {
+    this.views.attach(uid, el);
+  }
+
+  /** attachLocalView 把本端某条轨道挂到元素上做预览；传 `null` 卸载。 */
+  attachLocalView(cid: string, el: ViewElement | null): void {
+    if (el === null) return void this.views.attach(localViewKey(cid), null);
+    const track = this.media.localTrack(cid);
+    if (track !== undefined) this.views.addTrack(track.id, track, localViewKey(cid));
+    this.views.attach(localViewKey(cid), el);
+  }
+
+  /**
+   * setRemoteLayer 报某人画面的**层上界**（协议 §3.5：上界不是命令）。
+   *
+   * 九宫格缩略图报 `l`、双击放大报 `h`。**不触发重协商**，也不保证立刻切——
+   * 服务端要等目标层的关键帧，还会再按带宽估计压一次。
+   */
+  async setRemoteLayer(uid: string, layer: Layer): Promise<void> {
+    for (const [trackId, info] of Object.entries(this.ctx.room.remoteTracks)) {
+      if (info.uid !== uid || info.kind !== 'video') continue;
+      await this.dispatch({
+        kind: 'act',
+        op: 'update_layer',
+        args: { track_id: trackId, max_layer: layer },
+      });
+    }
+  }
+
   // ── 内部 ──────────────────────────────────────────────
 
   /**
@@ -209,7 +250,7 @@ export class CallEngine {
    */
   private async handleIncoming(type: string, data: Record<string, unknown>): Promise<void> {
     if (type === 'room.offer' && data['pc'] === 'sub') {
-      this.lastSubOfferSdp = typeof data['sdp'] === 'string' ? data['sdp'] : '';
+      this.sender.noteSubOffer(typeof data['sdp'] === 'string' ? data['sdp'] : '');
     }
     if (type === 'room.answer' && data['pc'] === 'pub') {
       // 先把 SDP 应用到媒体层，再让状态机把发布状态推进到 published。
@@ -226,29 +267,20 @@ export class CallEngine {
     for (const frame of result.send) {
       await this.sendFrame(frame);
     }
+    this.claimViews();
     for (const event of result.emit) {
       this.emitMachineEvent(event);
     }
   }
 
-  /** sendFrame 发一帧；协商帧的 sdp 在这里从媒体适配器填入。 */
+  /** sendFrame 发一帧，并把应答喂回状态机。 */
   private async sendFrame(frame: OutgoingFrame): Promise<void> {
     const connection = this.connection;
     if (connection === null) return;
-
-    const fields = lookupFrame(frame.type);
-    if (fields === undefined) return;
-
-    const data: Record<string, unknown> = { ...frame.data };
     try {
-      if (frame.type === 'room.offer' && data['pc'] === 'pub') {
-        data['sdp'] = await this.media.createPubOffer();
-      } else if (frame.type === 'room.answer' && data['pc'] === 'sub') {
-        data['sdp'] = await this.media.answerSubOffer(this.lastSubOfferSdp);
-      }
-      const reply = await connection.request(frame.type, fields, toCamel(fields, data));
+      const reply = await this.sender.send(connection, frame.type, frame.data);
       // **应答也要喂回状态机**：join.ok / publish.ok 都是状态推进的关键一步。
-      await this.handleIncoming(reply.envelope.type, reply.data);
+      if (reply !== null) await this.handleIncoming(reply.type, reply.data);
     } catch (err) {
       // 请求失败不该中断整个事件流：转成 error 事件交给宿主。
       this.emitError(err);
@@ -257,25 +289,29 @@ export class CallEngine {
 
   private sendCandidate(pc: PcRole, candidate: RTCIceCandidateInit): void {
     const connection = this.connection;
-    const fields = lookupFrame('room.ice_candidate');
-    if (connection === null || fields === undefined) return;
-    void connection
-      .request('room.ice_candidate', fields, {
-        pc,
-        candidate: candidate.candidate ?? '',
-        sdpMid: candidate.sdpMid ?? '',
-        sdpMLineIndex: candidate.sdpMLineIndex ?? 0,
-      })
+    if (connection === null) return;
+    void this.sender
+      .sendCandidate(connection, pc, candidate)
       .catch((err: unknown) => this.emitError(err));
   }
 
   private onRemoteTrack(trackId: string, track: MediaStreamTrack): void {
+    const uid = this.ctx.room.remoteTracks[trackId]?.uid ?? '';
+    // uid 可能还不知道（ontrack 与 track_published 谁先到都可能）——
+    // 那就先收着，claimViews 会在状态机补上归属之后认领。
+    this.views.addTrack(trackId, track, uid);
     this.bus.emit('remoteTrack', { trackId, track });
     if (track.kind !== 'video' || this.seenVideo.has(trackId)) return;
     this.seenVideo.add(trackId);
-    const uid = this.ctx.room.remoteTracks[trackId]?.uid ?? '';
     // firstVideoFrame 没有对应的信令帧——它是本地事件，UI 用来撤 loading。
     this.bus.emit('firstVideoFrame', { uid, trackId });
+  }
+
+  /** claimViews 把「轨道先到、归属后到」的那些补挂上去，并摘掉已经没了的。 */
+  private claimViews(): void {
+    for (const [trackId, info] of Object.entries(this.ctx.room.remoteTracks)) {
+      this.views.claim(trackId, info.uid);
+    }
   }
 
   private onPcState(pc: PcRole, state: RTCPeerConnectionState): void {
@@ -293,11 +329,7 @@ export class CallEngine {
       return;
     }
     // 参数从协议的 snake_case 转成 TS 惯用的 camelCase。
-    const payload: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(event.args)) {
-      payload[snakeToCamel(key)] = value;
-    }
-    this.bus.emit(name, payload as never);
+    this.bus.emit(name, camelizeArgs(event.args) as never);
   }
 
   private emitError(err: unknown): void {
@@ -310,19 +342,13 @@ export class CallEngine {
   }
 }
 
-function snakeToCamel(key: string): string {
-  return key.replace(/_([a-z])/g, (_, ch: string) => ch.toUpperCase());
-}
-
-/** toCamel 把线路形状的 data 转成字段声明用的 camelCase 属性名。 */
-function toCamel(
-  fields: Readonly<Record<string, { wire: string }>>,
-  data: Readonly<Record<string, unknown>>,
-): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const [prop, spec] of Object.entries(fields)) {
-    if (Object.hasOwn(data, spec.wire)) out[prop] = data[spec.wire];
-    else if (Object.hasOwn(data, prop)) out[prop] = data[prop];
-  }
-  return out;
+/**
+ * localViewKey 给本端预览一个不会与 uid 撞车的登记键。
+ *
+ * 本端与远端共用一张登记表（挂载/卸载逻辑完全一样），所以只需要一个前缀区分开。
+ * 前缀里带冒号：uid 是宿主给的业务 id，协议没限制字符集，但冒号开头的 uid
+ * 本来就不该出现在业务里。
+ */
+function localViewKey(cid: string): string {
+  return `:local:${cid}`;
 }

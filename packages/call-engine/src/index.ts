@@ -115,6 +115,10 @@ export { EventBus } from './eventBus.js';
 export { MACHINE_EVENT_NAMES } from './events.js';
 export type { CallRoleName, EngineEventHandler, EngineEventName, EngineEvents } from './events.js';
 export { WebRTCAdapter } from './media/webrtcAdapter.js';
+export { ViewRegistry } from './media/viewRegistry.js';
+export type { ViewElement } from './media/viewRegistry.js';
+export { camelizeArgs, snakeToCamel, toFrameProps } from './signaling/caseMapping.js';
+export { FrameSender } from './signaling/frameSender.js';
 export type {
   LocalTrackInfo,
   MediaAdapter,
