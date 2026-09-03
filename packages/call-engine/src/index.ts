@@ -120,6 +120,9 @@ export { MediaBridge } from './media/mediaBridge.js';
 export type { ViewElement } from './media/viewRegistry.js';
 export { camelizeArgs, snakeToCamel, toFrameProps } from './signaling/caseMapping.js';
 export { FrameSender } from './signaling/frameSender.js';
+export { parseCandidate } from './signaling/candidate.js';
+export { createConnection } from './signaling/connectionFactory.js';
+export type { ParsedCandidate } from './signaling/candidate.js';
 export type {
   LocalTrackInfo,
   MediaAdapter,

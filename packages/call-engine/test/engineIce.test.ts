@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { CallEngine } from '../src/engine.js';
+import { parseCandidate } from '../src/signaling/candidate.js';
 import type { LocalTrackInfo, MediaAdapter, MediaAdapterEvents } from '../src/media/mediaAdapter.js';
 import type { PcRole } from '../src/signaling/enums.js';
 import { FakeWebSocket, flush } from './fakeWebSocket.js';
@@ -204,5 +205,29 @@ describe('回调顺序', () => {
     await flush(8);
 
     expect(engine.state.room.state).toBe('idle');
+  });
+});
+
+describe('候选解析', () => {
+  it('空候选表示收集结束，返回 null', () => {
+    // 把它当成一条真候选喂给 addIceCandidate，部分浏览器会抛。
+    expect(parseCandidate({ pc: 'sub', candidate: '', sdp_mid: '', sdp_mline_index: 0 })).toBeNull();
+    expect(parseCandidate({ pc: 'sub' })).toBeNull();
+  });
+
+  it('认不出的 pc 一律当 sub —— 下行才是候选真正要紧的方向', () => {
+    const parsed = parseCandidate({ pc: 'whatever', candidate: 'candidate:1 1 udp 1 1.2.3.4 5 typ host' });
+    expect(parsed?.pc).toBe('sub');
+    expect(parsed?.init.sdpMid).toBe('');
+    expect(parsed?.init.sdpMLineIndex).toBe(0);
+  });
+
+  it('字段类型不对时退回默认值，而不是把脏数据传给浏览器', () => {
+    const parsed = parseCandidate({
+      pc: 'pub', candidate: 'candidate:x', sdp_mid: 7, sdp_mline_index: 'no',
+    });
+    expect(parsed?.pc).toBe('pub');
+    expect(parsed?.init.sdpMid).toBe('');
+    expect(parsed?.init.sdpMLineIndex).toBe(0);
   });
 });

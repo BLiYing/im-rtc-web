@@ -8,8 +8,9 @@ import { MediaBridge } from './media/mediaBridge.js';
 import type { ViewElement } from './media/viewRegistry.js';
 import { WebRTCAdapter } from './media/webrtcAdapter.js';
 import { camelizeArgs } from './signaling/caseMapping.js';
-import type { HelloOk } from './signaling/connection.js';
-import { Connection } from './signaling/connection.js';
+import { parseCandidate } from './signaling/candidate.js';
+import type { Connection, HelloOk } from './signaling/connection.js';
+import { createConnection } from './signaling/connectionFactory.js';
 import type { Layer, MediaType, PcRole } from './signaling/enums.js';
 import { FrameSender } from './signaling/frameSender.js';
 import type { WebSocketFactory } from './signaling/webSocket.js';
@@ -80,27 +81,29 @@ export class CallEngine {
 
   /** login 建立信令连接并完成握手。 */
   async login(token: string): Promise<HelloOk> {
-    const connection = new Connection({
-      url: this.options.url,
-      token,
-      deviceId: this.options.deviceId,
-      ...(this.options.webSocketFactory === undefined
-        ? {}
-        : { webSocketFactory: this.options.webSocketFactory }),
-      events: {
-        onEvent: (type, data): void => {
-          void this.handleIncoming(type, data);
-        },
+    const connection = createConnection(
+      {
+        url: this.options.url,
+        token,
+        deviceId: this.options.deviceId,
+        ...(this.options.webSocketFactory === undefined
+          ? {}
+          : { webSocketFactory: this.options.webSocketFactory }),
+      },
+      {
+        onEvent: (type, data): void => void this.handleIncoming(type, data),
         onDisconnected: (info): void => {
           void this.dispatch({ kind: 'internal', name: 'disconnected' });
-          this.bus.emit('disconnected', { code: info.code, willReconnect: info.willReconnect });
+          // exactOptionalPropertyTypes：code 没有时**不能传 undefined**，只能不写这个键。
+          this.bus.emit('disconnected', {
+            ...(info.code === undefined ? {} : { code: info.code }),
+            willReconnect: info.willReconnect,
+          });
         },
-        onKickedOut: (): void => {
-          void this.dispatch({ kind: 'internal', name: 'ws_closed_4403' });
-        },
+        onKickedOut: (): void => void this.dispatch({ kind: 'internal', name: 'ws_closed_4403' }),
         onError: (error): void => this.emitError(error),
       },
-    });
+    );
     this.connection = connection;
     this.bridge.open(this.mediaEvents());
 
@@ -332,14 +335,10 @@ export class CallEngine {
    * `candidate` 为空串表示收集结束，协议要求容忍（§3.3）。
    */
   private async addRemoteCandidate(data: Readonly<Record<string, unknown>>): Promise<void> {
-    const candidate = typeof data['candidate'] === 'string' ? data['candidate'] : '';
-    if (candidate === '') return;
-    const pc: PcRole = data['pc'] === 'pub' ? 'pub' : 'sub';
-    const sdpMid = typeof data['sdp_mid'] === 'string' ? data['sdp_mid'] : '';
-    const rawIndex = data['sdp_mline_index'];
-    const sdpMLineIndex = typeof rawIndex === 'number' ? rawIndex : 0;
+    const parsed = parseCandidate(data);
+    if (parsed === null) return; // 空候选 = 收集结束，忽略（§3.3）
     try {
-      await this.media.addRemoteCandidate(pc, { candidate, sdpMid, sdpMLineIndex });
+      await this.media.addRemoteCandidate(parsed.pc, parsed.init);
     } catch (err) {
       // 乱序候选是常态（协议 §3.3 要求容忍）：转成 error 事件，不中断事件流。
       this.emitError(err);
