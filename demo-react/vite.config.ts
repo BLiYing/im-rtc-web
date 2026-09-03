@@ -14,6 +14,8 @@ export default defineConfig({
       '@im-rtc/call-engine': new URL('../packages/call-engine/src/index.ts', import.meta.url).pathname,
       '@im-rtc/call-uikit-react': new URL('../packages/call-uikit-react/src/index.ts', import.meta.url).pathname,
       '@demo/synthetic': new URL('../demo/src/syntheticMedia.ts', import.meta.url).pathname,
+      '@demo/connection-guard':
+        new URL('../demo/src/connectionGuard.ts', import.meta.url).pathname,
     },
   },
 });

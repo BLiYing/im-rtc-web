@@ -22,6 +22,7 @@
           <label>服务端 <input id="server" value="http://127.0.0.1:8787" /></label>
           <label>用户名 <input id="username" value="alice" /></label>
           <button id="login">登录</button>
+          <span id="conn" class="hint"></span>
         </div>
         <div class="row">
           <label>
@@ -34,8 +35,9 @@
       <section class="panel">
         <h2>2 · 会议房</h2>
         <div class="row">
-          <label>房间号 <input id="room" placeholder="留空则新建" /></label>
-          <button id="join" disabled>进房并发布</button>
+          <label>房间号 <input id="room" placeholder="把别人给的房间号粘进来" /></label>
+          <button id="join" disabled>加入并发布</button>
+          <button id="create" disabled>新建并发布</button>
           <button id="leave" disabled>离房</button>
         </div>
         <div class="row">
@@ -43,6 +45,7 @@
           <button id="toggleCam" disabled>关摄像头</button>
           <span class="hint">
             开关走 <code>mute</code> 不走 <code>unpublish</code>——后者会触发重协商风暴。
+            <b>最后一个人离开后房间即销毁</b>，旧房间号再「加入」会得到「房间不存在」。
           </span>
         </div>
       </section>

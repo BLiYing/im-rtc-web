@@ -6,6 +6,8 @@ import type { ReactNode } from 'react';
 import { useCallback, useState } from 'react';
 
 import { demoLogin } from './api.js';
+import type { ConnPhase } from '@demo/connection-guard';
+import { guardConnection } from '@demo/connection-guard';
 import { toEntry } from './logTypes.js';
 import { RemoteLogSink } from './remoteLog.js';
 import { CallHistory } from './CallHistory.js';
@@ -14,6 +16,13 @@ import { Dialer } from './Dialer.js';
 import { LoginPanel } from './LoginPanel.js';
 
 setLogLevel('debug');
+
+const CONN_LABEL: Readonly<Record<ConnPhase, string>> = {
+  connected: '● 已连接',
+  reconnecting: '◌ 重连中',
+  refreshing: '◌ 正在换接入票',
+  dead: '○ 已断开',
+};
 
 interface Session {
   readonly engine: CallEngine;
@@ -32,6 +41,10 @@ interface Session {
  */
 export function App(): ReactNode {
   const [session, setSession] = useState<Session | null>(null);
+  const [conn, setConn] = useState<{ phase: ConnPhase; detail: string }>({
+    phase: 'connected', detail: '',
+  });
+  const [notice, setNotice] = useState('');
 
   const login = useCallback(
     async (server: string, username: string, synthetic: boolean): Promise<void> => {
@@ -56,7 +69,23 @@ export function App(): ReactNode {
         deviceId,
         media: new WebRTCAdapter(source),
       });
+      /*
+        换票与「被踢就回登录页」这套处置**是宿主的活**，所以写在 Demo 里而不是 SDK 里
+        （见 connectionGuard.ts 开头）。这也是这个 Demo 存在的意义之一：
+        证明协议 §1.5 那条规则宿主真的做得到。
+      */
+      guardConnection(engine, () => demoLogin(server, username), {
+        onPhase: (phase, detail) => setConn({ phase, detail }),
+        onDead: (reason) => {
+          engine.logout();
+          setSession(null);
+          setNotice(reason);
+        },
+      });
+
       await engine.login(token);
+      setNotice('');
+      setConn({ phase: 'connected', detail: '新会话' });
       setSession({ engine, server, token, uid: username, deviceId });
     },
     [],
@@ -70,6 +99,12 @@ export function App(): ReactNode {
         也就是<b>宿主本来就该自己写的那部分</b>。
       </p>
 
+      {notice !== '' && (
+        <div className="card" style={{ borderColor: '#e5484d' }}>
+          <b style={{ color: '#e5484d' }}>{notice}</b>
+        </div>
+      )}
+
       {session === null ? (
         <LoginPanel onLogin={login} />
       ) : (
@@ -78,6 +113,14 @@ export function App(): ReactNode {
             <h2>已登录</h2>
             <div>
               <b>{session.uid}</b> <span className="muted">（{session.deviceId}）</span>
+            </div>
+            {/*
+              连接状态必须画出来。**服务端重启后页面一直显示「已登录」**、
+              其实什么都发不出去——这个毛病之所以能藏那么久，就是因为界面上看不见。
+            */}
+            <div className="note" data-testid="conn-status">
+              {CONN_LABEL[conn.phase]}
+              {conn.detail !== '' && <span className="muted"> · {conn.detail}</span>}
             </div>
           </div>
           <Dialer server={session.server} token={session.token} deviceId={session.deviceId} />

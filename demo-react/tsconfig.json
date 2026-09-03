@@ -8,8 +8,9 @@
     "paths": {
       "@im-rtc/call-engine": ["../packages/call-engine/src/index.ts"],
       "@im-rtc/call-uikit-react": ["../packages/call-uikit-react/src/index.ts"],
-      "@demo/synthetic": ["../demo/src/syntheticMedia.ts"]
+      "@demo/synthetic": ["../demo/src/syntheticMedia.ts"],
+      "@demo/connection-guard": ["../demo/src/connectionGuard.ts"]
     }
   },
-  "include": ["src/**/*", "../demo/src/syntheticMedia.ts"]
+  "include": ["src/**/*", "../demo/src/syntheticMedia.ts", "../demo/src/connectionGuard.ts"]
 }

@@ -16,7 +16,17 @@ export type CallRoleName = 'caller' | 'callee' | '';
 export interface EngineEvents {
   // ── 连接 ────────────────────────────────────────────────
   connected: { sessionId: string; resumed: boolean };
-  disconnected: { code?: number; willReconnect?: boolean };
+  /**
+   * 信令连接断开。
+   *
+   * **两个字段都一定有**：这个事件只由连接层抛，而关闭码与「会不会自己回来」
+   * 都是它当场就知道的。（状态机内部也有一份 `onDisconnected`，但那份只用来
+   * 驱动状态迁移、不往宿主发——见 frameLoop.ts 的 dispatch。）
+   *
+   * `code === 4401` 是宿主唯一需要特殊处理的一个：换新票再来（协议 §1.5），
+   * 见 `updateToken`。
+   */
+  disconnected: { code: number; willReconnect: boolean };
   /** 同账号同设备号在别处登录。**不会自动重连**。 */
   kickedOut: Record<string, never>;
   error: { code: number; name: string; message: string };

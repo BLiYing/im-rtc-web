@@ -2,6 +2,7 @@ import { CallEngine, WebRTCAdapter, setLogLevel } from '@im-rtc/call-engine';
 import type { EngineEventName } from '@im-rtc/call-engine';
 
 import { createMeetingRoom, demoLogin, fetchRoomToken } from './api.js';
+import { guardConnection } from './connectionGuard.js';
 import { SyntheticMediaSource, browserMediaSource } from './syntheticMedia.js';
 
 /**
@@ -27,6 +28,8 @@ const ui = {
   login: el<HTMLButtonElement>('login'),
   room: el<HTMLInputElement>('room'),
   join: el<HTMLButtonElement>('join'),
+  create: el<HTMLButtonElement>('create'),
+  conn: el<HTMLSpanElement>('conn'),
   leave: el<HTMLButtonElement>('leave'),
   toggleMic: el<HTMLButtonElement>('toggleMic'),
   toggleCam: el<HTMLButtonElement>('toggleCam'),
@@ -113,9 +116,28 @@ ui.login.addEventListener('click', () => {
       });
       bindEvents(engine);
 
+      /*
+        换票与「被踢就回登录态」这套处置**是宿主的活**（协议 §1.5：4401 = 换新 token
+        再来，而票从宿主的账号体系来）。engine 只留 `updateToken` 这个口子，
+        来票的那一步永远在这里。
+      */
+      guardConnection(engine, () => demoLogin(server, ui.username.value.trim()), {
+        onPhase: (_phase, detail) => {
+          ui.conn.textContent = detail;
+        },
+        onDead: (reason) => {
+          engine?.logout();
+          engine = null;
+          ui.conn.textContent = reason;
+          resetToLogin();
+        },
+      });
+
       const hello = await engine.login(token);
       logEvent('login.ok', { uid: hello.uid, sessionId: hello.sessionId });
+      ui.conn.textContent = '● 已连接';
       ui.join.disabled = false;
+      ui.create.disabled = false;
       ui.login.disabled = true;
     } catch (err) {
       logEvent('login.failed', String(err));
@@ -123,33 +145,47 @@ ui.login.addEventListener('click', () => {
   })();
 });
 
+/*
+  **「新建」与「加入」分成两个按钮**，不再由一个按钮按输入框空不空自己猜。
+
+  猜错的代价实测撞到过：会议房**空了就销毁**（最后一个人离开即关），
+  而输入框里还留着刚离开的那个房间号——想新建一个，点下去却是去加入一个
+  已经不存在的房间。房间号留在框里是有用的（要发给另一个标签页），
+  所以留着框、把动作拆开，比清空框更对。
+*/
+async function enterRoom(roomId: string): Promise<void> {
+  const current = engine;
+  if (current === null) return;
+  const server = ui.server.value.trim();
+  ui.room.value = roomId;
+
+  const roomToken = await fetchRoomToken(server, token, roomId, `demo-${ui.username.value.trim()}`);
+  await current.joinRoom(roomId, roomToken);
+
+  micCid = await current.publishMicrophone();
+  camCid = await current.publishCamera(false);
+  logEvent('published', { micCid, camCid });
+
+  const local = current.localTrack(camCid);
+  if (local !== undefined) attachVideo(camCid, local, '本地');
+
+  ui.join.disabled = true;
+  ui.create.disabled = true;
+  ui.leave.disabled = false;
+  ui.toggleMic.disabled = false;
+  ui.toggleCam.disabled = false;
+}
+
 ui.join.addEventListener('click', () => {
+  void enterRoom(ui.room.value.trim()).catch((err: unknown) =>
+    logEvent('join.failed', String(err)));
+});
+
+ui.create.addEventListener('click', () => {
   void (async () => {
-    const current = engine;
-    if (current === null) return;
-    try {
-      const server = ui.server.value.trim();
-      const roomId = ui.room.value.trim() || (await createMeetingRoom(server, token));
-      ui.room.value = roomId;
-
-      const roomToken = await fetchRoomToken(server, token, roomId, `demo-${ui.username.value.trim()}`);
-      await current.joinRoom(roomId, roomToken);
-
-      micCid = await current.publishMicrophone();
-      camCid = await current.publishCamera(false);
-      logEvent('published', { micCid, camCid });
-
-      const local = current.localTrack(camCid);
-      if (local !== undefined) attachVideo(camCid, local, '本地');
-
-      ui.join.disabled = true;
-      ui.leave.disabled = false;
-      ui.toggleMic.disabled = false;
-      ui.toggleCam.disabled = false;
-    } catch (err) {
-      logEvent('join.failed', String(err));
-    }
-  })();
+    ui.room.value = await createMeetingRoom(ui.server.value.trim(), token);
+    await enterRoom(ui.room.value);
+  })().catch((err: unknown) => logEvent('create.failed', String(err)));
 });
 
 /** 开关麦克风/摄像头。走 mute：轨道与协商都保留，只是停止发包。 */
@@ -171,18 +207,25 @@ ui.toggleCam.addEventListener('click', () => {
   })();
 });
 
+/** resetToLogin 把界面收回未登录的样子。被「离房」与「被踢」共用。 */
+function resetToLogin(): void {
+  synthetic?.stop();
+  for (const video of videoEls.values()) video.remove();
+  videoEls.clear();
+  ui.videos.replaceChildren();
+  ui.join.disabled = true;
+  ui.create.disabled = true;
+  ui.leave.disabled = true;
+  ui.toggleMic.disabled = true;
+  ui.toggleCam.disabled = true;
+  ui.login.disabled = false;
+}
+
 ui.leave.addEventListener('click', () => {
   void (async () => {
     await engine?.leaveRoom();
     engine?.logout();
-    synthetic?.stop();
-    for (const video of videoEls.values()) video.remove();
-    videoEls.clear();
-    ui.videos.replaceChildren();
-    ui.join.disabled = false;
-    ui.leave.disabled = true;
-    ui.toggleMic.disabled = true;
-    ui.toggleCam.disabled = true;
-    ui.login.disabled = false;
+    engine = null;
+    resetToLogin();
   })();
 });

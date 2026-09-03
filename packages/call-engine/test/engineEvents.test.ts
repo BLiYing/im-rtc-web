@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CallEngine } from '../src/engine.js';
 import type { LocalTrackInfo, MediaAdapter, MediaAdapterEvents } from '../src/media/mediaAdapter.js';
@@ -93,6 +93,68 @@ async function setup(): Promise<Harness> {
   return h;
 }
 
+/** 退避档是真实的秒级等待，**一律用假计时器推**，别让套件为它变慢。 */
+beforeEach(() => vi.useFakeTimers());
+afterEach(() => {
+  vi.clearAllTimers();
+  vi.useRealTimers();
+});
+
+describe('重连也要走完整条链路', () => {
+  it('自动重连成功后要再抛一次 connected——不然宿主永远停在「重连中」', async () => {
+    const h = await setup();
+    const connects: boolean[] = [];
+    h.engine.on('connected', (e) => connects.push(e.resumed));
+
+    h.latest().closeFromServer(CloseCode.goingAway, 'restart');
+    await flush(4);
+    await vi.advanceTimersByTimeAsync(1_400);
+    await flush(6);
+
+    // 重连的那次握手由连接层发起，门面必须接住它的结果。
+    const hello = h.latest().lastFrame();
+    h.latest().receive(JSON.stringify({
+      type: 'sys.hello.ok', req_id: hello?.req_id ?? '', ts: 1,
+      data: { ...HELLO_OK_DATA, session_id: 's-2', resumed: true },
+    }));
+    await flush(8);
+
+    expect(connects).toEqual([true]);
+  });
+
+  it('重连回来发现会话没了（resumed=false），房间必须归零', async () => {
+    const h = await setup();
+
+    // 先真的进一个房间，否则这条断言什么都没验到（初始状态本来就是 idle）。
+    const joining = h.engine.joinRoom('r-1', 'room-token');
+    await flush(4);
+    const join = h.latest().frames().find((f) => f.type === 'room.join');
+    h.latest().receive(JSON.stringify({
+      type: 'room.join.ok', req_id: join?.req_id ?? '', ts: 1,
+      data: { room_id: 'r-1', participant_id: 'r-1-p1', participants: [], tracks: [] },
+    }));
+    await joining;
+    expect(h.engine.state.room.state).toBe('joined');
+
+    h.latest().closeFromServer(CloseCode.goingAway);
+    await flush(4);
+    await vi.advanceTimersByTimeAsync(1_400);
+    await flush(6);
+
+    const hello = h.latest().lastFrame();
+    h.latest().receive(JSON.stringify({
+      type: 'sys.hello.ok', req_id: hello?.req_id ?? '', ts: 1,
+      data: { ...HELLO_OK_DATA, session_id: 's-2', resumed: false },
+    }));
+    await flush(8);
+
+    // resumed=false 说明服务端那边已经忘了我们；装作还在只会让 UI 撒谎，
+    // 而且之后每一帧都会发向一个已经不存在的房间。
+    expect(h.engine.state.room.state).toBe('idle');
+    expect(h.engine.state.room.roomId).toBe('');
+  });
+});
+
 describe('disconnected 只抛一次，且带得上关闭码', () => {
   it('一次断线一条事件——状态机那份空载荷的不往外发', async () => {
     const h = await setup();
@@ -122,7 +184,7 @@ describe('disconnected 只抛一次，且带得上关闭码', () => {
     for (const step of [1_000, 2_000]) {
       h.latest().closeFromServer(CloseCode.unauthorized);
       await flush(4);
-      await new Promise((resolve) => setTimeout(resolve, step + 400));
+      await vi.advanceTimersByTimeAsync(step + 400);
       await flush(4);
     }
     h.latest().closeFromServer(CloseCode.unauthorized);
