@@ -31,7 +31,7 @@ port_holder() { lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null | head -n 1; 
 stop_server() {
   local pid
   if pid=$(running_pid); then
-    echo "停止 Vite（pid $pid）…"
+    echo "停止 Vite（pid ${pid}）…"
     pkill -P "$pid" 2>/dev/null
     kill "$pid" 2>/dev/null
     for _ in $(seq 1 20); do kill -0 "$pid" 2>/dev/null || break; sleep 0.25; done
@@ -50,7 +50,7 @@ start_server() {
   fi
 
   mkdir -p "$LOG_DIR"
-  echo "启动 Vite $BASE（日志 $LOG）…"
+  echo "启动 Vite ${BASE}（日志 ${LOG}）…"
   npm run dev -w demo >"$LOG" 2>&1 &
   echo $! > "$PIDFILE"
 
@@ -71,7 +71,7 @@ case "${1:-start}" in
   start)  stop_server; start_server ;;
   stop)   stop_server; echo "已停止" ;;
   status)
-    if pid=$(running_pid); then echo "running（pid $pid） $BASE"; else echo "stopped"; fi ;;
+    if pid=$(running_pid); then echo "running（pid ${pid}） $BASE"; else echo "stopped"; fi ;;
   logs)   tail -f "$LOG" ;;
   *)      echo "用法：$0 [start|stop|status|logs]"; exit 2 ;;
 esac
