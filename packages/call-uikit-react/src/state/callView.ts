@@ -64,6 +64,15 @@ export interface CallViewState {
   readonly roomId: string;
   readonly mediaType: MediaType;
   readonly isGroup: boolean;
+  /**
+   * 是不是「直接进会议房」而来的（`joinMeeting`），不是振铃通话。
+   *
+   * **界面必须分得清这件事**：会议房里根本没有 call，
+   * 红按钮按 `hangup` 走会被状态机本地拒成 2005，**按钮点了没反应、人退不出去**。
+   * 会议的结束动作是 `leaveRoom`。
+   * （这条是三人会议实测撞出来的：三端都退不出 `r-596154f1eb6c4c86`。）
+   */
+  readonly isMeeting: boolean;
   readonly role: CallRoleName;
   /** 1v1 的对端 uid；群通话为空串。 */
   readonly peerUid: string;
@@ -94,6 +103,7 @@ export const initialCallView: CallViewState = {
   roomId: '',
   mediaType: 'audio',
   isGroup: false,
+  isMeeting: false,
   role: '',
   peerUid: '',
   participants: [],
@@ -121,6 +131,8 @@ export type ViewAction =
       readonly mediaType: MediaType; readonly isGroup: boolean; readonly role: CallRoleName;
       readonly nowMs: number }
   | { readonly type: 'callEnd'; readonly reason: CallEndReasonValue }
+  | { readonly type: 'meetingJoined'; readonly roomId: string; readonly nowMs: number }
+  | { readonly type: 'roomLeft' }
   | { readonly type: 'mediaReady' }
   | { readonly type: 'userEnter'; readonly uid: string }
   | { readonly type: 'userLeave'; readonly uid: string }
@@ -179,13 +191,35 @@ export function reduceCallView(state: CallViewState, action: ViewAction): CallVi
         hint: '',
       };
 
+    case 'meetingJoined':
+      return {
+        ...initialCallView,
+        // 会议没有振铃，进来就是「接通中」；媒体一通就转 active。
+        phase: 'connecting',
+        roomId: action.roomId,
+        mediaType: 'video',
+        isGroup: true,
+        isMeeting: true,
+        beganAtMs: action.nowMs,
+        self: { micOn: true, cameraOn: true },
+      };
+
+    case 'roomLeft':
+      // 会议的结束出口。**已经在 ended/idle 就不动**：
+      // 通话结束时房间也会被清掉，那条路已经由 callEnd 收尾了，重复进 ended 会把
+      // endReason 抹成空串。
+      return state.phase === 'idle' || state.phase === 'ended'
+        ? state
+        : { ...state, phase: 'ended', isMinimized: false };
+
     case 'mediaReady': {
       const ready = { ...state, isMediaReady: true };
       return state.phase === 'connecting' ? { ...ready, phase: 'active' } : ready;
     }
 
     case 'callEnd':
-      // **唯一的结束出口**。停在 ended 让界面能显示 1.5 秒再自己 dismiss。
+      // **振铃通话的结束出口**（会议走 roomLeft）。
+      // 停在 ended 让界面能显示 1.5 秒再自己 dismiss。
       return { ...state, phase: 'ended', endReason: action.reason, isMinimized: false };
 
     case 'dismiss':

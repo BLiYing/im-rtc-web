@@ -28,10 +28,11 @@ export interface CallActions {
   accept: () => Promise<void>;
   reject: () => Promise<void>;
   /**
-   * end 结束通话。
+   * end 结束当前这一场，不管它是通话还是会议。
    *
-   * **接通前是 cancel、接通后是 hangup**（协议 §4.4），界面上是同一个红按钮——
-   * 让调用方去分辨这件事，迟早有人分辨错。
+   * **振铃通话接通前是 cancel、接通后是 hangup**（协议 §4.4），
+   * **会议是 leaveRoom**（会议房里根本没有 call）。界面上是同一个红按钮——
+   * 让调用方去分辨这三件事，迟早有人分辨错。
    */
   end: () => Promise<void>;
   toggleMic: () => Promise<void>;
@@ -91,10 +92,7 @@ export function CallProvider({ engine, children, endedHoldMs = 1500 }: CallProvi
         await engine.call(calleeIds, mediaType, isGroup);
       },
       joinMeeting: async (roomId, roomToken): Promise<void> => {
-        dispatch({
-          type: 'callBegin', callId: '', roomId, mediaType: 'video',
-          isGroup: true, role: '', nowMs: Date.now(),
-        });
+        dispatch({ type: 'meetingJoined', roomId, nowMs: Date.now() });
         await engine.joinRoom(roomId, roomToken);
         await publishFor('video');
         dispatch({ type: 'setCamera', on: true });
@@ -106,6 +104,15 @@ export function CallProvider({ engine, children, endedHoldMs = 1500 }: CallProvi
         await engine.reject();
       },
       end: async (): Promise<void> => {
+        /*
+          红按钮在四种场合是四个不同的动作，**分辨这件事是 uikit 的责任**：
+          让调用方去分辨，迟早有人分辨错。
+
+          最容易错的是最后一条：**会议房里没有 call**，发 hangup 会被通话机
+          本地拒成 2005 —— 按钮点了毫无反应、人退不出房间，而宿主只看到一条
+          没头没尾的 error。（三人会议实测：三端都卡在房里出不来。）
+        */
+        if (state.isMeeting) return engine.leaveRoom();
         // 接通前只能 cancel，接通后只能 hangup——服务端会拒掉用错的那个。
         if (state.phase === 'incoming') return engine.reject();
         if (state.phase === 'outgoing') return engine.cancel();
@@ -127,7 +134,7 @@ export function CallProvider({ engine, children, endedHoldMs = 1500 }: CallProvi
       setMinimized: (minimized): void => dispatch({ type: 'setMinimized', minimized }),
       dismiss: (): void => dispatch({ type: 'dismiss' }),
     }),
-    [engine, publishFor, state.phase, state.self.micOn, state.self.cameraOn],
+    [engine, publishFor, state.phase, state.isMeeting, state.self.micOn, state.self.cameraOn],
   );
 
   /*
@@ -144,9 +151,9 @@ export function CallProvider({ engine, children, endedHoldMs = 1500 }: CallProvi
     const isLive = state.phase === 'connecting' || state.phase === 'active';
     if (!isLive || state.roomId === '' || publishedRoomId.current === state.roomId) return;
     publishedRoomId.current = state.roomId;
-    if (state.role === '') return; // 会议由 joinMeeting 自己推流
+    if (state.isMeeting) return; // 会议由 joinMeeting 自己推流
     void publishFor(state.mediaType);
-  }, [state.phase, state.roomId, state.role, state.mediaType, publishFor]);
+  }, [state.phase, state.roomId, state.isMeeting, state.mediaType, publishFor]);
 
   const value = useMemo<CallContextValue>(() => ({ state, engine, actions }), [state, engine, actions]);
   return <CallContext.Provider value={value}>{children}</CallContext.Provider>;
@@ -185,6 +192,13 @@ function subscribe(engine: CallEngine, dispatch: (action: ViewAction) => void): 
       dispatch({ type: 'hint', text: `已在其他设备${e.action === 'accept' ? '接听' : '处理'}` })),
     engine.on('firstVideoFrame', () => dispatch({ type: 'mediaReady' })),
     engine.on('roomJoined', () => dispatch({ type: 'mediaReady' })),
+    /*
+      会议的收尾。**必须订阅这两个**，否则离房成功了界面还挂在那儿——
+      会议没有 `callEnd`（那是振铃通话的出口），漏掉这两条就等于没有出口。
+      `roomClosed` 也算：服务端单方面关房时同样得把界面收掉。
+    */
+    engine.on('roomLeft', () => dispatch({ type: 'roomLeft' })),
+    engine.on('roomClosed', () => dispatch({ type: 'roomLeft' })),
   ];
   return () => {
     for (const unsubscribe of off) unsubscribe();

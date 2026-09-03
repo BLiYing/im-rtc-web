@@ -34,7 +34,9 @@ export const styles = {
 
   tile: {
     position: 'relative', background: '#000', borderRadius: 10, overflow: 'hidden',
-    minHeight: 0, border: '2px solid transparent',
+    // **拆成 longhand**：与 tileSpeaking 的 borderColor 混用简写时，
+    // React 在重渲染里删简写属性会留下不一致的边框（它自己会警告这件事）。
+    minHeight: 0, borderWidth: 2, borderStyle: 'solid', borderColor: 'transparent',
   } satisfies CSSProperties,
 
   tileSpeaking: { borderColor: '#3ddc84' } satisfies CSSProperties,
@@ -44,6 +46,12 @@ export const styles = {
   tileLabel: {
     position: 'absolute', left: 8, bottom: 8, padding: '2px 8px', borderRadius: 6,
     background: 'rgba(0,0,0,0.55)', fontSize: 12, display: 'flex', gap: 6, alignItems: 'center',
+  } satisfies CSSProperties,
+
+  tileBadge: {
+    position: 'absolute', right: 8, top: 8, width: 24, height: 24, borderRadius: '50%',
+    background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center',
+    justifyContent: 'center', fontSize: 13,
   } satisfies CSSProperties,
 
   avatar: {

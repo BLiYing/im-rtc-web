@@ -10,7 +10,8 @@ import { bool, str } from './types.js';
  *
  * 四件只有这一层能做的事：
  * 1. **连接级事件**（onConnected / onDisconnected / onKickedOut）由这里抛——
- *    它们既不属于某次通话，也不属于某个房间。
+ *    它们既不属于某次通话，也不属于某个房间。（`onDisconnected` 只用来驱动状态迁移，
+ *    真正发给宿主的那条由连接层发，因为关闭码只有它知道——见 engine.ts 的 dispatch。）
  * 2. **重连恢复失败**时，房间回 idle **且**通话要本地合成 `onCallEnd(network)`
  *    （协议不变量 I8）——服务端那条 ended 帧送不到我们手里了。
  * 3. **通话机产出的 room.join** 要转成房间机的 join 动作，否则房间状态机不知道
@@ -91,7 +92,9 @@ function handleInternal(ctx: EngineContext, name: string): MachineOutput<EngineC
     return {
       state: { room: clearedRoom('idle'), call: initialCallContext },
       send: [],
-      emit: [{ cb: 'onKickedOut', args: {} }, { cb: 'onDisconnected', args: { code: 4403 } }],
+      // 不带关闭码：这个内部事件也被「鉴权连续失败」复用，那时真实关闭码是 4401。
+      // 关闭码由连接层原样上报（见 engine.ts 里为什么状态机这条不外发）。
+      emit: [{ cb: 'onKickedOut', args: {} }, { cb: 'onDisconnected', args: {} }],
     };
   }
   if (name === 'disconnected') {

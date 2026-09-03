@@ -11,6 +11,13 @@ export interface VideoTileProps {
   readonly uid: string;
   readonly label: string;
   readonly hasVideo: boolean;
+  /**
+   * 麦克风是否可用。`false` 时格子上挂一个静音角标。
+   *
+   * **默认 true**：`userAudioAvailable` 只在状态**变化**时才抛，
+   * 一开始就正常的人不会有事件——默认 false 会让所有人都显示成静音。
+   */
+  readonly hasAudio?: boolean;
   readonly isSpeaking?: boolean;
   /** 这个格子要报的层上界（协议 §3.5）。本端预览不用给。 */
   readonly layer?: Layer;
@@ -26,7 +33,7 @@ export interface VideoTileProps {
  * `RTCPeerConnection`，也不自己拼 `MediaStream`。换媒体实现时这个组件一行不用改。
  */
 export function VideoTile(props: VideoTileProps): ReactNode {
-  const { uid, label, hasVideo, isSpeaking = false, layer, localCid, style } = props;
+  const { uid, label, hasVideo, hasAudio = true, isSpeaking = false, layer, localCid, style } = props;
   const { engine } = useCall();
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -61,6 +68,15 @@ export function VideoTile(props: VideoTileProps): ReactNode {
         style={{ ...styles.video, visibility: hasVideo ? 'visible' : 'hidden' }}
       />
       {!hasVideo && <div style={styles.avatar}>{initial(label)}</div>}
+      {/*
+        静音角标放右上，与左下的名字牌分开：名字可能很长，挤在一起时角标会被顶出格子。
+        `aria-label` 不能省——角标是纯 emoji，读屏软件念不出「静音」。
+      */}
+      {!hasAudio && (
+        <div style={styles.tileBadge} aria-label="已静音" data-testid={`muted-${uid === '' ? 'self' : uid}`}>
+          🔇
+        </div>
+      )}
       <div style={styles.tileLabel}>
         <span>{label}</span>
         {isSpeaking && <span aria-label="正在说话">🔊</span>}

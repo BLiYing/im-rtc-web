@@ -285,6 +285,64 @@ describe('关闭码决定要不要重连', () => {
     expect(h.events.kicked).toBe(1);
   });
 
+  it('连续 3 次 4401 就彻底放弃并抛 onKickedOut——重连带的是同一枚废票', async () => {
+    const h = setup();
+    await connect(h);
+
+    // 前两次还给机会：换新 token 后重连是可能成功的（协议 §1.5）。
+    for (const step of [1_000, 2_000]) {
+      h.latest().closeFromServer(CloseCode.unauthorized);
+      await flush();
+      expect(h.events.disconnects.at(-1)?.willReconnect).toBe(true);
+      expect(h.events.kicked).toBe(0);
+      // 只推进到这一档退避，让重连**恰好发生一次**——多推的话握手超时会再排一次。
+      await vi.advanceTimersByTimeAsync(step);
+      await flush();
+    }
+
+    // 第 3 次到顶：不再重连，把宿主赶回登录页去换票。
+    const socketCount = h.sockets.length;
+    h.latest().closeFromServer(CloseCode.unauthorized);
+    await flush();
+    expect(h.events.kicked).toBe(1);
+    expect(h.events.disconnects.at(-1)?.willReconnect).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(120_000);
+    await flush();
+    expect(h.sockets).toHaveLength(socketCount);
+  });
+
+  it('握手成功会把鉴权失败计数清零——只有连续失败才说明票是死的', async () => {
+    const h = setup();
+    await connect(h);
+
+    for (const step of [1_000, 1_000, 1_000, 1_000, 1_000]) {
+      h.latest().closeFromServer(CloseCode.unauthorized);
+      await flush();
+      await vi.advanceTimersByTimeAsync(step);
+      await flush();
+      // 每次重连都握手成功 → 计数清零，退避档也归零，所以下一档还是 1s。
+      const hello = h.latest().lastFrame();
+      h.latest().receive(
+        JSON.stringify({ type: 'sys.hello.ok', req_id: hello?.req_id, ts: 1, data: HELLO_OK_DATA }),
+      );
+      await flush();
+    }
+    expect(h.events.kicked).toBe(0);
+  });
+
+  it('一次断线只排一次重连——两条路都会走到 schedule，重排会让退避档翻倍地涨', async () => {
+    const h = setup();
+    await connect(h);
+
+    h.latest().closeFromServer(CloseCode.goingAway);
+    await flush();
+    // 第一档退避是 1s（抖动固定为 0）。若档位被多加了一级，这时还不会有新连接。
+    await vi.advanceTimersByTimeAsync(1_000);
+    await flush();
+    expect(h.sockets).toHaveLength(2);
+  });
+
   it('主动 close 不重连', async () => {
     const h = setup();
     await connect(h);

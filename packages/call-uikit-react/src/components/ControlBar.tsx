@@ -50,7 +50,7 @@ export function ControlBar(): ReactNode {
         onClick={() => void actions.end()}
         data-testid="end-call"
       >
-        挂断
+        {state.isMeeting ? '离开' : '挂断'}
       </button>
     </div>
   );

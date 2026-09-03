@@ -1,14 +1,16 @@
 import { EngineBus } from './engineBus.js';
+import { ErrorCode } from './errors.js';
 import type { EngineEventHandler, EngineEventName } from './events.js';
 import { logger } from './logger.js';
-import type { MediaAdapter, MediaAdapterEvents } from './media/mediaAdapter.js';
+import type { MediaAdapter } from './media/mediaAdapter.js';
 import { MediaBridge } from './media/mediaBridge.js';
+import type { MediaPlaneDeps } from './media/mediaPlane.js';
+import { addRemoteCandidate, mediaEvents } from './media/mediaPlane.js';
 import type { ViewElement } from './media/viewRegistry.js';
 import { WebRTCAdapter } from './media/webrtcAdapter.js';
-import { parseCandidate } from './signaling/candidate.js';
 import type { Connection, HelloOk } from './signaling/connection.js';
 import { createConnection } from './signaling/connectionFactory.js';
-import type { Layer, MediaType, PcRole } from './signaling/enums.js';
+import type { Layer, MediaType } from './signaling/enums.js';
 import { FrameSender } from './signaling/frameSender.js';
 import type { WebSocketFactory } from './signaling/webSocket.js';
 import type { EngineContext } from './state/engineMachine.js';
@@ -102,7 +104,7 @@ export class CallEngine {
       },
     );
     this.connection = connection;
-    this.bridge.open(this.mediaEvents());
+    this.bridge.open(mediaEvents(this.mediaDeps()));
 
     const hello = await connection.connect();
     await this.dispatch({
@@ -247,7 +249,11 @@ export class CallEngine {
    */
   private async handleIncoming(type: string, data: Record<string, unknown>): Promise<void> {
     if (type === 'room.ice_candidate') {
-      await this.addRemoteCandidate(data);
+      await addRemoteCandidate(
+        this.mediaDeps(),
+        (pc, init) => this.media.addRemoteCandidate(pc, init),
+        data,
+      );
       return; // 候选只关媒体层的事，状态机不认识它
     }
     if (type === 'room.offer' && data['pc'] === 'sub') {
@@ -280,7 +286,19 @@ export class CallEngine {
       **roomJoined 和 userEnter 排在 callBegin 前面**——它还没被告知有这通电话，
       就先收到了这通电话房间里的事件。
     */
+    this.logLocalReject(input, result.emit);
     for (const event of result.emit) {
+      /*
+        **`onDisconnected` 由连接层独占**，状态机那一份不往外发。
+
+        两边都发的话宿主每次断线收到**两条** `disconnected`，而且状态机那条
+        是空载荷的（一致性向量里就是 `args: {}`——它只关心状态怎么走，
+        关闭码不是状态机的事）。实测日志里的样子是：一条 `{}`、一条
+        `{code:4401,willReconnect:false}`，中间还夹着一条假的 4403——
+        那是「鉴权失败到顶」复用了 `ws_closed_4403` 这个内部事件留下的。
+        宿主想数重连次数就没法数了。
+      */
+      if (event.cb === 'onDisconnected') continue;
       this.bus.emitMachine(event);
     }
     for (const frame of result.send) {
@@ -288,12 +306,45 @@ export class CallEngine {
     }
   }
 
-  private mediaEvents(): MediaAdapterEvents {
+  /**
+   * mediaDeps 是交给媒体接线的那一小把依赖（见 media/mediaPlane.ts）。
+   *
+   * `connection` 与 `uidOf` 都取成函数：前者会随重连换对象，
+   * 后者读的是状态机的当前快照——传值的话拿到的是构造那一刻的旧账。
+   */
+  private mediaDeps(): MediaPlaneDeps {
     return {
-      onLocalCandidate: (pc, candidate): void => this.sendCandidate(pc, candidate),
-      onRemoteTrack: (trackId, track): void => this.onRemoteTrack(trackId, track),
-      onConnectionStateChange: (pc, state): void => this.onPcState(pc, state),
+      bridge: this.bridge,
+      bus: this.bus,
+      sender: this.sender,
+      connection: (): Connection | null => this.connection,
+      uidOf: (trackId): string => this.ctx.room.remoteTracks[trackId]?.uid ?? '',
+      dispatch: (input): Promise<void> => this.dispatch(input),
     };
+  }
+
+  /**
+   * logLocalReject 把「状态机本地拒掉了一个动作」记成一条**说得清的**日志。
+   *
+   * 宿主收到的 `onError` 只有 `code=2005 / invalid_state`——**哪个动作、当时什么状态，
+   * 一个字都没有**。三人会议那次排查就卡在这里：日志里十几条一模一样的 2005，
+   * 要读代码才能推出「点的是挂断、而会议里没有 call」。
+   *
+   * 不把这些塞进 `onError` 的载荷，是因为那是四端共用的公开回调表；
+   * 诊断信息进日志就够了。
+   */
+  private logLocalReject(input: MachineInput, emit: readonly { cb: string;
+    args: Readonly<Record<string, unknown>> }[]): void {
+    if (input.kind !== 'act') return;
+    const rejected = emit.some(
+      (event) => event.cb === 'onError' && event.args['code'] === ErrorCode.invalidState,
+    );
+    if (!rejected) return;
+    logger.warn('动作被状态机本地拒绝', {
+      op: input.op,
+      call_state: this.ctx.call.state,
+      room_state: this.ctx.room.state,
+    });
   }
 
   /** sendFrame 发一帧，并把应答喂回状态机。 */
@@ -318,57 +369,6 @@ export class CallEngine {
       if (frame.type === 'room.join') {
         await this.dispatch({ kind: 'internal', name: 'join_failed' });
       }
-    }
-  }
-
-  /**
-   * addRemoteCandidate 把服务端来的候选交给媒体层。
-   *
-   * **这条路径一开始整条漏了**：候选只往上发、不往下收，于是下行连接能不能建立
-   * 全看运气——服务端的 SDP 里**碰巧**已经带上了主机候选就通，
-   * 没带上（进房即订阅时协商得早，服务端还没收集完）就永远停在 `new`，
-   * 界面上是「格子在、画面黑」，而且不报任何错。
-   *
-   * `candidate` 为空串表示收集结束，协议要求容忍（§3.3）。
-   */
-  private async addRemoteCandidate(data: Readonly<Record<string, unknown>>): Promise<void> {
-    const parsed = parseCandidate(data);
-    if (parsed === null) return; // 空候选 = 收集结束，忽略（§3.3）
-    try {
-      await this.media.addRemoteCandidate(parsed.pc, parsed.init);
-    } catch (err) {
-      // 乱序候选是常态（协议 §3.3 要求容忍）：转成 error 事件，不中断事件流。
-      this.bus.emitError(err);
-    }
-  }
-
-  private sendCandidate(pc: PcRole, candidate: RTCIceCandidateInit): void {
-    const connection = this.connection;
-    if (connection === null) return;
-    void this.sender
-      .sendCandidate(connection, pc, candidate)
-      .catch((err: unknown) => this.bus.emitError(err));
-  }
-
-  private onRemoteTrack(trackId: string, track: MediaStreamTrack): void {
-    // uid 可能还不知道（ontrack 与 track_published 谁先到都可能）——
-    // 那就先收着，bridge.claim 会在状态机补上归属之后认领。
-    const uid = this.ctx.room.remoteTracks[trackId]?.uid ?? '';
-    // firstVideoFrame 没有对应的信令帧——它是本地事件，UI 用来撤 loading。
-    // **等轨道真的出数据才抛**（见 MediaBridge.waitForVideo）：ontrack 那一刻
-    // 还没有任何一帧，提前抛等于让 UI 撤了 loading 去露黑屏。
-    this.bridge.addRemoteTrack(trackId, track, uid, (id) => {
-      // uid 这时可能已经被 track_published 补上了，重新取一次比缓存的准。
-      const owner = this.ctx.room.remoteTracks[id]?.uid ?? uid;
-      this.bus.emit('firstVideoFrame', { uid: owner, trackId: id });
-    });
-    this.bus.emit('remoteTrack', { trackId, track });
-  }
-
-  private onPcState(pc: PcRole, state: RTCPeerConnectionState): void {
-    logger.debug('PC 状态', { pc, state });
-    if (pc === 'sub' && state === 'connected') {
-      void this.dispatch({ kind: 'internal', name: 'media_ready' });
     }
   }
 

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 
 import { formatDuration } from '../format/duration.js';
+import type { CallViewState } from '../state/callView.js';
 import { gridDimensions, tileLayer, visibleTiles } from '../layout/grid.js';
 import { useCall } from '../useCall.js';
 import { useElapsed } from '../useElapsed.js';
@@ -28,8 +29,8 @@ export function ActiveCall(): ReactNode {
     <div style={styles.overlay} data-testid="active-call">
       <div style={styles.header}>
         <div>
-          <div style={styles.title}>{title(state.isGroup, state.peerUid, tiles.length)}</div>
-          <div style={styles.subtitle}>{statusLine(state.phase, seconds, state.hint)}</div>
+          <div style={styles.title}>{title(state, tiles.length)}</div>
+          <div style={styles.subtitle}>{statusLine(state, seconds)}</div>
         </div>
       </div>
 
@@ -47,6 +48,7 @@ export function ActiveCall(): ReactNode {
               uid={p.uid}
               label={p.hasAccepted ? p.uid : `${p.uid}（响铃中）`}
               hasVideo={p.hasVideo}
+              hasAudio={p.hasAudio}
               isSpeaking={p.isSpeaking}
               layer={layer}
             />
@@ -73,6 +75,8 @@ function SelfTile({ inGrid }: { readonly inGrid: boolean }): ReactNode {
       uid=""
       label="我"
       hasVideo={state.self.cameraOn && cid !== ''}
+      // 本端的静音角标读的是**本端开关**，不是回调——自己的 mute 不会绕一圈发回来。
+      hasAudio={state.self.micOn}
       {...(cid === '' ? {} : { localCid: cid })}
       style={style}
     />
@@ -92,15 +96,16 @@ function firstVideoCid(publishTrackIds: Readonly<Record<string, string>>): strin
   return cids.length >= 2 ? (cids[1] ?? '') : '';
 }
 
-function title(isGroup: boolean, peerUid: string, others: number): string {
-  if (!isGroup) return peerUid || '通话中';
+function title(state: CallViewState, others: number): string {
+  if (state.isMeeting) return `会议（${others + 1} 人）`;
+  if (!state.isGroup) return state.peerUid || '通话中';
   return `群通话（${others + 1} 人）`;
 }
 
-function statusLine(phase: string, seconds: number, hint: string): string {
-  if (hint !== '') return hint;
-  if (phase === 'outgoing') return '正在呼叫…';
-  if (phase === 'connecting') return '接通中…';
-  if (phase === 'ended') return '通话结束';
+function statusLine(state: CallViewState, seconds: number): string {
+  if (state.hint !== '') return state.hint;
+  if (state.phase === 'outgoing') return '正在呼叫…';
+  if (state.phase === 'connecting') return state.isMeeting ? '正在进入会议…' : '接通中…';
+  if (state.phase === 'ended') return state.isMeeting ? '已离开会议' : '通话结束';
   return formatDuration(seconds);
 }

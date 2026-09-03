@@ -65,6 +65,9 @@ export class FakeEngine {
   async joinRoom(roomId: string): Promise<void> {
     this.calls.push(`join:${roomId}`);
   }
+  async leaveRoom(): Promise<void> {
+    this.calls.push('leaveRoom');
+  }
   async publishMicrophone(): Promise<string> {
     this.calls.push('publishMic');
     this.state.room.publishTrackIds['mic-1'] = 't-mic';

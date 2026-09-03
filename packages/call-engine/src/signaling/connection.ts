@@ -69,6 +69,16 @@ export interface ConnectionOptions {
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 
+/**
+ * MAX_AUTH_FAILURES 是连续几次 4401 之后彻底放弃（协议 §1.5 关闭码表）。
+ *
+ * **一定要有这个上限**：4401 说的是「这枚 token 不好使」，而重连**带的是同一枚
+ * token**——没有上限就是拿同一把坏钥匙永远敲同一扇门。实测里服务端重启换了签名密钥，
+ * 一个没关的标签页重试到第 19 次还在敲，日志里全是 `token_invalid`，
+ * 把真正的问题淹掉了。上限到了就抛 `onKickedOut` 把宿主赶回登录页去换新 token。
+ */
+const MAX_AUTH_FAILURES = 3;
+
 /** Connection 是一条信令连接。断线会自动重连，除非关闭码明说不该重连。 */
 export class Connection {
   private readonly options: Required<Omit<ConnectionOptions, 'events' | 'sdk'>> &
@@ -83,6 +93,8 @@ export class Connection {
   private readonly heartbeat: Heartbeat;
   private readonly reconnector: Reconnector;
   private token: string;
+  /** 连续鉴权失败次数。握手一成功就清零——只有**连续**失败才说明票是死的。 */
+  private authFailures = 0;
 
   constructor(options: ConnectionOptions) {
     this.token = options.token;
@@ -120,9 +132,15 @@ export class Connection {
     return this.sessionId;
   }
 
-  /** updateToken 换一枚新的接入票（旧票过期时用）。下次连接生效。 */
+  /**
+   * updateToken 换一枚新的接入票（旧票过期时用）。下次连接生效。
+   *
+   * **顺带把鉴权失败计数清零**：换票就是「这次不一样了」的唯一信号，
+   * 不清的话已经用光重试次数的连接换了新票也再没有机会试。
+   */
   updateToken(token: string): void {
     this.token = token;
+    this.authFailures = 0;
   }
 
   /** connect 建立连接并完成握手。已连上时直接返回。 */
@@ -145,6 +163,7 @@ export class Connection {
     const hello = await this.handshake();
 
     this.state = 'connected';
+    this.authFailures = 0;
     this.reconnector.succeeded();
     this.heartbeat.start(hello.pingIntervalSec);
     this.options.events?.onConnected?.(hello);
@@ -155,7 +174,7 @@ export class Connection {
   close(): void {
     this.state = 'closed';
     this.heartbeat.stop();
-    this.reconnector.cancel();
+    this.reconnector.stop();
     this.pending.rejectAll(new RtcError(ErrorCode.invalidState, { cause: new Error('连接已关闭') }));
     this.ws?.close(CloseCode.normal, 'client logout');
     this.ws = null;
@@ -317,7 +336,23 @@ export class Connection {
 
     if (event.code === CloseCode.kickedOut) this.options.events?.onKickedOut?.();
 
-    const willReconnect = this.state !== 'closed' && shouldReconnect(event.code);
+    /*
+      4401 要计数。重连**带的是同一枚 token**，所以「换新 token 后重连」这条规则
+      只有配上一个上限才成立——否则一枚废票能自己重试到天荒地老。
+      连续 3 次之后按协议 §1.5 抛 onKickedOut，让宿主回登录页重新取票。
+    */
+    let exhausted = false;
+    if (event.code === CloseCode.unauthorized) {
+      this.authFailures += 1;
+      exhausted = this.authFailures >= MAX_AUTH_FAILURES;
+      if (exhausted) {
+        logger.info('鉴权连续失败，停止重连', { failures: this.authFailures });
+        this.reconnector.stop();
+        this.options.events?.onKickedOut?.();
+      }
+    }
+
+    const willReconnect = !exhausted && this.state !== 'closed' && shouldReconnect(event.code);
     this.options.events?.onDisconnected?.({
       code: event.code,
       reason: event.reason,
