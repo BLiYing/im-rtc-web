@@ -112,6 +112,7 @@ export type { EmittedEvent, MachineInput, MachineOutput, OutgoingFrame } from '.
 export { CallEngine } from './engine.js';
 export type { EngineOptions } from './engine.js';
 export { EventBus } from './eventBus.js';
+export { EngineBus } from './engineBus.js';
 export { MACHINE_EVENT_NAMES } from './events.js';
 export type { CallRoleName, EngineEventHandler, EngineEventName, EngineEvents } from './events.js';
 export { WebRTCAdapter } from './media/webrtcAdapter.js';

@@ -1,11 +1,13 @@
 import type { CallEngine } from '@im-rtc/call-engine';
-import { CallEngine as Engine, WebRTCAdapter, setLogLevel } from '@im-rtc/call-engine';
+import { CallEngine as Engine, WebRTCAdapter, setLogLevel, setLogSink } from '@im-rtc/call-engine';
 import { CallOverlay, CallProvider } from '@im-rtc/call-uikit-react';
 import { SyntheticMediaSource, browserMediaSource } from '@demo/synthetic';
 import type { ReactNode } from 'react';
 import { useCallback, useState } from 'react';
 
 import { demoLogin } from './api.js';
+import { toEntry } from './logTypes.js';
+import { RemoteLogSink } from './remoteLog.js';
 import { CallHistory } from './CallHistory.js';
 import { EngineLog } from './EngineLog.js';
 import { Dialer } from './Dialer.js';
@@ -35,6 +37,19 @@ export function App(): ReactNode {
     async (server: string, username: string, synthetic: boolean): Promise<void> => {
       const token = await demoLogin(server, username);
       const deviceId = `demo-react-${username}`;
+
+      /*
+        把 engine 的日志送回服务端落盘（仅开发）。engine 现在会把**每一个公开事件**
+        也写进日志，所以这一条链路等于把两端的事件流搬到了服务端，
+        跟服务端自己的日志放在同一条时间轴上读——不用再手动复制粘贴。
+
+        文件落在 im-rtc-server 的 dev-logs/client-web-<用户名>.log。
+      */
+      const remote = new RemoteLogSink(server, `web-${username}`);
+      remote.start();
+      setLogSink((level, message, fields) => {
+        remote.push(toEntry(level, message, fields as Record<string, unknown>));
+      });
       const source = synthetic ? new SyntheticMediaSource(username) : browserMediaSource;
       const engine = new Engine({
         url: `${server.replace(/^http/, 'ws')}/v1/ws`,

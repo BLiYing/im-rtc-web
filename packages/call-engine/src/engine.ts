@@ -1,13 +1,10 @@
-import { ErrorCode, RtcError, errorName, isRtcError } from './errors.js';
-import { EventBus } from './eventBus.js';
+import { EngineBus } from './engineBus.js';
 import type { EngineEventHandler, EngineEventName } from './events.js';
-import { MACHINE_EVENT_NAMES } from './events.js';
 import { logger } from './logger.js';
 import type { MediaAdapter, MediaAdapterEvents } from './media/mediaAdapter.js';
 import { MediaBridge } from './media/mediaBridge.js';
 import type { ViewElement } from './media/viewRegistry.js';
 import { WebRTCAdapter } from './media/webrtcAdapter.js';
-import { camelizeArgs } from './signaling/caseMapping.js';
 import { parseCandidate } from './signaling/candidate.js';
 import type { Connection, HelloOk } from './signaling/connection.js';
 import { createConnection } from './signaling/connectionFactory.js';
@@ -16,7 +13,7 @@ import { FrameSender } from './signaling/frameSender.js';
 import type { WebSocketFactory } from './signaling/webSocket.js';
 import type { EngineContext } from './state/engineMachine.js';
 import { initialEngineContext, reduceEngine } from './state/engineMachine.js';
-import type { EmittedEvent, MachineInput, OutgoingFrame } from './state/types.js';
+import type { MachineInput, OutgoingFrame } from './state/types.js';
 
 /**
  * CallEngine 是门面：把信令连接、状态机、媒体适配器接在一起。
@@ -53,7 +50,7 @@ const LEAVE_CALLBACKS = new Set(['onCallEnd', 'onRoomLeft', 'onRoomClosed']);
 
 /** CallEngine 是宿主唯一需要接触的类型。 */
 export class CallEngine {
-  private readonly bus = new EventBus();
+  private readonly bus = new EngineBus();
   private readonly bridge: MediaBridge;
   private readonly media: MediaAdapter;
   private readonly options: EngineOptions;
@@ -101,7 +98,7 @@ export class CallEngine {
           });
         },
         onKickedOut: (): void => void this.dispatch({ kind: 'internal', name: 'ws_closed_4403' }),
-        onError: (error): void => this.emitError(error),
+        onError: (error): void => this.bus.emitError(error),
       },
     );
     this.connection = connection;
@@ -284,7 +281,7 @@ export class CallEngine {
       就先收到了这通电话房间里的事件。
     */
     for (const event of result.emit) {
-      this.emitMachineEvent(event);
+      this.bus.emitMachine(event);
     }
     for (const frame of result.send) {
       await this.sendFrame(frame);
@@ -309,7 +306,7 @@ export class CallEngine {
       if (reply !== null) await this.handleIncoming(reply.type, reply.data);
     } catch (err) {
       // 请求失败不该中断整个事件流：转成 error 事件交给宿主。
-      this.emitError(err);
+      this.bus.emitError(err);
       /*
         **进房失败要把房间状态退回 idle**。
 
@@ -341,7 +338,7 @@ export class CallEngine {
       await this.media.addRemoteCandidate(parsed.pc, parsed.init);
     } catch (err) {
       // 乱序候选是常态（协议 §3.3 要求容忍）：转成 error 事件，不中断事件流。
-      this.emitError(err);
+      this.bus.emitError(err);
     }
   }
 
@@ -350,7 +347,7 @@ export class CallEngine {
     if (connection === null) return;
     void this.sender
       .sendCandidate(connection, pc, candidate)
-      .catch((err: unknown) => this.emitError(err));
+      .catch((err: unknown) => this.bus.emitError(err));
   }
 
   private onRemoteTrack(trackId: string, track: MediaStreamTrack): void {
@@ -375,24 +372,5 @@ export class CallEngine {
     }
   }
 
-  /** emitMachineEvent 把状态机的 onXxx 翻成公开事件名，并把参数转成 camelCase。 */
-  private emitMachineEvent(event: EmittedEvent): void {
-    const name = MACHINE_EVENT_NAMES[event.cb];
-    if (name === undefined) {
-      logger.warn('状态机抛了一个没登记的回调', { cb: event.cb });
-      return;
-    }
-    // 参数从协议的 snake_case 转成 TS 惯用的 camelCase。
-    this.bus.emit(name, camelizeArgs(event.args) as never);
-  }
-
-  private emitError(err: unknown): void {
-    const error = isRtcError(err) ? err : new RtcError(ErrorCode.internal, { cause: err });
-    this.bus.emit('error', {
-      code: error.code,
-      name: errorName(error.code),
-      message: error.message,
-    });
-  }
 }
 
