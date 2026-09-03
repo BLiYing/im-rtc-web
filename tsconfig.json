@@ -1,6 +1,8 @@
 {
   "files": [],
   "references": [
-    { "path": "./packages/call-engine" }
+    {
+      "path": "./packages/call-engine"
+    }
   ]
 }

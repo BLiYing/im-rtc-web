@@ -60,6 +60,7 @@ run_step "日志纪律门禁" ./scripts/check-logging.sh
 run_step "门禁自检" ./scripts/check-logging.sh --selftest
 run_step "一致性向量可达" check_conformance_available
 run_step "TypeScript 类型检查" npx tsc -b
+run_step "Demo 类型检查" npx tsc --noEmit -p demo
 run_step "vitest" npx vitest run --root packages/call-engine
 
 echo ""

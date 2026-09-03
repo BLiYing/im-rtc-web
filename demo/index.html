@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>im-rtc Demo · 自画 UI 模式</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>im-rtc Demo</h1>
+        <p class="hint">
+          <b>「只引 SDK 自画 UI」模式</b>：这一页没有用 uikit，全部界面都靠
+          <code>engine.on(...)</code> 的公开事件画出来。
+        </p>
+      </header>
+
+      <section class="panel">
+        <h2>1 · 登录</h2>
+        <div class="row">
+          <label>服务端 <input id="server" value="http://127.0.0.1:8787" /></label>
+          <label>用户名 <input id="username" value="alice" /></label>
+          <button id="login">登录</button>
+        </div>
+        <div class="row">
+          <label>
+            <input type="checkbox" id="synthetic" checked />
+            用合成音视频源（不需要摄像头权限，端到端验证用）
+          </label>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>2 · 会议房</h2>
+        <div class="row">
+          <label>房间号 <input id="room" placeholder="留空则新建" /></label>
+          <button id="join" disabled>进房并发布</button>
+          <button id="leave" disabled>离房</button>
+        </div>
+        <div class="row">
+          <button id="toggleMic" disabled>关麦克风</button>
+          <button id="toggleCam" disabled>关摄像头</button>
+          <span class="hint">
+            开关走 <code>mute</code> 不走 <code>unpublish</code>——后者会触发重协商风暴。
+          </span>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>3 · 画面</h2>
+        <div id="videos" class="videos"></div>
+      </section>
+
+      <section class="panel">
+        <h2>4 · 事件流</h2>
+        <p class="hint">
+          下面每一行都是 <code>engine.on(...)</code> 收到的公开事件。
+          <b>宿主能拿到的信息与 uikit 完全一致</b>——这就是「不开后门」的意思。
+        </p>
+        <ol id="events" class="events"></ol>
+      </section>
+
+      <footer class="hint">
+        <b>浏览器约束</b>：<code>getUserMedia</code> 只在 localhost 或 HTTPS 下可用。
+        勾上「合成音视频源」可以完全绕开设备权限。
+      </footer>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

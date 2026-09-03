@@ -1,0 +1,22 @@
+:root { color-scheme: dark; --bg: #0f172a; --panel: #1e293b; --line: #334155; --fg: #e2e8f0; --accent: #4fd1c5; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.6 system-ui, -apple-system, "PingFang SC", sans-serif; }
+main { max-width: 900px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 22px; margin: 0 0 4px; }
+h2 { font-size: 15px; margin: 0 0 12px; color: var(--accent); }
+.hint { color: #94a3b8; font-size: 13px; }
+code { background: #0b1220; padding: 1px 5px; border-radius: 4px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin: 16px 0; }
+.row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+label { display: flex; gap: 6px; align-items: center; }
+input[type="text"], input:not([type]) { background: #0b1220; border: 1px solid var(--line); color: var(--fg); border-radius: 6px; padding: 6px 8px; }
+button { background: var(--accent); color: #06231f; border: 0; border-radius: 6px; padding: 7px 14px; font-weight: 600; cursor: pointer; }
+button:disabled { background: #475569; color: #94a3b8; cursor: not-allowed; }
+.videos { display: flex; gap: 12px; flex-wrap: wrap; min-height: 40px; }
+.tile { display: flex; flex-direction: column; gap: 4px; }
+.tile video { width: 260px; height: 195px; background: #000; border-radius: 8px; object-fit: cover; }
+.tile span { font-size: 12px; color: #94a3b8; }
+.events { max-height: 280px; overflow: auto; margin: 0; padding-left: 20px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; }
+.events li { padding: 1px 0; border-bottom: 1px solid #1e293b; }
+.events b { color: var(--accent); }
+footer { margin-top: 24px; }

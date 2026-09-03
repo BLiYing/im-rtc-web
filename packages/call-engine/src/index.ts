@@ -109,4 +109,17 @@ export { initialEngineContext, reduceEngine } from './state/engineMachine.js';
 export type { EngineContext } from './state/engineMachine.js';
 export type { EmittedEvent, MachineInput, MachineOutput, OutgoingFrame } from './state/types.js';
 
+export { CallEngine } from './engine.js';
+export type { EngineOptions } from './engine.js';
+export { EventBus } from './eventBus.js';
+export { MACHINE_EVENT_NAMES } from './events.js';
+export type { CallRoleName, EngineEventHandler, EngineEventName, EngineEvents } from './events.js';
+export { WebRTCAdapter } from './media/webrtcAdapter.js';
+export type {
+  LocalTrackInfo,
+  MediaAdapter,
+  MediaAdapterEvents,
+  MediaSource,
+} from './media/mediaAdapter.js';
+
 export * as frames from './signaling/frames.room.js';

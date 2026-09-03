@@ -248,7 +248,8 @@ export class Connection {
         cause: new Error(`握手应答是 ${envelope.type}`),
       });
     }
-    const ok = decodeFields(HELLO_OK_FIELDS, encodeFields(HELLO_OK_FIELDS, data as never));
+    // data 已经是线路形状（见 decodeData 的注释），直接解成 camelCase 给调用方。
+    const ok = decodeFields(HELLO_OK_FIELDS, data);
     this.sessionId = ok.sessionId;
     return ok as unknown as HelloOk;
   }
@@ -287,10 +288,17 @@ export class Connection {
     this.options.events?.onEvent?.(envelope.type, this.decodeData(envelope), envelope);
   }
 
+  /**
+   * decodeData 返回**线路形状**（snake_case）的规范化 data。
+   *
+   * 「解出来再编回去」看着多余，其实是在做三件事：填默认值、枚举兜底、数值钳制。
+   * 保持 snake_case 是因为**状态机吃的是线路形状**——它跑的一致性向量就是线路形状，
+   * 换成 camelCase 会让状态机与向量之间多一层翻译，而那层翻译没人测。
+   */
   private decodeData(envelope: Envelope): Record<string, unknown> {
     const fields = lookupFrame(envelope.type);
     if (fields === undefined) return { ...envelope.data };
-    return decodeFields(fields, envelope.data) as unknown as Record<string, unknown>;
+    return encodeFields(fields, decodeFields(fields, envelope.data));
   }
 
   private toRtcError(envelope: Envelope): RtcError {
