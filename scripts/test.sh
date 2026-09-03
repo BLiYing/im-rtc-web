@@ -55,6 +55,9 @@ echo "== im-rtc-web 全量回归 =="
 
 run_step "依赖" ensure_deps
 run_step "单文件体量门禁" ./scripts/check-file-size.sh
+run_step "日志纪律门禁" ./scripts/check-logging.sh
+# 闸门自己回归成 fail-open 会静默放行，所以每次回归都自检一次。
+run_step "门禁自检" ./scripts/check-logging.sh --selftest
 run_step "一致性向量可达" check_conformance_available
 run_step "TypeScript 类型检查" npx tsc -b
 run_step "vitest" npx vitest run --root packages/call-engine

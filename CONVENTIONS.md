@@ -74,11 +74,20 @@ DOM/WebRTC 的接触点收敛在 `media/` 与 `devices/`，其余部分纯逻辑
 
 ## 6. 日志
 
+> 机制与四仓对齐见 `../im-rtc-server/docs/mechanism/LOGGING.md`。
+> 本节只列硬约束；**每一条都有闸门**（`scripts/check-logging.sh`，进 `test.sh`）。
+
 - **统一走 engine 的日志入口**（`logger.ts`，可注入 sink），uikit 与 demo 共用。
 - **禁止 `console.log` / `console.warn` / `console.error` 直接出现在业务代码**。
   姊妹项目上这条踩过坑：有兼容桥接兜底时违规会长期无人察觉。
 - 必带字段：`callId` / `roomId` / `uid`（有哪个带哪个）。
-- **脱敏**：token 类凭据、完整 SDP 不整条打印；凭据只打前 6 位 + 长度。
+- **脱敏**：token 类凭据、完整 SDP、ICE 候选**不得整条打印**。
+  用 `redact` / `redactSdp` / `redactCandidate`——**闸门会拦住不用它们的写法**。
+  要看完整 SDP 用 Chrome 的 `webrtc-internals`，不要靠日志。
+- **字段名用 `LogField` 常量**，别写字符串字面量：`room_id` / `roomId` / `room`
+  三种写法同时出现在一份日志里就没法检索了。服务端有一份同名常量。
+- **诊断环形缓冲不受 `setLogLevel` 影响**：用户报障时正好没开 debug 等于什么都没有。
+  宿主做「报告问题」按钮时调 `exportDiagnostics()`。
 - **媒体回调与统计轮询里禁止日志**（高频路径）。
 
 ## 7. 异步与资源

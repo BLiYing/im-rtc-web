@@ -74,8 +74,13 @@ type FieldType<S extends FieldSpec> = S extends { kind: 'string' }
                   : never
                 : never;
 
-/** FrameData 从字段声明推出整帧的 TS 类型。 */
-export type FrameData<F extends FrameFields> = { [K in keyof F]: FieldType<F[K]> };
+/**
+ * FrameData 从字段声明推出整帧的 TS 类型。
+ *
+ * `-readonly` 是必要的：字段声明用 `as const` 写，同态映射会把 readonly 一并带过来，
+ * 于是「从 newFrameData() 起手再改字段」这条发送侧规矩就没法执行了。
+ */
+export type FrameData<F extends FrameFields> = { -readonly [K in keyof F]: FieldType<F[K]> };
 
 /**
  * decodeFields 把线路上的 data 解成带默认值的帧对象。

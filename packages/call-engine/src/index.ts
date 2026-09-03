@@ -32,8 +32,19 @@ export {
 } from './reasons.js';
 export type { CallEndReasonValue } from './reasons.js';
 
-export { logger, redact, setLogLevel, setLogSink } from './logger.js';
-export type { LogFields, LogLevel, LogSink } from './logger.js';
+export {
+  LogField,
+  clearDiagnostics,
+  exportDiagnostics,
+  logger,
+  redact,
+  redactCandidate,
+  redactSdp,
+  setLogClock,
+  setLogLevel,
+  setLogSink,
+} from './logger.js';
+export type { DiagnosticEntry, LogFields, LogLevel, LogSink } from './logger.js';
 
 export {
   MAX_FRAME_BYTES,
