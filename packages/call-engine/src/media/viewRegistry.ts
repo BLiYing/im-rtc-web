@@ -15,9 +15,15 @@
  * 且只在网络较快时偶发。
  */
 
-/** ViewElement 是能承载 MediaStream 的元素。取 DOM 的最小交集，便于在测试里替身。 */
+/**
+ * ViewElement 是能承载 MediaStream 的元素。取 DOM 的最小交集，便于在测试里做替身。
+ *
+ * `srcObject` 的类型跟 `HTMLMediaElement` 保持一致（`MediaProvider | null`）——
+ * 写成更窄的 `MediaStream | null` 的话，真正的 `<video>` 反而**赋不进来**：
+ * TS 的可变属性是不变的，窄类型不接受宽类型。
+ */
 export interface ViewElement {
-  srcObject: MediaStream | null;
+  srcObject: MediaProvider | null;
 }
 
 /** ViewRegistry 管「哪条轨道属于谁」与「谁挂在哪个元素上」。 */

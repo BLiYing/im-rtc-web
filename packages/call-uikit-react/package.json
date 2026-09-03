@@ -1,0 +1,16 @@
+{
+  "name": "@im-rtc/call-uikit-react",
+  "version": "0.0.0",
+  "private": true,
+  "description": "im-rtc 的 React 通话界面：来电浮层、1v1、九宫格、小窗",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "dependencies": {
+    "@im-rtc/call-engine": "*"
+  },
+  "peerDependencies": {
+    "react": "^18.3.0 || ^19.0.0",
+    "react-dom": "^18.3.0 || ^19.0.0"
+  }
+}

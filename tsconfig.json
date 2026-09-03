@@ -3,6 +3,9 @@
   "references": [
     {
       "path": "./packages/call-engine"
+    },
+    {
+      "path": "./packages/call-uikit-react"
     }
   ]
 }

@@ -61,7 +61,10 @@ run_step "门禁自检" ./scripts/check-logging.sh --selftest
 run_step "一致性向量可达" check_conformance_available
 run_step "TypeScript 类型检查" npx tsc -b
 run_step "Demo 类型检查" npx tsc --noEmit -p demo
-run_step "vitest" npx vitest run --root packages/call-engine
+run_step "vitest（engine）" npx vitest run --root packages/call-engine
+# uikit 单独一步：它跑在 jsdom 上，而 engine **必须**能在无 DOM 的 node 里跑通
+# （CONVENTIONS §1）。合成一步就等于把 engine 也放进 jsdom，那条约束就没人守了。
+run_step "vitest（uikit）" npx vitest run --root packages/call-uikit-react
 
 echo ""
 echo "════════════════════════════════════════════════"
