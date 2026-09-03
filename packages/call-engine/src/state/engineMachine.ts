@@ -102,6 +102,10 @@ function handleInternal(ctx: EngineContext, name: string): MachineOutput<EngineC
       emit: [{ cb: 'onDisconnected', args: {} }, ...room.emit],
     };
   }
+  if (name === 'join_failed') {
+    const room = reduceRoom(ctx.room, { kind: 'internal', name });
+    return { state: { ...ctx, room: room.state }, send: [...room.send], emit: [...room.emit] };
+  }
   // 其余内部事件（media_ready）交给通话机。
   const call = reduceCall(ctx.call, { kind: 'internal', name });
   return { state: { ...ctx, call: call.state }, send: [...call.send], emit: [...call.emit] };

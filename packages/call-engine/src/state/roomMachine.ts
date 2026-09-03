@@ -105,6 +105,10 @@ function reduceRoomInternal(ctx: RoomContext, name: string): MachineOutput<RoomC
     case 'ws_closed_4403':
     case 'reset':
       return roomOut(clearedRoom('idle'));
+    case 'join_failed':
+      // 进房被拒（房间没了、票过期、已在房里…）。**退回 idle**，否则状态机
+      // 永远停在 joining，之后每次 publish 都被 R1 本地拒成 2005。
+      return ctx.state === 'joining' ? roomOut(clearedRoom('idle')) : roomOut(ctx);
     default:
       return roomOut(ctx);
   }

@@ -265,15 +265,26 @@ export class CallEngine {
     const result = reduceEngine(this.ctx, input);
     this.ctx = result.state;
 
-    for (const frame of result.send) {
-      await this.sendFrame(frame);
-    }
     this.bridge.claim(this.ctx.room.remoteTracks);
     // **一通结束就把媒体面归零**，在抛事件之前：宿主收到 onCallEnd 时
     // engine 已经是干净的，下一通不会带着上一通的轨道去协商。
     if (result.emit.some((event) => LEAVE_CALLBACKS.has(event.cb))) this.bridge.reset();
+
+    /*
+      **先抛事件、再发帧**，顺序不能反。
+
+      事件说的是「刚刚发生了什么」，帧说的是「接下来要做什么」——反过来的话，
+      帧的应答会在本轮事件之前就被处理掉，宿主收到的回调顺序就乱了。
+      实测症状：`call.connected` 产出 onCallBegin（事件）与 room.join（帧），
+      先发帧的话 join.ok 立刻回来并抛出 onRoomJoined，于是宿主看到的是
+      **roomJoined 和 userEnter 排在 callBegin 前面**——它还没被告知有这通电话，
+      就先收到了这通电话房间里的事件。
+    */
     for (const event of result.emit) {
       this.emitMachineEvent(event);
+    }
+    for (const frame of result.send) {
+      await this.sendFrame(frame);
     }
   }
 
@@ -296,6 +307,17 @@ export class CallEngine {
     } catch (err) {
       // 请求失败不该中断整个事件流：转成 error 事件交给宿主。
       this.emitError(err);
+      /*
+        **进房失败要把房间状态退回 idle**。
+
+        不退的话状态机永远停在 `joining`，之后每一次 publish 都会被不变量 R1
+        本地拒掉（2005 invalid_state），而宿主只看到两条没头没尾的 2005——
+        真正的原因（那条 room.join 被服务端拒了）已经淹在上一条 error 里了。
+        退回 idle 至少让「重进一次」成为可能。
+      */
+      if (frame.type === 'room.join') {
+        await this.dispatch({ kind: 'internal', name: 'join_failed' });
+      }
     }
   }
 

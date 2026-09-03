@@ -132,3 +132,77 @@ describe('trickle ICE 是双向的', () => {
     expect(sent[0]?.data['sdp_mid']).toBe('0');
   });
 });
+
+/**
+ * 回调顺序：**onCallBegin 必须排在 onRoomJoined 之前**。
+ *
+ * 这条是浏览器实测抓到的：`call.connected` 会同时产出一个事件（onCallBegin）
+ * 与一帧（room.join）。engine 原本先发帧再抛事件，于是 join.ok 的应答
+ * 在本轮事件之前就被处理完了，宿主看到的是 **roomJoined / userEnter
+ * 排在 callBegin 前面**——它还没被告知有这通电话，就先收到了房间里的事件。
+ */
+describe('回调顺序', () => {
+  it('callBegin 先于 roomJoined 与 userEnter', async () => {
+    const { engine, ws } = await setup();
+    const seen: string[] = [];
+    for (const name of ['callBegin', 'roomJoined', 'userEnter'] as const) {
+      engine.on(name, () => seen.push(name));
+    }
+
+    deliverEvent(ws, 'call.incoming', {
+      call_id: 'call-1', room_id: 'r-1', caller: 'alice', callee_ids: ['bob'],
+      media_type: 'video', is_group: false, timeout_sec: 30, invited_at_ms: 1, user_data: '',
+    });
+    await flush(4);
+    deliverEvent(ws, 'call.connected', {
+      call_id: 'call-1', room_id: 'r-1', room_token: 'tk', media_type: 'video',
+      is_group: false, connected_at_ms: 1756876812000, accepted_by: 'bob',
+    });
+    await flush(6);
+
+    // engine 这时正在等 room.join 的应答，回一条 join.ok。
+    const join = ws.frames().find((f) => f.type === 'room.join');
+    expect(join, '应当发出了 room.join').toBeDefined();
+    ws.receive(JSON.stringify({
+      type: 'room.join.ok', req_id: join?.req_id ?? '', ts: 1,
+      data: {
+        room_id: 'r-1', room_kind: 'call_1v1', participant_id: 'p-2',
+        max_participants: 2, joined_at_ms: 1,
+        participants: [{ participant_id: 'p-1', uid: 'alice', device_id: 'd', joined_at_ms: 1 }],
+        tracks: [],
+      },
+    }));
+    await flush(8);
+
+    expect(seen).toEqual(['callBegin', 'roomJoined', 'userEnter']);
+  });
+
+  /**
+   * 进房失败要把房间状态退回 idle。
+   *
+   * 不退的话状态机永远停在 `joining`，之后每次 publish 都被不变量 R1 本地拒成
+   * 2005 invalid_state——宿主只看到两条没头没尾的 2005，真正的原因
+   * （那条 room.join 被服务端拒了）已经淹在上一条 error 里。
+   */
+  it('room.join 被拒之后房间退回 idle，而不是卡在 joining', async () => {
+    const { engine, ws } = await setup();
+
+    // 不 await：joinRoom 要等 room.join 的应答，而应答得等我们下面喂进去。
+    void engine.joinRoom('r-1', 'tk');
+    await flush(4);
+    const join = ws.frames().find((f) => f.type === 'room.join');
+    expect(join).toBeDefined();
+    expect(engine.state.room.state).toBe('joining');
+
+    ws.receive(JSON.stringify({
+      type: 'sys.error', req_id: join?.req_id ?? '', ts: 1,
+      data: {
+        code: 1204, name: 'already_in_room', msg: 'already in room',
+        for_type: 'room.join', retryable: false,
+      },
+    }));
+    await flush(8);
+
+    expect(engine.state.room.state).toBe('idle');
+  });
+});
