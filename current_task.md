@@ -6,43 +6,39 @@
 
 ## 当前焦点
 
-**P2 第一刀已落地（2026-09-03）：engine 的协议层跑通了四仓共用的一致性向量。**
+**P2 全部落地（2026-09-03）：engine + uikit + 两个 Demo 站点，浏览器三方实测通过。**
 
-服务端的 P0（协议契约）与 P1（SFU 最小可用）都已完成，本仓可以正式开工。
+| 包 | 内容 | 怎么验的 |
+|---|---|---|
+| `@im-rtc/call-engine` | 协议层、WS 客户端、通话/房间/总状态机、WebRTC 适配器 | 157 个用例，含 50 条四仓共用向量 |
+| `@im-rtc/call-uikit-react` | 来电浮层 / 1v1 / 九宫格 / 小窗 / 控制条 | 31 个用例（纯逻辑 + jsdom） |
+| `demo`（:5178） | **只引 engine 自画 UI** 的示范 | 浏览器双开 |
+| `demo-react`（:5179） | **引 uikit** 的示范：只写登录/拨号/记录/事件流 | 浏览器三开 |
 
-已落地：
-- **npm workspaces 骨架** + `tsconfig` 严格档（`strict` / `noUncheckedIndexedAccess` /
-  `exactOptionalPropertyTypes` / `noImplicitOverride` / `noFallthroughCasesInSwitch`）。
-- **`@im-rtc/call-engine` 的协议层**：信封编解码、§2.4 编码硬规则、40 个帧的字段声明、
-  45 个错误码、reason 枚举与群主导优先级。
-- **`scripts/test.sh` 五步全绿**：依赖 → 体量门禁 → 向量可达 → `tsc -b` → `vitest run`（79 个用例）。
+**浏览器实测（三个标签页 + 自建 SFU，非模拟）**：
+1v1 视频接通、双向画面、关摄像头对端立刻变头像、小窗收起展开、
+挂断后两端同时出现通话记录；三人会议 2×2 九宫格、三路画面都是活的、发言高亮跟着走。
 
-两个有意的设计取舍：
-- **帧用声明式定义**（`signaling/fieldSpec.ts`），一处声明同时产出运行时校验与 TS 类型。
-  服务端是逐帧写结构体，这里用条件类型推——**两处写会漂，一处写不会**。
-- **向量只读引用 `../im-rtc-server/docs/conformance/`，绝不拷贝进本仓**。
-  找不到时 `test.sh` **报错而不是跳过**：被静默跳过的一致性测试比没有测试更糟。
-
-**第一刀就抓到一个真漂移**：Go 按字面量判浮点（见到 `e` 就拒），JS 只能按值判，
-于是 `1e3`（整数 1000）TS 发得出去、Go 收不下来。两端已统一按值判定，向量加了四条守着。
+**这一轮 uikit 抓到四个真 bug**（都不报错、只表现为界面不动）：
+1. **服务端来的 ICE 候选一直被丢掉**——trickle 只做了一半。之所以能撑到现在，
+   是因为 Pion 的 SDP 里常常碰巧已经带着主机候选；进房即订阅时协商发生得早，
+   SDP 里一个候选都没有，下行 PC 永远停在 `new`。三方会议必现。
+2. **通话结束后房间没回 idle**——之后每一帧都发向一个已销毁的房间。
+3. **协商飞行期间来的订阅被丢**（服务端侧，已在 im-rtc-server 修）。
+4. **发布时机只认「阶段正好是 connecting」**——而 React 会把同一批事件合并成一次提交，
+   connecting 可能一帧都不停留。
 
 ## 下一步
 
-**P2 第二刀 —— 让 engine 真的连上服务端**
+**P3 —— iOS**（`../im-rtc-ios`，一行未写）。四仓里只剩它没开工。
+**注意：不启模拟器验证**，只能靠单测 + 一致性向量兜底。
 
-1. `signaling/connection.ts`：WS 客户端 + `sys.hello` 握手 + 心跳 + **请求按 req_id 配对**
-   （pub 侧的 `room.offer` 由 `room.answer` 应答，只看类型对不上号）+ 退避重连
-   （`1s,2s,4s,8s,15s,30s`，±20% 抖动，三端同一份）。
-2. `state/roomMachine.ts`：房间与 Track 状态机，跑 `room_fsm.json` 向量。
-3. `media/WebRTCAdapter.ts`：**两条 PeerConnection**，各有固定 offerer（pub=本端、sub=服务端），
-   所以**不需要 perfect negotiation / rollback**。
-4. 验收：本仓的 engine 连上 `im-rtc-server`（`./scripts/dev.sh`）跑通
-   与 `rtc-cli -scenario media` 等价的流程——发布音频、订阅、收到 RTP。
-
-**P2 第三刀**：uikit（来电 toast、1v1 浮窗、mini 浮窗）+ Demo 站点（登录/拨号/通话记录）。
-验收：两个浏览器 1v1 语音/视频接通、双向画面、静音/关摄像头互见、Chrome 限速下不断线。
-
-**P4**：群通话九宫格，依赖服务端 simulcast 层选择；用 `webrtc-internals` 验证层切换。
+**本仓剩下的**
+- `packages/call-engine/src/engine.ts`（372 行）与 `signaling/connection.ts`（347 行）
+  都过了 320 行的预警线，上限 400。**下一次动它们时先拆**。
+- 弱网表现没测过（Chrome 限速对 WebRTC 的 UDP 无效，得靠服务端的 `scripts/weaknet.sh`）。
+- Safari 没测过（simulcast 与 H.264 行为与 Chrome 不同）。
+- uikit 还没做：双击放大某一格（`focusedLayer` 已备好但没接界面）、屏幕共享（MVP 不做）。
 
 ## 已知坑 / 限制
 
@@ -65,6 +61,11 @@
   ② 定长窗口的 `length` 恒定，靠它判断"集合变了"永远不触发 → 用内容签名。
 - **刷新丢失进行中状态**：MediaStream 不能跨刷新持久化；通话中刷新即掉线，
   UI 要正确表现（重连而非假装还在）。
+- **Demo 不会自动换 token**：服务端重启后 HS256 密钥变了，旧页面会带着过期 token
+  一直重连（服务端日志里刷 `token_invalid`）。协议里 4401 就是「换个 token 再来」，
+  **换 token 是宿主的事**，engine 不该自己去要——但 Demo 该演示这一步，暂未做。
+- **发送侧带宽估计会把「码率低」误判成「链路窄」**（服务端侧已加拥塞证据闸）。
+  本机回环上曾把所有人压到 l 层，原因只是合成视频源码率本来就低。
 
 ## 关联工程 / 常用命令
 
@@ -76,6 +77,9 @@
   ```bash
   ./scripts/install-hooks.sh                       # 新 clone 跑一次，装 pre-commit 体量门禁
   ./scripts/test.sh                                # 唯一测试入口：依赖 → 体量 → 向量可达 → tsc -b → vitest
-  npx vitest run --root packages/call-engine       # 只跑测试
+  npx vitest run --root packages/call-engine       # 只跑 engine 测试
+  npx vitest run --root packages/call-uikit-react  # 只跑 uikit 测试（jsdom）
+  npm run dev                                      # 自画 UI 的 Demo（:5178）
+  npm run dev:react                                # 引 uikit 的 Demo（:5179）
   RTC_CONFORMANCE_DIR=/path/to/conformance ./scripts/test.sh   # 向量不在同级目录时
   ```
