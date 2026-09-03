@@ -8,13 +8,17 @@ import { bool, str } from './types.js';
 /**
  * engine 的总状态：把通话机与房间机合起来，并处理只有「合起来」才说得清的事。
  *
- * 三件只有这一层能做的事：
+ * 四件只有这一层能做的事：
  * 1. **连接级事件**（onConnected / onDisconnected / onKickedOut）由这里抛——
  *    它们既不属于某次通话，也不属于某个房间。
  * 2. **重连恢复失败**时，房间回 idle **且**通话要本地合成 `onCallEnd(network)`
  *    （协议不变量 I8）——服务端那条 ended 帧送不到我们手里了。
  * 3. **通话机产出的 room.join** 要转成房间机的 join 动作，否则房间状态机不知道
  *    自己正在进房，之后的 join.ok 就没人接。
+ * 4. **通话结束时房间要回 idle**。这条是 3 的反向，漏了它的后果比漏 3 还隐蔽：
+ *    `call.ended` 之后服务端就把房间销毁了，而房间机还停在 joined，
+ *    于是**之后每一帧都发向一个已经不存在的房间**（服务端回 1201 room_not_found），
+ *    下一次 joinRoom 还会因为「不在 idle」被本地拒掉——界面永远停在「接通中」。
  */
 
 /** EngineContext 是 engine 的完整状态。 */
@@ -154,6 +158,17 @@ function liftCall(
     room = joined.state;
     send.push(...joined.send);
     emit.push(...joined.emit);
+  }
+
+  /*
+    通话结束 = 房间没了。服务端在发出 `call.ended` 的同时就销毁了房间（协议 §4.4），
+    所以这里只是**本地归零**，不发 room.leave——那一帧只会换回一个 1201。
+
+    也不补抛 onRoomLeft：`onCallEnd` 是所有结束分支的唯一出口（设计 §7.5），
+    为同一件事抛两个回调会让宿主的记账重复。
+  */
+  if (emit.some((event) => event.cb === 'onCallEnd')) {
+    room = clearedRoom('idle');
   }
   return { state: { room, call: result.state }, send, emit };
 }

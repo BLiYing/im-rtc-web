@@ -44,6 +44,17 @@ describe('通话界面的阶段', () => {
     expect(reduceCallView(initialCallView, { type: 'mediaReady' }).phase).toBe('idle');
   });
 
+  it('媒体先就绪、callBegin 后到，也要进通话中', () => {
+    // 会议场景里进房成功几乎与 callBegin 同时发生，两个顺序都会出现。
+    // 只认「阶段正好是 connecting」的话，先到的那个被丢掉，界面永远停在「接通中」。
+    const state = run([
+      { type: 'mediaReady' },
+      { type: 'callBegin', callId: '', roomId: 'r-1', mediaType: 'video',
+        isGroup: true, role: '', nowMs: 1 },
+    ]);
+    expect(state.phase).toBe('active');
+  });
+
   it('呼出时对方先摆上去且标成未接听，界面才有「响铃中」的格子', () => {
     const state = run([
       { type: 'callPlaced', calleeIds: ['bob', 'carol'], mediaType: 'audio', isGroup: true },

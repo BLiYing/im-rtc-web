@@ -76,6 +76,15 @@ export interface CallViewState {
   readonly endReason: CallEndReasonValue | '';
   /** 一句给用户看的提示（「对方已拒接」这类）。 */
   readonly hint: string;
+  /**
+   * 媒体是否已经就绪。
+   *
+   * **单独记一个标志而不是只看阶段**：`callBegin` 与「媒体通了」谁先到都可能——
+   * 会议场景里进房成功几乎与 callBegin 同时发生，先到的那个如果只在
+   * 「阶段正好是 connecting」时才生效，就会被丢掉，界面永远停在「接通中」。
+   * （这条和 CallProvider 里发布时机的那条是同一个教训。）
+   */
+  readonly isMediaReady: boolean;
 }
 
 /** initialCallView 是没有通话时的状态。 */
@@ -93,6 +102,7 @@ export const initialCallView: CallViewState = {
   beganAtMs: 0,
   endReason: '',
   hint: '',
+  isMediaReady: false,
 };
 
 /**
@@ -157,8 +167,9 @@ export function reduceCallView(state: CallViewState, action: ViewAction): CallVi
     case 'callBegin':
       return {
         ...state,
-        // callBegin 只说「通话建立」，媒体不一定通了，所以先进 connecting。
-        phase: 'connecting',
+        // callBegin 只说「通话建立」，媒体不一定通了，所以先进 connecting——
+        // 除非媒体已经先一步就绪了（会议场景常见）。
+        phase: state.isMediaReady ? 'active' : 'connecting',
         callId: action.callId,
         roomId: action.roomId,
         mediaType: action.mediaType,
@@ -168,8 +179,10 @@ export function reduceCallView(state: CallViewState, action: ViewAction): CallVi
         hint: '',
       };
 
-    case 'mediaReady':
-      return state.phase === 'connecting' ? { ...state, phase: 'active' } : state;
+    case 'mediaReady': {
+      const ready = { ...state, isMediaReady: true };
+      return state.phase === 'connecting' ? { ...ready, phase: 'active' } : ready;
+    }
 
     case 'callEnd':
       // **唯一的结束出口**。停在 ended 让界面能显示 1.5 秒再自己 dismiss。

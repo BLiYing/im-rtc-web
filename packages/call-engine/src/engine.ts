@@ -3,9 +3,9 @@ import { EventBus } from './eventBus.js';
 import type { EngineEventHandler, EngineEventName } from './events.js';
 import { MACHINE_EVENT_NAMES } from './events.js';
 import { logger } from './logger.js';
-import type { MediaAdapter } from './media/mediaAdapter.js';
+import type { MediaAdapter, MediaAdapterEvents } from './media/mediaAdapter.js';
+import { MediaBridge } from './media/mediaBridge.js';
 import type { ViewElement } from './media/viewRegistry.js';
-import { ViewRegistry } from './media/viewRegistry.js';
 import { WebRTCAdapter } from './media/webrtcAdapter.js';
 import { camelizeArgs } from './signaling/caseMapping.js';
 import type { HelloOk } from './signaling/connection.js';
@@ -42,23 +42,29 @@ export interface EngineOptions {
   webSocketFactory?: WebSocketFactory;
 }
 
+/**
+ * LEAVE_CALLBACKS 是「这一轮媒体到此为止」的信号。
+ *
+ * 三个都要算：通话正常结束、自己离房、房间被服务端关掉。
+ * 少算一个的后果是同一条：下一次进房带着上一轮的 PeerConnection。
+ */
+const LEAVE_CALLBACKS = new Set(['onCallEnd', 'onRoomLeft', 'onRoomClosed']);
+
 /** CallEngine 是宿主唯一需要接触的类型。 */
 export class CallEngine {
   private readonly bus = new EventBus();
+  private readonly bridge: MediaBridge;
   private readonly media: MediaAdapter;
   private readonly options: EngineOptions;
 
   private readonly sender: FrameSender;
   private connection: Connection | null = null;
   private ctx: EngineContext = initialEngineContext;
-  /** 已经抛过 firstVideoFrame 的轨道，避免重复抛。 */
-  private readonly seenVideo = new Set<string>();
-  /** uid ↔ 视频元素的挂载登记（uikit 只能经它挂画面，CONVENTIONS §1）。 */
-  private readonly views = new ViewRegistry();
 
   constructor(options: EngineOptions) {
     this.options = options;
     this.media = options.media ?? new WebRTCAdapter();
+    this.bridge = new MediaBridge(this.media);
     this.sender = new FrameSender(this.media);
   }
 
@@ -96,11 +102,7 @@ export class CallEngine {
       },
     });
     this.connection = connection;
-    this.media.open({
-      onLocalCandidate: (pc, candidate): void => this.sendCandidate(pc, candidate),
-      onRemoteTrack: (trackId, track): void => this.onRemoteTrack(trackId, track),
-      onConnectionStateChange: (pc, state): void => this.onPcState(pc, state),
-    });
+    this.bridge.open(this.mediaEvents());
 
     const hello = await connection.connect();
     await this.dispatch({
@@ -115,9 +117,7 @@ export class CallEngine {
   logout(): void {
     this.connection?.close();
     this.connection = null;
-    this.media.close();
-    this.views.clear();
-    this.seenVideo.clear();
+    this.bridge.close();
     this.ctx = initialEngineContext;
   }
 
@@ -211,15 +211,12 @@ export class CallEngine {
    * `RTCPeerConnection`，也不该自己拼 `MediaStream`。
    */
   attachView(uid: string, el: ViewElement | null): void {
-    this.views.attach(uid, el);
+    this.bridge.attachView(uid, el);
   }
 
   /** attachLocalView 把本端某条轨道挂到元素上做预览；传 `null` 卸载。 */
   attachLocalView(cid: string, el: ViewElement | null): void {
-    if (el === null) return void this.views.attach(localViewKey(cid), null);
-    const track = this.media.localTrack(cid);
-    if (track !== undefined) this.views.addTrack(track.id, track, localViewKey(cid));
-    this.views.attach(localViewKey(cid), el);
+    this.bridge.attachLocalView(cid, el);
   }
 
   /**
@@ -249,6 +246,10 @@ export class CallEngine {
    * 随后的 publish 全被 R1「只有 joined 才允许发布」本地拒掉。
    */
   private async handleIncoming(type: string, data: Record<string, unknown>): Promise<void> {
+    if (type === 'room.ice_candidate') {
+      await this.addRemoteCandidate(data);
+      return; // 候选只关媒体层的事，状态机不认识它
+    }
     if (type === 'room.offer' && data['pc'] === 'sub') {
       this.sender.noteSubOffer(typeof data['sdp'] === 'string' ? data['sdp'] : '');
     }
@@ -267,10 +268,21 @@ export class CallEngine {
     for (const frame of result.send) {
       await this.sendFrame(frame);
     }
-    this.claimViews();
+    this.bridge.claim(this.ctx.room.remoteTracks);
+    // **一通结束就把媒体面归零**，在抛事件之前：宿主收到 onCallEnd 时
+    // engine 已经是干净的，下一通不会带着上一通的轨道去协商。
+    if (result.emit.some((event) => LEAVE_CALLBACKS.has(event.cb))) this.bridge.reset();
     for (const event of result.emit) {
       this.emitMachineEvent(event);
     }
+  }
+
+  private mediaEvents(): MediaAdapterEvents {
+    return {
+      onLocalCandidate: (pc, candidate): void => this.sendCandidate(pc, candidate),
+      onRemoteTrack: (trackId, track): void => this.onRemoteTrack(trackId, track),
+      onConnectionStateChange: (pc, state): void => this.onPcState(pc, state),
+    };
   }
 
   /** sendFrame 发一帧，并把应答喂回状态机。 */
@@ -287,6 +299,31 @@ export class CallEngine {
     }
   }
 
+  /**
+   * addRemoteCandidate 把服务端来的候选交给媒体层。
+   *
+   * **这条路径一开始整条漏了**：候选只往上发、不往下收，于是下行连接能不能建立
+   * 全看运气——服务端的 SDP 里**碰巧**已经带上了主机候选就通，
+   * 没带上（进房即订阅时协商得早，服务端还没收集完）就永远停在 `new`，
+   * 界面上是「格子在、画面黑」，而且不报任何错。
+   *
+   * `candidate` 为空串表示收集结束，协议要求容忍（§3.3）。
+   */
+  private async addRemoteCandidate(data: Readonly<Record<string, unknown>>): Promise<void> {
+    const candidate = typeof data['candidate'] === 'string' ? data['candidate'] : '';
+    if (candidate === '') return;
+    const pc: PcRole = data['pc'] === 'pub' ? 'pub' : 'sub';
+    const sdpMid = typeof data['sdp_mid'] === 'string' ? data['sdp_mid'] : '';
+    const rawIndex = data['sdp_mline_index'];
+    const sdpMLineIndex = typeof rawIndex === 'number' ? rawIndex : 0;
+    try {
+      await this.media.addRemoteCandidate(pc, { candidate, sdpMid, sdpMLineIndex });
+    } catch (err) {
+      // 乱序候选是常态（协议 §3.3 要求容忍）：转成 error 事件，不中断事件流。
+      this.emitError(err);
+    }
+  }
+
   private sendCandidate(pc: PcRole, candidate: RTCIceCandidateInit): void {
     const connection = this.connection;
     if (connection === null) return;
@@ -296,22 +333,13 @@ export class CallEngine {
   }
 
   private onRemoteTrack(trackId: string, track: MediaStreamTrack): void {
-    const uid = this.ctx.room.remoteTracks[trackId]?.uid ?? '';
     // uid 可能还不知道（ontrack 与 track_published 谁先到都可能）——
-    // 那就先收着，claimViews 会在状态机补上归属之后认领。
-    this.views.addTrack(trackId, track, uid);
+    // 那就先收着，bridge.claim 会在状态机补上归属之后认领。
+    const uid = this.ctx.room.remoteTracks[trackId]?.uid ?? '';
+    const isFirstVideo = this.bridge.addRemoteTrack(trackId, track, uid);
     this.bus.emit('remoteTrack', { trackId, track });
-    if (track.kind !== 'video' || this.seenVideo.has(trackId)) return;
-    this.seenVideo.add(trackId);
     // firstVideoFrame 没有对应的信令帧——它是本地事件，UI 用来撤 loading。
-    this.bus.emit('firstVideoFrame', { uid, trackId });
-  }
-
-  /** claimViews 把「轨道先到、归属后到」的那些补挂上去，并摘掉已经没了的。 */
-  private claimViews(): void {
-    for (const [trackId, info] of Object.entries(this.ctx.room.remoteTracks)) {
-      this.views.claim(trackId, info.uid);
-    }
+    if (isFirstVideo) this.bus.emit('firstVideoFrame', { uid, trackId });
   }
 
   private onPcState(pc: PcRole, state: RTCPeerConnectionState): void {
@@ -342,13 +370,3 @@ export class CallEngine {
   }
 }
 
-/**
- * localViewKey 给本端预览一个不会与 uid 撞车的登记键。
- *
- * 本端与远端共用一张登记表（挂载/卸载逻辑完全一样），所以只需要一个前缀区分开。
- * 前缀里带冒号：uid 是宿主给的业务 id，协议没限制字符集，但冒号开头的 uid
- * 本来就不该出现在业务里。
- */
-function localViewKey(cid: string): string {
-  return `:local:${cid}`;
-}

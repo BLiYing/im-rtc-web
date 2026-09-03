@@ -51,7 +51,7 @@ export function VideoTile(props: VideoTileProps): ReactNode {
 
   const tileStyle = { ...styles.tile, ...(isSpeaking ? styles.tileSpeaking : {}), ...style };
   return (
-    <div style={tileStyle} data-testid={`tile-${localCid === undefined ? uid : 'self'}`}>
+    <div style={tileStyle} data-testid={`tile-${uid === '' ? 'self' : uid}`}>
       <video
         ref={videoRef}
         autoPlay
