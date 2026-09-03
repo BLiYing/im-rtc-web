@@ -21,9 +21,18 @@ interface LogLine {
 const WATCHED: EngineEventName[] = [
   'error', 'connected', 'disconnected', 'kickedOut',
   'callReceived', 'callBegin', 'callEnd',
+  'callCancelled', 'callRejected', 'callBusy', 'callNoAnswer', 'handledOnOtherDevice',
   'roomJoined', 'roomLeft', 'roomClosed',
-  'userEnter', 'userLeave', 'userVideoAvailable', 'firstVideoFrame',
+  'userEnter', 'userLeave', 'userAccept', 'userReject', 'userNoResponse',
+  // 音频与视频**两条都要在**：只显示视频那条的话，语音通话看起来像什么都没发生。
+  'userAudioAvailable', 'userVideoAvailable', 'firstVideoFrame',
 ];
+
+/*
+ activeSpeakers 与 networkQuality **故意不显示**：它们是节流后的周期性事件
+ （300ms / 2s），进这个面板会把真正要看的那几条冲掉。
+ 要看它们请单独订阅。
+*/
 
 /** EngineLog 把公开事件流打到页面上——这一页的「日志」就是产品的事件表。 */
 export function EngineLog(): ReactNode {

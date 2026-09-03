@@ -65,7 +65,13 @@ export interface EngineEvents {
   activeSpeakers: { speakers: { uid: string; volume: number }[] };
   /** 网络质量 0~6。服务端节流 2s。 */
   networkQuality: { entries: { uid: string; level: number }[] };
-  /** 某人的第一帧画面到达，UI 用来撤 loading。**本地事件，没有对应的信令帧**。 */
+  /**
+   * 某人的画面**真的开始出数据**了，UI 用来撤 loading。
+   * **本地事件，没有对应的信令帧**。
+   *
+   * 判据是轨道 `unmute` 而不是 `ontrack`：协商完成时远端轨道还是 muted 的，
+   * 那一刻撤 loading 会露出黑屏。
+   */
   firstVideoFrame: { uid: string; trackId: string };
   /** 收到一条下行轨道，宿主用它挂到 <video>。 */
   remoteTrack: { trackId: string; track: MediaStreamTrack };

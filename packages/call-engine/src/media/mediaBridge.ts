@@ -55,16 +55,50 @@ export class MediaBridge {
   }
 
   /**
-   * addRemoteTrack 收下一条下行轨道，返回它是不是**这条轨道的第一帧视频**。
+   * addRemoteTrack 收下一条下行轨道。
    *
    * uid 允许为空——`ontrack` 与 `room.track_published` 谁先到都可能，
    * 归属后到时由 claim 补上。
+   *
+   * `onFirstVideo` 在这条视频轨**真的开始出数据**时回调一次，见 waitForVideo。
    */
-  addRemoteTrack(trackId: string, track: MediaStreamTrack, uid: string): boolean {
+  addRemoteTrack(
+    trackId: string,
+    track: MediaStreamTrack,
+    uid: string,
+    onFirstVideo: (trackId: string) => void,
+  ): void {
     this.views.addTrack(trackId, track, uid);
-    if (track.kind !== 'video' || this.seenVideo.has(trackId)) return false;
+    if (track.kind !== 'video' || this.seenVideo.has(trackId)) return;
     this.seenVideo.add(trackId);
-    return true;
+    this.waitForVideo(trackId, track, onFirstVideo);
+  }
+
+  /**
+   * waitForVideo 等这条视频轨真的开始出数据。
+   *
+   * **`ontrack` 触发 ≠ 有画面**：远端轨道刚协商完时 `muted === true`，
+   * 要等第一个 RTP 包到达才 `unmute`。在 ontrack 那一刻就抛「首帧到达」，
+   * UI 会**提前撤掉 loading 然后露出黑屏**——正是这个事件要避免的那件事。
+   *
+   * 已经 unmute 的（比如轨道复用）就立刻回调，不必等一个永远不会再来的事件。
+   */
+  private waitForVideo(
+    trackId: string,
+    track: MediaStreamTrack,
+    onFirstVideo: (trackId: string) => void,
+  ): void {
+    if (track.muted === false) {
+      onFirstVideo(trackId);
+      return;
+    }
+    // 测试里的假轨道可能没有事件接口；没有就退回「协商完即视为到达」，
+    // 总比一条都不抛强。
+    if (typeof track.addEventListener !== 'function') {
+      onFirstVideo(trackId);
+      return;
+    }
+    track.addEventListener('unmute', () => onFirstVideo(trackId), { once: true });
   }
 
   /** claim 把「轨道先到、归属后到」的那些补挂上去。 */

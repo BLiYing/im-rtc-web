@@ -357,10 +357,15 @@ export class CallEngine {
     // uid 可能还不知道（ontrack 与 track_published 谁先到都可能）——
     // 那就先收着，bridge.claim 会在状态机补上归属之后认领。
     const uid = this.ctx.room.remoteTracks[trackId]?.uid ?? '';
-    const isFirstVideo = this.bridge.addRemoteTrack(trackId, track, uid);
-    this.bus.emit('remoteTrack', { trackId, track });
     // firstVideoFrame 没有对应的信令帧——它是本地事件，UI 用来撤 loading。
-    if (isFirstVideo) this.bus.emit('firstVideoFrame', { uid, trackId });
+    // **等轨道真的出数据才抛**（见 MediaBridge.waitForVideo）：ontrack 那一刻
+    // 还没有任何一帧，提前抛等于让 UI 撤了 loading 去露黑屏。
+    this.bridge.addRemoteTrack(trackId, track, uid, (id) => {
+      // uid 这时可能已经被 track_published 补上了，重新取一次比缓存的准。
+      const owner = this.ctx.room.remoteTracks[id]?.uid ?? uid;
+      this.bus.emit('firstVideoFrame', { uid: owner, trackId: id });
+    });
+    this.bus.emit('remoteTrack', { trackId, track });
   }
 
   private onPcState(pc: PcRole, state: RTCPeerConnectionState): void {

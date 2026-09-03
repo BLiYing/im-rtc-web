@@ -1,5 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 
+import type { MediaAdapter } from '../src/media/mediaAdapter.js';
+import { MediaBridge } from '../src/media/mediaBridge.js';
 import { ViewRegistry } from '../src/media/viewRegistry.js';
 import { camelizeArgs, snakeToCamel, toFrameProps } from '../src/signaling/caseMapping.js';
 
@@ -136,3 +138,82 @@ describe('snake_case ↔ camelCase', () => {
     expect(toFrameProps(fields, { trackId: 't-1' })).toEqual({ trackId: 't-1' });
   });
 });
+
+/**
+ * `firstVideoFrame` 的判据必须是「轨道真的出数据」，不是「轨道协商完了」。
+ *
+ * 远端轨道刚 `ontrack` 时 `muted === true`，要等第一个 RTP 包到达才 `unmute`。
+ * 在 ontrack 那一刻就抛「首帧到达」，UI 会提前撤掉 loading 然后露出黑屏——
+ * 正是这个事件要避免的那件事。
+ */
+describe('MediaBridge 的首帧判据', () => {
+  /** FakeTrack 模拟远端轨道的 muted → unmute 过程。 */
+  class FakeTrack {
+    readonly kind = 'video';
+    muted = true;
+    private listeners: (() => void)[] = [];
+    constructor(readonly id: string) {}
+    addEventListener(name: string, fn: () => void): void {
+      if (name === 'unmute') this.listeners.push(fn);
+    }
+    /** deliverFirstPacket 模拟第一个 RTP 包到达。 */
+    deliverFirstPacket(): void {
+      this.muted = false;
+      for (const fn of this.listeners.splice(0)) fn();
+    }
+  }
+
+  const asTrack = (t: FakeTrack): MediaStreamTrack => t as unknown as MediaStreamTrack;
+
+  it('协商完还没出数据时不抛，出数据之后才抛', () => {
+    const bridge = new MediaBridge(stubAdapter());
+    const fired: string[] = [];
+    const track = new FakeTrack('t-1');
+
+    bridge.addRemoteTrack('t-1', asTrack(track), 'alice', (id) => fired.push(id));
+    expect(fired, '轨道还 muted 着，不该抛首帧').toEqual([]);
+
+    track.deliverFirstPacket();
+    expect(fired).toEqual(['t-1']);
+  });
+
+  it('已经在出数据的轨道立刻抛，不等一个不会再来的事件', () => {
+    const bridge = new MediaBridge(stubAdapter());
+    const fired: string[] = [];
+    const track = new FakeTrack('t-2');
+    track.muted = false;
+
+    bridge.addRemoteTrack('t-2', asTrack(track), 'alice', (id) => fired.push(id));
+    expect(fired).toEqual(['t-2']);
+  });
+
+  it('同一条轨道只抛一次', () => {
+    const bridge = new MediaBridge(stubAdapter());
+    const fired: string[] = [];
+    const track = new FakeTrack('t-3');
+
+    bridge.addRemoteTrack('t-3', asTrack(track), 'alice', (id) => fired.push(id));
+    bridge.addRemoteTrack('t-3', asTrack(track), 'alice', (id) => fired.push(id));
+    track.deliverFirstPacket();
+    expect(fired).toEqual(['t-3']);
+  });
+});
+
+/** stubAdapter 是 MediaBridge 用不到的那部分适配器接口的空壳。 */
+function stubAdapter(): MediaAdapter {
+  const notUsed = (): never => {
+    throw new Error('这条用例不该走到媒体适配器');
+  };
+  return {
+    open: (): void => {},
+    close: (): void => {},
+    acquireMicrophone: notUsed,
+    acquireCamera: notUsed,
+    createPubOffer: notUsed,
+    applyPubAnswer: notUsed,
+    answerSubOffer: notUsed,
+    addRemoteCandidate: notUsed,
+    setMuted: (): void => {},
+    localTrack: (): undefined => undefined,
+  };
+}
