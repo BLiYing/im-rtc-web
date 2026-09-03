@@ -1,7 +1,7 @@
 import type { TrackKind } from '../signaling/enums.js';
 import { FrameType } from '../signaling/registry.js';
 import type { PublishState, RemoteTrack, RoomContext, SubscribeState } from './roomMachine.js';
-import { clearedRoom, roomOut } from './roomMachine.js';
+import { clearedRoom, replayBuffered, roomOut } from './roomMachine.js';
 import type { EmittedEvent, MachineOutput, OutgoingFrame } from './types.js';
 import { bool, str } from './types.js';
 
@@ -94,18 +94,17 @@ function handleJoinOk(
     if (ctx.autoSubscribe) subscribe[trackId] = 'subscribing';
   }
 
-  return roomOut(
-    {
-      ...ctx,
-      state: 'joined',
-      roomId: str(data, 'room_id'),
-      participantId: str(data, 'participant_id'),
-      remoteTracks,
-      subscribe,
-    },
-    [],
-    emit,
-  );
+  // 进房成功之后**立刻重放 joining 期间攒下的意图**（不变量 R2）：
+  // 宿主在 onCallBegin 里就发起的 publish 走的正是这条路。
+  const replayed = replayBuffered({
+    ...ctx,
+    state: 'joined',
+    roomId: str(data, 'room_id'),
+    participantId: str(data, 'participant_id'),
+    remoteTracks,
+    subscribe,
+  });
+  return roomOut(replayed.state, [...replayed.send], [...emit, ...replayed.emit]);
 }
 
 function handlePublishOk(

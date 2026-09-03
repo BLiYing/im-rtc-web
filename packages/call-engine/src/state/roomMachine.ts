@@ -14,8 +14,9 @@ import { bool, str } from './types.js';
  *
  * - **R1** 只有 `joined` 才允许 publish / subscribe / mute；其余状态**本地拒绝**，
  *   不发上去让服务端报错。
- * - **R2** `reconnecting` 期间**禁止发任何房间帧**，但要把用户意图缓存下来，
- *   恢复后一次性重放。
+ * - **R2** `joining` 与 `reconnecting` 期间**禁止发任何房间帧**，但要把用户意图
+ *   缓存下来，进房/恢复后一次性重放。这两个状态的共同点是**宿主观察不到**——
+ *   它拿到 onCallBegin 就推流是最自然的写法，不该因为一个内部中间态而失败。
  * - **R3** 订阅与换层是**幂等**的：重复 subscribe 同一条 track 等价于换层。
  */
 
@@ -52,8 +53,19 @@ export interface RoomContext {
   readonly remoteTracks: Readonly<Record<string, RemoteTrack>>;
   /** 期望的最高层。track_id → layer。 */
   readonly layers: Readonly<Record<string, Layer>>;
-  /** reconnecting 期间缓存的用户意图（不变量 R2）。 */
-  readonly buffered: readonly OutgoingFrame[];
+  /** joining / reconnecting 期间缓存的用户意图（不变量 R2）。 */
+  readonly buffered: readonly BufferedIntent[];
+}
+
+/**
+ * BufferedIntent 是攒下来的一次调用，**存的是意图不是帧**。
+ *
+ * 存帧的话重放时只能原样发出去，状态（比如 `publish[cid]='publishing'`）就漏掉了；
+ * 存意图则可以在 joined 态重新走一遍正常路径，跟没缓存过一模一样。
+ */
+export interface BufferedIntent {
+  readonly op: string;
+  readonly args: Readonly<Record<string, unknown>>;
 }
 
 /** initialRoomContext 是 idle 态的初值。 */
@@ -123,7 +135,28 @@ function reduceRoomInternal(ctx: RoomContext, name: string): MachineOutput<RoomC
 export function resumeRoom(ctx: RoomContext, resumed: boolean): MachineOutput<RoomContext> {
   if (!resumed) return roomOut(clearedRoom('idle'));
   if (ctx.state !== 'reconnecting') return roomOut(ctx);
-  return roomOut({ ...ctx, state: 'joined', buffered: [] }, [...ctx.buffered]);
+  return replayBuffered({ ...ctx, state: 'joined' });
+}
+
+/**
+ * replayBuffered 在 joined 态把攒下的意图重新走一遍。
+ *
+ * **重放走的是正常路径**（reduceRoomAct），不是把缓存的帧直接吐出去——
+ * 这样状态更新与帧生成永远一致，不会出现「帧发了但本地记账没跟上」。
+ */
+export function replayBuffered(ctx: RoomContext): MachineOutput<RoomContext> {
+  if (ctx.buffered.length === 0) return roomOut(ctx);
+
+  let state: RoomContext = { ...ctx, buffered: [] };
+  const send: OutgoingFrame[] = [];
+  const emit: EmittedEvent[] = [];
+  for (const intent of ctx.buffered) {
+    const result = reduceRoomAct(state, intent.op, intent.args);
+    state = result.state;
+    send.push(...result.send);
+    emit.push(...result.emit);
+  }
+  return roomOut(state, send, emit);
 }
 
 function reduceRoomAct(
@@ -141,8 +174,12 @@ function reduceRoomAct(
   }
 
   // R1：只有 joined 才允许发布/订阅类操作。
-  // R2：reconnecting 期间把意图缓存下来，恢复后重放——不是丢掉，也不是发上去。
-  if (ctx.state === 'reconnecting') return bufferIntent(ctx, op, args);
+  // R2：**joining 与 reconnecting** 期间把意图缓存下来，之后重放——
+  //     不是丢掉，也不是发上去。这两个状态宿主都观察不到，
+  //     在它们上面报「状态非法」等于让宿主为一个内部细节买单。
+  if (ctx.state === 'joining' || ctx.state === 'reconnecting') {
+    return bufferIntent(ctx, op, args);
+  }
   if (ctx.state !== 'joined') return localReject(ctx);
 
   switch (op) {
@@ -262,15 +299,25 @@ function updateLayer(
   ]);
 }
 
-/** bufferIntent 把 reconnecting 期间的用户意图缓存起来（不变量 R2）。 */
+/** BUFFERABLE_OPS 是值得攒下来重放的操作——正好是 R1 管的那一组。 */
+const BUFFERABLE_OPS: ReadonlySet<string> = new Set([
+  'publish',
+  'unpublish',
+  'mute',
+  'subscribe',
+  'unsubscribe',
+  'update_layer',
+]);
+
+/** bufferIntent 把中间态期间的用户意图缓存起来（不变量 R2）。 */
 function bufferIntent(
   ctx: RoomContext,
   op: string,
   args: Readonly<Record<string, unknown>>,
 ): MachineOutput<RoomContext> {
-  if (op !== 'mute') return roomOut(ctx); // 只有开关麦/摄像头值得重放
-  const frame: OutgoingFrame = { type: FrameType.roomMute, data: muteData(args) };
-  return roomOut({ ...ctx, buffered: [...ctx.buffered, frame] });
+  // 不认识的 op 照旧本地拒绝：缓存的是**合法但来早了**的调用，不是笔误。
+  if (!BUFFERABLE_OPS.has(op)) return localReject(ctx);
+  return roomOut({ ...ctx, buffered: [...ctx.buffered, { op, args }] });
 }
 
 function muteData(args: Readonly<Record<string, unknown>>): Record<string, unknown> {
