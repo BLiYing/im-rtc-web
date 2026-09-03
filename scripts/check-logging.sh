@@ -80,8 +80,11 @@ done < <(sources)
 echo "  [2/3] 高频路径（HOTPATH-BEGIN…HOTPATH-END）里的日志调用"
 while IFS= read -r file; do
   hits=$(awk '
-    /HOTPATH-BEGIN/ { inhot=1; next }
-    /HOTPATH-END/   { inhot=0; next }
+    # 标记必须紧跟在 // 之后，且同一行不能出现另一个标记。
+    # 不这么限的话，文件顶部那句「热路径就是 HOTPATH-BEGIN/END 之间那段」的说明注释
+    # 会被当成真标记，于是整个文件都算热路径——这道闸自己踩过一次。
+    /^[[:space:]]*\/\/[[:space:]]*HOTPATH-BEGIN/ && !/HOTPATH-END/ { inhot=1; next }
+    /^[[:space:]]*\/\/[[:space:]]*HOTPATH-END/                     { inhot=0; next }
     inhot && /logger\.|console\./ { print NR ": " $0 }
   ' "$file" || true)
   if [ -n "$hits" ]; then
