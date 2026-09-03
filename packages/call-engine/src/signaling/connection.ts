@@ -1,11 +1,13 @@
 import { ErrorCode, RtcError } from '../errors.js';
 import { logger, redact } from '../logger.js';
-import { backoffDelayMs } from './backoff.js';
 import type { Envelope } from './envelope.js';
 import { decodeEnvelope, encodeEnvelope, okType } from './envelope.js';
 import { decodeFields, encodeFields } from './fieldSpec.js';
 import type { FrameFields } from './fieldSpec.js';
 import { HELLO_FIELDS, HELLO_OK_FIELDS } from './frames.sys.js';
+import { Heartbeat } from './heartbeat.js';
+import { PendingRequests } from './pendingRequests.js';
+import { Reconnector } from './reconnector.js';
 import { FrameType, lookupFrame } from './registry.js';
 import type { WebSocketFactory, WebSocketLike } from './webSocket.js';
 import { CloseCode, WS_OPEN, browserWebSocketFactory, shouldReconnect } from './webSocket.js';
@@ -65,14 +67,7 @@ export interface ConnectionOptions {
   random?: () => number;
 }
 
-interface Pending {
-  resolve: (value: { envelope: Envelope; data: Record<string, unknown> }) => void;
-  reject: (reason: RtcError) => void;
-  timer: ReturnType<typeof setTimeout>;
-}
-
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
-const HEARTBEAT_MISS_LIMIT = 3;
 
 /** Connection 是一条信令连接。断线会自动重连，除非关闭码明说不该重连。 */
 export class Connection {
@@ -83,16 +78,26 @@ export class Connection {
   private state: ConnectionState = 'idle';
   private sessionId = '';
   private seq = 0;
-  private attempt = 0;
-  private readonly pending = new Map<string, Pending>();
+  private readonly pending: PendingRequests;
 
-  private pingTimer: ReturnType<typeof setInterval> | null = null;
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private missedBeats = 0;
+  private readonly heartbeat: Heartbeat;
+  private readonly reconnector: Reconnector;
   private token: string;
 
   constructor(options: ConnectionOptions) {
     this.token = options.token;
+    this.heartbeat = new Heartbeat({
+      sendPing: (): void => this.sendPing(),
+      onDead: (): void => this.ws?.close(CloseCode.goingAway, 'heartbeat timeout'),
+    });
+    this.pending = new PendingRequests(options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS);
+    this.reconnector = new Reconnector(
+      async (): Promise<void> => {
+        await this.connect();
+      },
+      (err: unknown): void => this.emitError(err),
+      options.random ?? Math.random,
+    );
     this.options = {
       url: options.url,
       token: options.token,
@@ -140,8 +145,8 @@ export class Connection {
     const hello = await this.handshake();
 
     this.state = 'connected';
-    this.attempt = 0;
-    this.startHeartbeat(hello.pingIntervalSec);
+    this.reconnector.succeeded();
+    this.heartbeat.start(hello.pingIntervalSec);
     this.options.events?.onConnected?.(hello);
     return hello;
   }
@@ -149,9 +154,9 @@ export class Connection {
   /** close 主动关闭，**不会**触发重连。 */
   close(): void {
     this.state = 'closed';
-    this.stopHeartbeat();
-    this.clearReconnect();
-    this.rejectAllPending(new RtcError(ErrorCode.invalidState, { cause: new Error('连接已关闭') }));
+    this.heartbeat.stop();
+    this.reconnector.cancel();
+    this.pending.rejectAll(new RtcError(ErrorCode.invalidState, { cause: new Error('连接已关闭') }));
     this.ws?.close(CloseCode.normal, 'client logout');
     this.ws = null;
   }
@@ -166,31 +171,45 @@ export class Connection {
     fields: FrameFields,
     value: Record<string, unknown>,
   ): Promise<{ envelope: Envelope; data: Record<string, unknown> }> {
-    const socket = this.ws;
-    if (socket === null || this.state !== 'connected') {
+    if (this.state !== 'connected') {
       throw new RtcError(ErrorCode.invalidState, {
         forType: type,
         cause: new Error(`连接不可用（当前 ${this.state}）`),
       });
     }
+    return this.dispatchRequest(type, fields, value);
+  }
+
+  /**
+   * dispatchRequest 不检查连接状态。
+   *
+   * 独立出来是因为 **sys.hello 本身就要在 connecting 状态下发出去**——
+   * 让握手走公开的 request() 会被状态检查挡住（踩过一次：所有时序测试都挂在
+   * 「一帧都没发出去」）。
+   */
+  private async dispatchRequest(
+    type: string,
+    fields: FrameFields,
+    value: Record<string, unknown>,
+  ): Promise<{ envelope: Envelope; data: Record<string, unknown> }> {
+    const socket = this.ws;
+    if (socket === null) {
+      throw new RtcError(ErrorCode.invalidState, {
+        forType: type,
+        cause: new Error('还没有连接'),
+      });
+    }
     const reqId = this.nextReqId();
     const raw = encodeEnvelope(type, reqId, encodeFields(fields, value as never));
+    const waiting = this.pending.track(reqId, type);
 
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(reqId);
-        reject(new RtcError(ErrorCode.signalingTimeout, { forType: type }));
-      }, this.options.requestTimeoutMs);
-      this.pending.set(reqId, { resolve, reject, timer });
-
-      try {
-        socket.send(raw);
-      } catch (cause) {
-        clearTimeout(timer);
-        this.pending.delete(reqId);
-        reject(new RtcError(ErrorCode.networkUnreachable, { forType: type, cause }));
-      }
-    });
+    try {
+      socket.send(raw);
+    } catch (cause) {
+      this.pending.abandon(reqId);
+      throw new RtcError(ErrorCode.networkUnreachable, { forType: type, cause });
+    }
+    return waiting;
   }
 
   /** send 发一帧但不等应答（服务端主动事件的回应，如 sub 的 answer）。 */
@@ -219,7 +238,7 @@ export class Connection {
       token: redact(hello.token),
     });
 
-    const { envelope, data } = await this.request(
+    const { envelope, data } = await this.dispatchRequest(
       FrameType.hello,
       HELLO_FIELDS,
       hello as unknown as Record<string, unknown>,
@@ -236,7 +255,8 @@ export class Connection {
 
   private handleMessage(raw: unknown): void {
     if (typeof raw !== 'string') return;
-    this.missedBeats = 0;
+    // 收到**任何**帧都算对端活着，不只是 pong（§1.3）。
+    this.heartbeat.noteFrameReceived();
 
     let envelope: Envelope;
     try {
@@ -248,22 +268,8 @@ export class Connection {
       return;
     }
 
-    if (envelope.reqId !== '' && this.settlePending(envelope)) return;
+    if (envelope.reqId !== '' && this.pending.settle(envelope, (e) => this.decodeData(e))) return;
     this.dispatchEvent(envelope);
-  }
-
-  private settlePending(envelope: Envelope): boolean {
-    const waiter = this.pending.get(envelope.reqId);
-    if (waiter === undefined) return false;
-    this.pending.delete(envelope.reqId);
-    clearTimeout(waiter.timer);
-
-    if (envelope.type === FrameType.error) {
-      waiter.reject(this.toRtcError(envelope));
-      return true;
-    }
-    waiter.resolve({ envelope, data: this.decodeData(envelope) });
-    return true;
   }
 
   private dispatchEvent(envelope: Envelope): void {
@@ -295,9 +301,9 @@ export class Connection {
   }
 
   private handleClose(event: { code: number; reason: string }): void {
-    this.stopHeartbeat();
+    this.heartbeat.stop();
     this.ws = null;
-    this.rejectAllPending(
+    this.pending.rejectAll(
       new RtcError(ErrorCode.networkUnreachable, { cause: new Error('连接已断开') }),
     );
 
@@ -314,68 +320,15 @@ export class Connection {
       return;
     }
     this.state = 'reconnecting';
-    this.scheduleReconnect();
+    this.reconnector.schedule();
   }
 
-  private scheduleReconnect(): void {
-    this.clearReconnect();
-    const delay = backoffDelayMs(this.attempt, this.options.random);
-    this.attempt += 1;
-    logger.info('计划重连', { attempt: this.attempt, delayMs: delay, sessionId: this.sessionId });
-
-    this.reconnectTimer = setTimeout(() => {
-      void this.connect().catch((err: unknown) => {
-        this.emitError(err);
-        if (this.state !== 'closed') this.scheduleReconnect();
-      });
-    }, delay);
-  }
-
-  private clearReconnect(): void {
-    if (this.reconnectTimer !== null) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
+  /** sendPing 发一个心跳帧。连接不可用时静默跳过——心跳失败自有判死逻辑接手。 */
+  private sendPing(): void {
+    const socket = this.ws;
+    if (socket !== null && socket.readyState === WS_OPEN) {
+      socket.send(encodeEnvelope(FrameType.ping, this.nextReqId(), {}));
     }
-  }
-
-  /**
-   * startHeartbeat 每 pingIntervalSec 发一个 sys.ping。
-   *
-   * 连续 3 个周期收不到对端**任何**帧就判死（§1.3）——不是「3 个 pong 没回来」，
-   * 因为服务端的任何一帧都证明它还活着。
-   */
-  private startHeartbeat(pingIntervalSec: number): void {
-    this.stopHeartbeat();
-    this.missedBeats = 0;
-    const intervalMs = Math.max(1, pingIntervalSec) * 1000;
-
-    this.pingTimer = setInterval(() => {
-      this.missedBeats += 1;
-      if (this.missedBeats > HEARTBEAT_MISS_LIMIT) {
-        logger.warn('心跳超时，判定连接已死', { missedBeats: this.missedBeats });
-        this.ws?.close(CloseCode.goingAway, 'heartbeat timeout');
-        return;
-      }
-      const socket = this.ws;
-      if (socket !== null && socket.readyState === WS_OPEN) {
-        socket.send(encodeEnvelope(FrameType.ping, this.nextReqId(), {}));
-      }
-    }, intervalMs);
-  }
-
-  private stopHeartbeat(): void {
-    if (this.pingTimer !== null) {
-      clearInterval(this.pingTimer);
-      this.pingTimer = null;
-    }
-  }
-
-  private rejectAllPending(error: RtcError): void {
-    for (const waiter of this.pending.values()) {
-      clearTimeout(waiter.timer);
-      waiter.reject(error);
-    }
-    this.pending.clear();
   }
 
   private emitError(err: unknown): void {

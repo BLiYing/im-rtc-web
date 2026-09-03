@@ -95,4 +95,18 @@ export {
 
 export type { FieldSpec, FrameData, FrameFields } from './signaling/fieldSpec.js';
 
+export { BACKOFF_STEPS_MS, backoffDelayMs } from './signaling/backoff.js';
+export { CloseCode, shouldReconnect } from './signaling/webSocket.js';
+export type { WebSocketFactory, WebSocketLike } from './signaling/webSocket.js';
+export { Connection } from './signaling/connection.js';
+export type { ConnectionEvents, ConnectionOptions, ConnectionState, HelloOk } from './signaling/connection.js';
+
+export { initialCallContext, reduceCall, synthesizeNetworkEnd } from './state/callMachine.js';
+export type { CallContext, CallRole, CallState } from './state/callMachine.js';
+export { initialRoomContext, reduceRoom, resumeRoom } from './state/roomMachine.js';
+export type { PublishState, RoomContext, RoomState, SubscribeState } from './state/roomMachine.js';
+export { initialEngineContext, reduceEngine } from './state/engineMachine.js';
+export type { EngineContext } from './state/engineMachine.js';
+export type { EmittedEvent, MachineInput, MachineOutput, OutgoingFrame } from './state/types.js';
+
 export * as frames from './signaling/frames.room.js';
