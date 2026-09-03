@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "demo-react",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "-w", "demo-react"],
+      "port": 5179
+    }
+  ]
+}

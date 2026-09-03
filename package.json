@@ -5,13 +5,15 @@
   "description": "im-rtc Web 客户端 SDK：call-engine（无 UI）+ call-uikit-react + Demo",
   "workspaces": [
     "packages/*",
-    "demo"
+    "demo",
+    "demo-react"
   ],
   "scripts": {
     "build": "tsc -b",
     "test": "vitest run",
     "typecheck": "tsc -b --pretty",
-    "dev": "npm run dev -w demo"
+    "dev": "npm run dev -w demo",
+    "dev:react": "npm run dev -w demo-react"
   },
   "devDependencies": {
     "@testing-library/dom": "^10.4.1",
