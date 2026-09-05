@@ -116,6 +116,8 @@ export { EngineBus } from './engineBus.js';
 export { MACHINE_EVENT_NAMES } from './events.js';
 export type { CallRoleName, EngineEventHandler, EngineEventName, EngineEvents } from './events.js';
 export { WebRTCAdapter } from './media/webrtcAdapter.js';
+export { VideoProfiles, defaultVideoProfile, videoConstraints } from './media/videoProfile.js';
+export type { VideoProfile } from './media/videoProfile.js';
 export { ViewRegistry } from './media/viewRegistry.js';
 export { MediaBridge } from './media/mediaBridge.js';
 export type { ViewElement } from './media/viewRegistry.js';

@@ -7,6 +7,8 @@ import type {
   MediaAdapterEvents,
   MediaSource,
 } from './mediaAdapter.js';
+import type { VideoProfile } from './videoProfile.js';
+import { defaultVideoProfile, videoConstraints } from './videoProfile.js';
 
 /**
  * 浏览器 WebRTC 的媒体适配器。
@@ -28,11 +30,15 @@ export class WebRTCAdapter implements MediaAdapter {
   /** 候选缓存：PC 的远端描述还没设时收到的候选先存着（乱序是常态）。 */
   private readonly pendingCandidates: Record<PcRole, RTCIceCandidateInit[]> = { pub: [], sub: [] };
 
+  /** 采集画质档位。见 videoProfile.ts：**策略归宿主**，不是服务端下发的。 */
+  private readonly video: VideoProfile;
+
   /** source 缺省时用 navigator.mediaDevices；端到端测试可以传合成源。 */
-  constructor(source?: MediaSource) {
+  constructor(source?: MediaSource, videoProfile?: VideoProfile) {
     this.source = source ?? {
       getStream: (constraints) => navigator.mediaDevices.getUserMedia(constraints),
     };
+    this.video = videoProfile ?? defaultVideoProfile;
   }
 
   open(events: MediaAdapterEvents): void {
@@ -68,7 +74,7 @@ export class WebRTCAdapter implements MediaAdapter {
   }
 
   async acquireCamera(): Promise<LocalTrackInfo> {
-    return this.acquire({ video: true }, 'video', 'camera');
+    return this.acquire({ video: videoConstraints(this.video) }, 'video', 'camera');
   }
 
   /**
@@ -99,9 +105,29 @@ export class WebRTCAdapter implements MediaAdapter {
         cause: new Error(`getUserMedia 没返回 ${kind} 轨道`),
       });
     }
-    pub.addTrack(track, stream);
+    const sender = pub.addTrack(track, stream);
     this.locals.set(track.id, track);
+    if (kind === 'video') this.applyVideoBitrate(sender);
     return { cid: track.id, kind, source };
+  }
+
+  /**
+   * applyVideoBitrate 给上行视频压一个码率上限。
+   *
+   * **不设的话浏览器会自己往上飙**：Chrome 对 720p 的默认上限远高于我们给
+   * simulcast h 层定的目标值，服务端的带宽预算（`bwe.go` 的 `bitrateHigh`）
+   * 就成了一个对不上的数字，降层判断跟着不准。
+   *
+   * 失败只记日志：码率是画质偏好，`setParameters` 被拒不该让通话打不出去。
+   */
+  private applyVideoBitrate(sender: RTCRtpSender): void {
+    const params = sender.getParameters();
+    // encodings 可能还是空的（协商之前）；补一个默认项，浏览器会认。
+    if (params.encodings.length === 0) params.encodings = [{}];
+    for (const encoding of params.encodings) encoding.maxBitrate = this.video.maxBitrateBps;
+    void sender.setParameters(params).catch((err: unknown) => {
+      logger.info('设置上行码率失败，用浏览器默认值', { err: String(err) });
+    });
   }
 
   async createPubOffer(): Promise<string> {

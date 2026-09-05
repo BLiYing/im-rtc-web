@@ -2,12 +2,14 @@ import { EngineBus } from './engineBus.js';
 import { ErrorCode, RtcError } from './errors.js';
 import { FrameLoop } from './frameLoop.js';
 import { logger } from './logger.js';
+import { CallEndReason } from './reasons.js';
 import type { EngineEventHandler, EngineEventName } from './events.js';
 import type { MediaAdapter } from './media/mediaAdapter.js';
 import { MediaBridge } from './media/mediaBridge.js';
 import type { MediaPlaneDeps } from './media/mediaPlane.js';
 import { mediaEvents } from './media/mediaPlane.js';
 import type { ViewElement } from './media/viewRegistry.js';
+import type { VideoProfile } from './media/videoProfile.js';
 import { WebRTCAdapter } from './media/webrtcAdapter.js';
 import type { Connection, HelloOk } from './signaling/connection.js';
 import { createConnection } from './signaling/connectionFactory.js';
@@ -39,6 +41,13 @@ export interface EngineOptions {
   media?: MediaAdapter;
   /** WebSocket 工厂。默认用浏览器原生；测试可注入假实现。 */
   webSocketFactory?: WebSocketFactory;
+  /**
+   * 采集画质档位（360p / 720p / 1080p，默认 720p）。
+   *
+   * **只对默认媒体适配器生效**——自己传 `media` 的宿主在构造适配器时传它。
+   * 画质是宿主策略，不是 RTC 服务端下发的，理由见 `media/videoProfile.ts`。
+   */
+  videoProfile?: VideoProfile;
 }
 
 /** CallEngine 是宿主唯一需要接触的类型。 */
@@ -58,7 +67,7 @@ export class CallEngine {
 
   constructor(options: EngineOptions) {
     this.options = options;
-    this.media = options.media ?? new WebRTCAdapter();
+    this.media = options.media ?? new WebRTCAdapter(undefined, options.videoProfile);
     this.bridge = new MediaBridge(this.media);
     this.sender = new FrameSender(this.media);
     this.loop = new FrameLoop({
@@ -176,6 +185,24 @@ export class CallEngine {
     if (this.myUid !== '' && calleeIds.includes(this.myUid)) {
       logger.warn('呼叫名单里含自己，已就地拒掉', { uid: this.myUid });
       this.bus.emitError(new RtcError(ErrorCode.badParams));
+      /*
+        **本地拒掉也要给界面一个出口。**
+
+        调用方（uikit / 宿主）在调 `call()` 之前就已经切到「正在呼叫…」了——
+        这是对的，不然按下去几百毫秒没反应。但只抛一个 error 事件，
+        界面不知道该退回哪儿：实测三人测试里 carol 卡在「正在呼叫…」，
+        连点五次挂断收到五个 2005（状态机是 idle，没有 call 可挂），
+        除了刷新页面没有别的出路。
+
+        `callEnd` 是所有结束分支的唯一出口（设计 §7.5），
+        这一条与「服务端拒了 invite」（call_failed）走同一个出口，界面只认它。
+      */
+      this.bus.emit('callEnd', {
+        callId: '',
+        reason: CallEndReason.error,
+        durationSec: 0,
+        endedBy: '',
+      });
       return;
     }
     await this.loop.dispatch({

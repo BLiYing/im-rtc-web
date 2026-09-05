@@ -3,7 +3,7 @@ import { CallEngine as Engine, WebRTCAdapter, setLogLevel, setLogSink } from '@i
 import { CallOverlay, CallProvider } from '@im-rtc/call-uikit-react';
 import { SyntheticMediaSource, browserMediaSource } from '@demo/synthetic';
 import type { ReactNode } from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { demoLogin } from './api.js';
 import type { ConnPhase } from '@demo/connection-guard';
@@ -48,9 +48,23 @@ interface SavedLogin {
 
 const SAVED_KEY = 'im-rtc-demo.login';
 
+/*
+ 「自动重登」存在 **sessionStorage**，不是 localStorage。
+
+ localStorage 是**整个站点共用一份**：这个 Demo 主推的用法恰恰是「双开标签页对拨」，
+ 而两个标签页同源。于是新开的第二个标签页一加载就拿着第一个标签页的用户名自动登录，
+ 同 uid 同 device_id，服务端按协议踢掉先来的那个——**打开 B 就把 A 顶下线**，
+ 而 A 那边显示的是「登录态已失效」，看着像随机掉线。
+
+ sessionStorage 是**每个标签页一份、刷新仍在**，正好是这里要的语义：
+ 「刷新不掉线」成立，「另一个标签页」互不干扰。
+
+ 服务端地址与用户名这两个输入框的记忆仍然走 localStorage——它们是**输入便利**，
+ 跨标签页共享反而省事，也不会触发登录。
+*/
 function remember(saved: SavedLogin): void {
   try {
-    localStorage.setItem(SAVED_KEY, JSON.stringify(saved));
+    sessionStorage.setItem(SAVED_KEY, JSON.stringify(saved));
     localStorage.setItem('im-rtc-demo.server', saved.server);
     localStorage.setItem('im-rtc-demo.username', saved.username);
   } catch {
@@ -60,7 +74,7 @@ function remember(saved: SavedLogin): void {
 
 function forget(): void {
   try {
-    localStorage.removeItem(SAVED_KEY);
+    sessionStorage.removeItem(SAVED_KEY);
   } catch {
     // 同上
   }
@@ -68,7 +82,7 @@ function forget(): void {
 
 function loadSaved(): SavedLogin | null {
   try {
-    const raw = localStorage.getItem(SAVED_KEY);
+    const raw = sessionStorage.getItem(SAVED_KEY);
     return raw === null ? null : (JSON.parse(raw) as SavedLogin);
   } catch {
     return null;
@@ -79,6 +93,8 @@ export function App(): ReactNode {
   const [session, setSession] = useState<Session | null>(null);
   /** 正在用记住的参数自动重登。**要有这个态**，否则刷新后会闪一下登录页。 */
   const [restoring, setRestoring] = useState(loadSaved() !== null);
+  /** 自动重登只许跑一次的闩。**必须是 ref**：见下面 useEffect 的说明。 */
+  const restoringOnce = useRef(false);
   const [conn, setConn] = useState<{ phase: ConnPhase; detail: string }>({
     phase: 'connected', detail: '',
   });
@@ -141,11 +157,21 @@ export function App(): ReactNode {
   );
 
   /*
-    刷新后自动重登。**只跑一次**：依赖数组里放 login 是安全的（它是 useCallback），
-    但要用 restoring 这个闩挡住重复触发——否则 login 里 setSession 会再触发一轮。
+    刷新后自动重登。**只跑一次**，而且闩必须是 ref 不能是 state。
+
+    原先只用 `restoring` 这个 state 当闩：React 18 的 StrictMode 在开发模式下
+    会把 effect **跑两遍**（mount → cleanup → mount），而 `restoring` 要等
+    `login()` 的 promise 落地才会变 false——第二遍进来时它还是 true，于是
+    **同一个页面登录了两次**。两条连接同 uid 同 device_id，服务端按协议踢掉先来的那条，
+    宿主的 `onDead` 一收到 kickedOut 就 `forget()` 退回登录页。
+    症状就是「刷新一下又回到登录界面」——看上去像登录态没存住，
+    其实是自己把自己踢了。（服务端日志里一次刷新有两条「Demo 免密登录」。）
+
+    ref 在第一遍就同步置位，第二遍直接被挡住。
   */
   useEffect(() => {
-    if (!restoring) return;
+    if (!restoring || restoringOnce.current) return;
+    restoringOnce.current = true;
     const saved = loadSaved();
     if (saved === null) {
       setRestoring(false);
