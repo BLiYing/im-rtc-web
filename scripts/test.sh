@@ -69,6 +69,10 @@ run_step "vitest（engine）" npx vitest run --root packages/call-engine
 # （CONVENTIONS §1）。合成一步就等于把 engine 也放进 jsdom，那条约束就没人守了。
 run_step "vitest（uikit）" npx vitest run --root packages/call-uikit-react
 
+# 打包体检。**发布前的最后一道**：包里到底有什么，只有 npm pack 说了算。
+# 漏写 files 字段会把源码、测试、tsconfig 全发出去，而那件事在本地跑测试是看不出来的。
+run_step "npm 打包体检" ./scripts/check-pack.sh
+
 echo ""
 echo "════════════════════════════════════════════════"
 if [ ${#failed[@]} -eq 0 ]; then
