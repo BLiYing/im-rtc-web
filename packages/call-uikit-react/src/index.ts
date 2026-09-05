@@ -24,6 +24,10 @@ export { IncomingCall } from './components/IncomingCall.js';
 export { CallEnded } from './components/CallEnded.js';
 export { MiniWindow } from './components/MiniWindow.js';
 export { ControlBar } from './components/ControlBar.js';
+export { ControlButton } from './components/ControlButton.js';
+export type { ControlButtonProps } from './components/ControlButton.js';
+export { Icon } from './components/Icon.js';
+export type { IconName } from './components/Icon.js';
 export { VideoTile } from './components/VideoTile.js';
 export type { VideoTileProps } from './components/VideoTile.js';
 

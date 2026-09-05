@@ -79,14 +79,30 @@ export const styles = {
     display: 'flex', gap: 12, justifyContent: 'center', alignItems: 'center', padding: '16px 0 24px',
   } satisfies CSSProperties,
 
-  button: {
-    width: 56, height: 56, borderRadius: '50%', border: 'none', cursor: 'pointer',
-    background: 'rgba(255,255,255,0.14)', color: '#fff', fontSize: 12, lineHeight: 1.1,
+  /*
+    圆形控制按钮：**圆里图标、圆下文字**。数值与 iOS 的 IMKitTheme 一一对应
+    （56 的圆、0.14 的半透明底、开启态白底黑字），两端长得一样。
+  */
+  controlButton: {
+    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+    border: 'none', background: 'none', padding: 0, cursor: 'pointer', color: 'inherit',
+    font: 'inherit', width: 64,
   } satisfies CSSProperties,
 
-  buttonOff: { background: 'rgba(255,255,255,0.35)', color: '#111' } satisfies CSSProperties,
-  buttonAccept: { background: '#3ddc84', color: '#08210f' } satisfies CSSProperties,
-  buttonDanger: { background: danger } satisfies CSSProperties,
+  controlCircle: {
+    width: 56, height: 56, borderRadius: '50%', flex: '0 0 auto',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    background: 'rgba(255,255,255,0.14)', color: '#fff',
+  } satisfies CSSProperties,
+
+  /** 开启态：白底黑图标（与 iOS 的 controlActiveBackground / controlActiveText 一致）。 */
+  controlOn: { background: '#fff', color: '#121212' } satisfies CSSProperties,
+  controlAccept: { background: '#3ddc84', color: '#08210f' } satisfies CSSProperties,
+  controlDanger: { background: danger, color: '#fff' } satisfies CSSProperties,
+
+  controlCaption: {
+    fontSize: 11, lineHeight: 1.2, color: 'rgba(255,255,255,0.7)', textAlign: 'center',
+  } satisfies CSSProperties,
 
   mini: {
     position: 'fixed', right: 16, bottom: 16, zIndex: 9000, width: 160,

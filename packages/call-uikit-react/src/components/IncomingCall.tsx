@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 
+import { ControlButton } from './ControlButton.js';
 import { useCall } from '../useCall.js';
 import { styles } from '../styles.js';
 
@@ -23,23 +24,22 @@ export function IncomingCall(): ReactNode {
           {state.isGroup ? '（群通话）' : ''}
         </div>
       </div>
+      {/* 与通话页、与 iOS 用同一套圆形按钮：同一个产品不该有两种按钮长相。 */}
       <div style={styles.toastActions}>
-        <button
-          type="button"
-          style={{ ...styles.smallButton, background: '#e5484d' }}
+        <ControlButton
+          role="danger"
+          icon="xmark"
+          caption="拒接"
           onClick={() => void actions.reject()}
-          data-testid="reject-call"
-        >
-          拒接
-        </button>
-        <button
-          type="button"
-          style={{ ...styles.smallButton, background: '#3ddc84', color: '#08210f' }}
+          testId="reject-call"
+        />
+        <ControlButton
+          role="accept"
+          icon="phone"
+          caption="接听"
           onClick={() => void actions.accept()}
-          data-testid="accept-call"
-        >
-          接听
-        </button>
+          testId="accept-call"
+        />
       </div>
     </div>
   );
