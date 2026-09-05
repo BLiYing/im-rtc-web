@@ -83,6 +83,14 @@ export interface CallViewState {
   /** 接通时刻（`Date.now()`），0 = 还没接通。计时器从它开始走。 */
   readonly beganAtMs: number;
   readonly endReason: CallEndReasonValue | '';
+  /**
+   * 本端摄像头轨道的 cid，空串 = 还没起摄像头。
+   *
+   * **进 state 是因为它决定渲染**：本端格子要显示画面还是头像，全看它有没有。
+   * 原先靠「`publishTrackIds` 里的第二条就是摄像头」这个顺序去猜，
+   * 而拨出中根本还没发布——于是**拨出时永远看不见自己**。
+   */
+  readonly localCameraCid: string;
   /** 一句给用户看的提示（「对方已拒接」这类）。 */
   readonly hint: string;
   /**
@@ -111,6 +119,7 @@ export const initialCallView: CallViewState = {
   isMinimized: false,
   beganAtMs: 0,
   endReason: '',
+  localCameraCid: '',
   hint: '',
   isMediaReady: false,
 };
@@ -131,6 +140,9 @@ export type ViewAction =
       readonly mediaType: MediaType; readonly isGroup: boolean; readonly role: CallRoleName;
       readonly nowMs: number }
   | { readonly type: 'callEnd'; readonly reason: CallEndReasonValue }
+  | { readonly type: 'localCamera'; readonly cid: string }
+  /** 某人给出了终局裁决（拒接 / 无应答 / 忙线），格子该收掉了。 */
+  | { readonly type: 'userSettled'; readonly uid: string }
   | { readonly type: 'meetingJoined'; readonly roomId: string; readonly nowMs: number }
   | { readonly type: 'roomLeft' }
   | { readonly type: 'mediaReady' }
@@ -218,9 +230,25 @@ export function reduceCallView(state: CallViewState, action: ViewAction): CallVi
     }
 
     case 'callEnd':
-      // **振铃通话的结束出口**（会议走 roomLeft）。
-      // 停在 ended 让界面能显示 1.5 秒再自己 dismiss。
+      /*
+        **振铃通话的结束出口**（会议走 roomLeft）。
+
+        # 还在响铃的来电直接收起，不留结束画面
+
+        被叫这一侧什么都还没做，界面上只有一个来电浮层。对方取消 / 自己拒接 /
+        振铃超时之后，**该做的就是让它消失**——原先统一进 ended，
+        而 ended 又落到 ActiveCall 上，于是来电浮层当场变成通话页
+        （静音 / 关摄像头 / 小窗 / 挂断那一排全出来了），停一两秒再收走。
+        实测反馈：「为何还弹出一个那个接通才有的界面」。
+
+        主叫那一侧不一样：拨出去没打通，人需要知道为什么（对方拒接 / 无人接听 /
+        不在线），所以那边仍然停一下说明原因。
+      */
+      if (state.phase === 'incoming') return initialCallView;
       return { ...state, phase: 'ended', endReason: action.reason, isMinimized: false };
+
+    case 'localCamera':
+      return { ...state, localCameraCid: action.cid };
 
     case 'dismiss':
       return initialCallView;
@@ -229,6 +257,17 @@ export function reduceCallView(state: CallViewState, action: ViewAction): CallVi
       return withParticipant(state, action.uid, (p) => ({ ...p, hasAccepted: true }));
 
     case 'userLeave':
+      return { ...state, participants: state.participants.filter((p) => p.uid !== action.uid) };
+
+    /*
+      群通话里某人拒接 / 没接：**把他的格子收掉**。
+
+      不收的话那一格会一直挂着「（响铃中）」——从主叫的角度看，
+      拒接就跟没发生过一样。**这在群通话里是唯一的信号**：那边没有便利事件
+      （不变量 I7），只有 onUser*。1v1 也会抛，但紧跟着就是 callEnd，
+      界面整个收走，收不收格子都一样。
+    */
+    case 'userSettled':
       return { ...state, participants: state.participants.filter((p) => p.uid !== action.uid) };
 
     case 'userAccept':

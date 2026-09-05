@@ -52,7 +52,20 @@ export interface MediaAdapter {
   /** acquireMicrophone 拿麦克风轨道并挂到 pub PC 上，返回它的 cid。 */
   acquireMicrophone(): Promise<LocalTrackInfo>;
 
-  /** acquireCamera 拿摄像头轨道并挂到 pub PC 上，返回它的 cid。 */
+  /**
+   * startLocalPreview 只**起采集**，不发布（设计文档 §7.5 的 `startLocalPreview`）。
+   *
+   * 拨出中还没有房间，推流无从谈起，但界面这时就该让人看见自己（草图 §03-E）。
+   * 所以「采集」与「发布」必须是两件事：这个方法起摄像头并返回 cid，
+   * 随后的 `acquireCamera` **复用同一条轨道**再挂到 pub 上——否则会把摄像头开两次
+   * （浏览器上表现为第二次 `getUserMedia` 抢设备，画面闪一下甚至直接失败）。
+   *
+   * 幂等：已经在预览就返回同一条。
+   */
+  startLocalPreview(): Promise<LocalTrackInfo>;
+
+  /** acquireCamera 拿摄像头轨道并挂到 pub PC 上，返回它的 cid。
+   *  已经在预览的话**复用那条轨道**，不重开摄像头。 */
   acquireCamera(): Promise<LocalTrackInfo>;
 
   /** createPubOffer 生成上行 offer。**pub 的 offerer 恒为本端**（协议 §3.3）。 */

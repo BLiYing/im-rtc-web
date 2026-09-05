@@ -141,3 +141,42 @@ describe('本端开关', () => {
     expect(state.self).toEqual({ micOn: false, cameraOn: true });
   });
 });
+
+/*
+  群通话里有人拒接 / 没接，**格子要收掉**。
+
+  不收的话那一格一直挂着「（响铃中）」——从主叫的角度看，
+  对方拒接就跟什么都没发生一样。群通话里没有便利事件（不变量 I7），
+  `userReject` / `userNoResponse` 是唯一的信号。
+*/
+describe('群通话里的终局裁决', () => {
+  it('拒接的人不再占着格子', () => {
+    const state = run([
+      { type: 'callPlaced', calleeIds: ['bob', 'carol'], mediaType: 'video', isGroup: true },
+      { type: 'userSettled', uid: 'bob' },
+    ]);
+    expect(state.participants.map((p) => p.uid)).toEqual(['carol']);
+  });
+});
+
+/*
+  还在响铃的来电结束时**直接回 idle**，不留结束画面——
+  否则来电浮层会当场变成通话页（那一排接通后才有的按钮全出来），停一两秒再消失。
+*/
+describe('来电的结束出口', () => {
+  it('响铃中收到 callEnd 直接归零', () => {
+    const state = run([incoming, { type: 'callEnd', reason: 'cancel' }]);
+    expect(state.phase).toBe('idle');
+  });
+
+  it('已接通的通话仍然停在结束态，好让界面说清原因', () => {
+    const state = run([
+      incoming,
+      { type: 'callBegin', callId: 'c', roomId: 'r', mediaType: 'video',
+        isGroup: false, role: 'callee', nowMs: 0 },
+      { type: 'callEnd', reason: 'hangup' },
+    ]);
+    expect(state.phase).toBe('ended');
+    expect(state.endReason).toBe('hangup');
+  });
+});

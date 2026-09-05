@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 
 import { useCall } from '../useCall.js';
 import { ActiveCall } from './ActiveCall.js';
+import { CallEnded } from './CallEnded.js';
 import { IncomingCall } from './IncomingCall.js';
 import { MiniWindow } from './MiniWindow.js';
 
@@ -16,6 +17,12 @@ export function CallOverlay(): ReactNode {
 
   if (state.phase === 'idle') return null;
   if (state.phase === 'incoming') return <IncomingCall />;
+  /*
+    **结束态有自己的一屏**，不能落到 ActiveCall 上——那会把「静音 / 关摄像头 /
+    小窗 / 挂断」这排接通后才有的按钮连同九宫格一起显示出来。
+    （还在响铃的来电根本不会进结束态，直接回 idle，见 callView.ts。）
+  */
+  if (state.phase === 'ended') return <CallEnded />;
   if (state.isMinimized) return <MiniWindow />;
   return <ActiveCall />;
 }

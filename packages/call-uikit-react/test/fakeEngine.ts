@@ -73,6 +73,10 @@ export class FakeEngine {
     this.state.room.publishTrackIds['mic-1'] = 't-mic';
     return 'mic-1';
   }
+  async startLocalPreview(): Promise<string> {
+    this.calls.push('startLocalPreview');
+    return 'cam-1';
+  }
   async publishCamera(): Promise<string> {
     this.calls.push('publishCam');
     this.state.room.publishTrackIds['cam-1'] = 't-cam';

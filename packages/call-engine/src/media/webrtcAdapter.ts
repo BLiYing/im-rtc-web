@@ -32,6 +32,10 @@ export class WebRTCAdapter implements MediaAdapter {
 
   /** 采集画质档位。见 videoProfile.ts：**策略归宿主**，不是服务端下发的。 */
   private readonly video: VideoProfile;
+  /** 已经在预览的摄像头轨道。发布时复用它，不重开设备。 */
+  private preview: { track: MediaStreamTrack; stream: MediaStream } | null = null;
+  /** 预览那条轨道是否已经挂到 pub 上。`addTrack` 同一条轨道两次会抛异常。 */
+  private cameraPublished = false;
 
   /** source 缺省时用 navigator.mediaDevices；端到端测试可以传合成源。 */
   constructor(source?: MediaSource, videoProfile?: VideoProfile) {
@@ -73,8 +77,35 @@ export class WebRTCAdapter implements MediaAdapter {
     return this.acquire({ audio: true }, 'audio', 'microphone');
   }
 
+  /**
+   * startLocalPreview 只起采集，不挂到 pub 上。
+   *
+   * **拨出中就该看得见自己**（草图 §03-E），可那时还没有房间、推不了流。
+   * 所以采集与发布拆成两步，`acquireCamera` 复用这条轨道——
+   * 不复用的话第二次 `getUserMedia` 会去抢同一个摄像头。
+   */
+  async startLocalPreview(): Promise<LocalTrackInfo> {
+    if (this.preview !== null) return previewInfo(this.preview.track);
+    const stream = await this.getStreamOrThrow({ video: videoConstraints(this.video) });
+    const track = stream.getVideoTracks()[0];
+    if (track === undefined) {
+      throw new RtcError(ErrorCode.deviceNotFound, {
+        cause: new Error('getUserMedia 没返回 video 轨道'),
+      });
+    }
+    this.preview = { track, stream };
+    this.locals.set(track.id, track);
+    return previewInfo(track);
+  }
+
   async acquireCamera(): Promise<LocalTrackInfo> {
-    return this.acquire({ video: videoConstraints(this.video) }, 'video', 'camera');
+    // **复用预览那条轨道**：拨出时已经开过摄像头了，再开一次会抢设备。
+    const info = await this.startLocalPreview();
+    if (this.preview === null || this.cameraPublished) return info;
+    this.cameraPublished = true;
+    const sender = this.requirePub().addTrack(this.preview.track, this.preview.stream);
+    this.applyVideoBitrate(sender);
+    return info;
   }
 
   /**
@@ -89,15 +120,7 @@ export class WebRTCAdapter implements MediaAdapter {
     source: 'microphone' | 'camera',
   ): Promise<LocalTrackInfo> {
     const pub = this.requirePub();
-    let stream: MediaStream;
-    try {
-      stream = await this.source.getStream(constraints);
-    } catch (cause) {
-      const code = isPermissionError(cause)
-        ? ErrorCode.devicePermissionDenied
-        : ErrorCode.deviceNotFound;
-      throw new RtcError(code, { cause });
-    }
+    const stream = await this.getStreamOrThrow(constraints);
 
     const track = kind === 'audio' ? stream.getAudioTracks()[0] : stream.getVideoTracks()[0];
     if (track === undefined) {
@@ -109,6 +132,18 @@ export class WebRTCAdapter implements MediaAdapter {
     this.locals.set(track.id, track);
     if (kind === 'video') this.applyVideoBitrate(sender);
     return { cid: track.id, kind, source };
+  }
+
+  /** getStreamOrThrow 取流，并把浏览器的异常收敛成结构化错误。 */
+  private async getStreamOrThrow(constraints: MediaStreamConstraints): Promise<MediaStream> {
+    try {
+      return await this.source.getStream(constraints);
+    } catch (cause) {
+      const code = isPermissionError(cause)
+        ? ErrorCode.devicePermissionDenied
+        : ErrorCode.deviceNotFound;
+      throw new RtcError(code, { cause });
+    }
   }
 
   /**
@@ -208,6 +243,8 @@ export class WebRTCAdapter implements MediaAdapter {
     // 轨道用完必须 stop()，否则摄像头指示灯不灭（CONVENTIONS §8）。
     for (const track of this.locals.values()) track.stop();
     this.locals.clear();
+    this.preview = null;
+    this.cameraPublished = false;
     this.pendingCandidates.pub = [];
     this.pendingCandidates.sub = [];
     this.pub?.close();
@@ -230,4 +267,9 @@ export class WebRTCAdapter implements MediaAdapter {
 
 function isPermissionError(cause: unknown): boolean {
   return cause instanceof Error && (cause.name === 'NotAllowedError' || cause.name === 'SecurityError');
+}
+
+/** previewInfo 把预览轨道翻成 LocalTrackInfo。cid 就是轨道的 id（协议 §3.2）。 */
+function previewInfo(track: MediaStreamTrack): LocalTrackInfo {
+  return { cid: track.id, kind: 'video', source: 'camera' };
 }

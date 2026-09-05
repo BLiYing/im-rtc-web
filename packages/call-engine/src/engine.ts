@@ -262,7 +262,20 @@ export class CallEngine {
     return info.cid;
   }
 
-  /** publishCamera 发布摄像头。 */
+  /**
+   * startLocalPreview 只起本端采集，**不发布**（设计文档 §7.5，四端同名）。
+   *
+   * 拨出中还没有房间，推流无从谈起，但界面这时就该让人看见自己（草图 §03-E）。
+   * 随后的 `publishCamera` 复用这条轨道，不会把摄像头开第二次。
+   *
+   * 返回轨道的 cid，宿主拿它调 `attachLocalView`。
+   */
+  async startLocalPreview(): Promise<string> {
+    const info = await this.media.startLocalPreview();
+    return info.cid;
+  }
+
+  /** publishCamera 发布摄像头。已经在预览的话复用那条轨道。 */
   async publishCamera(simulcast = true): Promise<string> {
     const info = await this.media.acquireCamera();
     await this.loop.dispatch({

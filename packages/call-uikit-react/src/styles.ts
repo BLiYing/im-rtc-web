@@ -30,7 +30,18 @@ export const styles = {
 
   stage: { flex: 1, minHeight: 0, padding: '0 12px 12px', display: 'flex' } satisfies CSSProperties,
 
-  grid: { flex: 1, display: 'grid', gap: 8, minHeight: 0 } satisfies CSSProperties,
+  /** 结束画面：整屏就一句话，居中。**不复用通话页的骨架**（见 CallEnded.tsx）。 */
+  endedBox: {
+    flex: 1, display: 'flex', flexDirection: 'column',
+    alignItems: 'center', justifyContent: 'center', gap: 8,
+  } satisfies CSSProperties,
+  endedReason: { fontSize: 17 } satisfies CSSProperties,
+
+  // 网格整体居中：格子是正方形，宽高多半吃不满整块区域，剩下的留白要匀在两边。
+  grid: {
+    flex: 1, display: 'grid', gap: 8, minHeight: 0,
+    justifyContent: 'center', alignContent: 'center',
+  } satisfies CSSProperties,
 
   tile: {
     position: 'relative', background: '#000', borderRadius: 10, overflow: 'hidden',

@@ -2,7 +2,8 @@ import type { ReactNode } from 'react';
 
 import { formatDuration } from '../format/duration.js';
 import type { CallViewState } from '../state/callView.js';
-import { gridDimensions, tileLayer, visibleTiles } from '../layout/grid.js';
+import { cellSide, gridDimensions, tileLayer, visibleTiles } from '../layout/grid.js';
+import { useElementSize } from '../useElementSize.js';
 import { useCall } from '../useCall.js';
 import { useElapsed } from '../useElapsed.js';
 import { styles } from '../styles.js';
@@ -16,13 +17,24 @@ import { VideoTile } from './VideoTile.js';
  * 1v1 本端是浮在角上的小画面，群通话本端就是格子之一。
  * 分成两个组件的话，静音状态、发言高亮这些要维护两遍。
  */
+/** 格子间距（px）。与 `styles.grid` 的 gap 是同一个数，算边长时要减掉它。 */
+const TILE_GAP = 8;
+
 export function ActiveCall(): ReactNode {
   const { state } = useCall();
   const seconds = useElapsed(state.beganAtMs);
+  const stage = useElementSize<HTMLDivElement>();
   const tiles = visibleTiles(state.participants);
   // 群通话本端也占一格，1v1 不占（本端是右上角的小画面）。
   const tileCount = state.isGroup ? tiles.length + 1 : tiles.length;
-  const { cols, rows } = gridDimensions(tileCount);
+  /*
+    行列**跟着容器形状走**，不是只看人数：竖屏（手机、窄窗口）上两个人要上下摞，
+    横屏上才是左右排。量不到尺寸时（jsdom、首帧）按正方形容器算，
+    退化成老的 `ceil(sqrt(n))`——不至于渲染不出来。
+  */
+  const aspect = stage.height > 0 ? stage.width / stage.height : 1;
+  const { cols, rows } = gridDimensions(tileCount, aspect);
+  const side = cellSide({ cols, rows }, stage.width, stage.height, TILE_GAP);
   const layer = tileLayer(tileCount);
 
   return (
@@ -34,12 +46,15 @@ export function ActiveCall(): ReactNode {
         </div>
       </div>
 
-      <div style={styles.stage}>
+      <div style={styles.stage} ref={stage.ref}>
         <div
           style={{
             ...styles.grid,
-            gridTemplateColumns: `repeat(${cols}, 1fr)`,
-            gridTemplateRows: `repeat(${rows}, 1fr)`,
+            // **格子恒为正方形**：让它吃满整块区域的话，竖屏两个人就是
+            // 两条又高又窄的长条，画面被拉伸得很难看。算不出边长时退回 1fr。
+            gridTemplateColumns: side > 0 ? `repeat(${cols}, ${side}px)` : `repeat(${cols}, 1fr)`,
+            gridTemplateRows: side > 0 ? `repeat(${rows}, ${side}px)` : `repeat(${rows}, 1fr)`,
+            gap: TILE_GAP,
           }}
         >
           {tiles.map((p) => (
@@ -65,9 +80,15 @@ export function ActiveCall(): ReactNode {
 
 /** SelfTile 是本端预览。群通话里是格子之一，1v1 里浮在右上角。 */
 function SelfTile({ inGrid }: { readonly inGrid: boolean }): ReactNode {
-  const { state, engine } = useCall();
-  // 本端预览挂的是**已发布的那条摄像头轨道**；没发布时只显示头像。
-  const cid = firstVideoCid(engine.state.room.publishTrackIds);
+  const { state } = useCall();
+  /*
+    本端预览挂的是 **`startLocalPreview` 起的那条摄像头轨道**，不是「已发布的那条」。
+
+    原先靠「`publishTrackIds` 里的第二条就是摄像头」这个顺序去猜，而**拨出中
+    根本还没有房间、没有发布**——于是视频呼出时永远看不见自己，
+    要等对方接了才突然出现。（iOS 侧同一条修法：采集与发布拆成两件事。）
+  */
+  const cid = state.localCameraCid;
   const style = inGrid ? {} : styles.selfPreview;
 
   return (
@@ -81,19 +102,6 @@ function SelfTile({ inGrid }: { readonly inGrid: boolean }): ReactNode {
       style={style}
     />
   );
-}
-
-/**
- * firstVideoCid 找本端摄像头轨道的 cid。
- *
- * 房间状态里记的是 cid → track_id，**cid 就是本地轨道的 id**（协议 §3.2：
- * 浏览器不允许自定义 track.id）。麦克风轨道也在这张表里，
- * 所以这里只能靠「摄像头是第二条发布的」这个顺序——
- * 更准的做法是 engine 把 kind 也记进去，等回调表补上再改。
- */
-function firstVideoCid(publishTrackIds: Readonly<Record<string, string>>): string {
-  const cids = Object.keys(publishTrackIds);
-  return cids.length >= 2 ? (cids[1] ?? '') : '';
 }
 
 function title(state: CallViewState, others: number): string {

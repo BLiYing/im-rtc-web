@@ -5,6 +5,7 @@ import { createContext, useCallback, useEffect, useMemo, useReducer, useRef } fr
 
 import type { CallViewState, ViewAction } from './state/callView.js';
 import { initialCallView, reduceCallView } from './state/callView.js';
+import { endedHoldMs as holdMsFor } from './format/endReason.js';
 
 /**
  * CallProvider 把 engine 的公开事件接成界面状态。
@@ -59,7 +60,12 @@ export interface CallProviderProps {
   readonly endedHoldMs?: number;
 }
 
-export function CallProvider({ engine, children, endedHoldMs = 1500 }: CallProviderProps): ReactNode {
+/** 结束画面的默认停留时长。见 `format/endReason.ts`：实际时长按原因分档。 */
+const DEFAULT_ENDED_HOLD_MS = 1500;
+
+export function CallProvider({
+  engine, children, endedHoldMs = DEFAULT_ENDED_HOLD_MS,
+}: CallProviderProps): ReactNode {
   const [state, dispatch] = useReducer(reduceCallView, initialCallView);
   /** 本端已发布轨道的 cid。放 ref 不放 state：它不参与渲染，进 state 会白白多一轮。 */
   const cids = useRef({ mic: '', cam: '' });
@@ -69,9 +75,12 @@ export function CallProvider({ engine, children, endedHoldMs = 1500 }: CallProvi
   // 结束画面停留一会儿再收起。**计时器必须清理**，否则快速连打两通会互相收掉。
   useEffect(() => {
     if (state.phase !== 'ended' || endedHoldMs <= 0) return;
-    const timer = setTimeout(() => dispatch({ type: 'dismiss' }), endedHoldMs);
+    // 说不清原因的那几种要停久一点（「对方不在线」得让人看清）。
+    // 宿主显式传了 endedHoldMs 就以宿主为准。
+    const hold = endedHoldMs === DEFAULT_ENDED_HOLD_MS ? holdMsFor(state.endReason) : endedHoldMs;
+    const timer = setTimeout(() => dispatch({ type: 'dismiss' }), hold);
     return () => clearTimeout(timer);
-  }, [state.phase, endedHoldMs]);
+  }, [state.phase, state.endReason, endedHoldMs]);
 
   // 通话结束时清掉发布记录，下一通才不会拿着上一通的 cid 去 mute。
   useEffect(() => {
@@ -91,6 +100,7 @@ export function CallProvider({ engine, children, endedHoldMs = 1500 }: CallProvi
       if (mediaType !== 'video') return;
       try {
         cids.current.cam = await engine.publishCamera();
+        dispatch({ type: 'localCamera', cid: cids.current.cam });
       } catch (err) {
         logger.warn('摄像头推流失败，本通只有声音', { err: String(err) });
       }
@@ -98,10 +108,26 @@ export function CallProvider({ engine, children, endedHoldMs = 1500 }: CallProvi
     [engine],
   );
 
+  /**
+   * startPreview 起本端采集（不发布）。**失败只记日志**——摄像头挂了不该挡住通话。
+   */
+  const startPreview = useCallback(async (): Promise<void> => {
+    if (cids.current.cam !== '') return;
+    try {
+      cids.current.cam = await engine.startLocalPreview();
+      dispatch({ type: 'localCamera', cid: cids.current.cam });
+    } catch (err) {
+      logger.info('本端预览起不来', { err: String(err) });
+    }
+  }, [engine]);
+
   const actions = useMemo<CallActions>(
     () => ({
       placeCall: async (calleeIds, mediaType, isGroup = false): Promise<void> => {
         dispatch({ type: 'callPlaced', calleeIds, mediaType, isGroup });
+        // 视频呼出时**先把本端预览起起来**：拨出中还没有房间、推不了流，
+        // 但界面这时就该让人看见自己（草图 §03-E）。采集与发布是两件事。
+        if (mediaType === 'video') await startPreview();
         await engine.call(calleeIds, mediaType, isGroup);
       },
       joinMeeting: async (roomId, roomToken): Promise<void> => {
@@ -111,6 +137,7 @@ export function CallProvider({ engine, children, endedHoldMs = 1500 }: CallProvi
         dispatch({ type: 'setCamera', on: true });
       },
       accept: async (): Promise<void> => {
+        if (state.mediaType === 'video') await startPreview();
         await engine.accept();
       },
       reject: async (): Promise<void> => {
@@ -147,7 +174,8 @@ export function CallProvider({ engine, children, endedHoldMs = 1500 }: CallProvi
       setMinimized: (minimized): void => dispatch({ type: 'setMinimized', minimized }),
       dismiss: (): void => dispatch({ type: 'dismiss' }),
     }),
-    [engine, publishFor, state.phase, state.isMeeting, state.self.micOn, state.self.cameraOn],
+    [engine, publishFor, startPreview, state.phase, state.mediaType, state.isMeeting,
+     state.self.micOn, state.self.cameraOn],
   );
 
   /*
@@ -190,6 +218,14 @@ function subscribe(engine: CallEngine, dispatch: (action: ViewAction) => void): 
     engine.on('userEnter', (e) => dispatch({ type: 'userEnter', uid: e.uid })),
     engine.on('userLeave', (e) => dispatch({ type: 'userLeave', uid: e.uid })),
     engine.on('userAccept', (e) => dispatch({ type: 'userAccept', uid: e.uid })),
+    /*
+      拒接与无应答要把格子收掉——不收的话那一格一直挂着「（响铃中）」，
+      从主叫的角度看，对方拒接就跟什么都没发生一样。
+      1v1 也会抛这两条，但那边紧跟着就是 callEnd，界面整个收走，收不收格子无所谓；
+      **群通话里才是唯一的信号**——那边只有 onUser*，没有便利事件（不变量 I7）。
+    */
+    engine.on('userReject', (e) => dispatch({ type: 'userSettled', uid: e.uid })),
+    engine.on('userNoResponse', (e) => dispatch({ type: 'userSettled', uid: e.uid })),
     engine.on('userAudioAvailable', (e) =>
       dispatch({ type: 'userAudio', uid: e.uid, available: e.available })),
     engine.on('userVideoAvailable', (e) =>

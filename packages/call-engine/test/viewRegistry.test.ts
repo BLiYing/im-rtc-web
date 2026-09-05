@@ -208,6 +208,7 @@ function stubAdapter(): MediaAdapter {
     open: (): void => {},
     close: (): void => {},
     acquireMicrophone: notUsed,
+    startLocalPreview: notUsed,
     acquireCamera: notUsed,
     createPubOffer: notUsed,
     applyPubAnswer: notUsed,

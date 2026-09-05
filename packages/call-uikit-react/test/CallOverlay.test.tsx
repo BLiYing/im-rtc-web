@@ -52,12 +52,17 @@ describe('CallOverlay 按阶段显示', () => {
     expect(screen.queryByTestId('active-call')).toBeNull();
   });
 
-  it('来电时出浮层，接听调 engine.accept', () => {
+  it('来电时出浮层，接听调 engine.accept', async () => {
     const engine = setup();
     ring(engine);
 
     expect(screen.getByTestId('incoming-call').textContent).toContain('alice');
     fireEvent.click(screen.getByTestId('accept-call'));
+    // 接听前先起本端预览（视频来电），所以 accept 落在下一个微任务上。
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(engine.calls).toContain('startLocalPreview');
     expect(engine.calls).toContain('accept');
   });
 
@@ -115,13 +120,50 @@ describe('CallOverlay 按阶段显示', () => {
     act(() => {
       engine.emit('callEnd', { callId: 'c-1', reason: 'hangup', durationSec: 3, endedBy: 'alice' });
     });
-    // 先停在结束态给用户看一眼，而不是画面「啪」地消失。
-    expect(screen.getByTestId('active-call').textContent).toContain('通话结束');
+    // 先停在结束画面给用户看一眼，而不是画面「啪」地消失。
+    // **它是独立的一屏**：通话页那排「静音 / 关摄像头 / 小窗 / 挂断」不该出现在这里。
+    expect(screen.getByTestId('call-ended').textContent).toContain('通话结束');
+    expect(screen.queryByTestId('active-call')).toBeNull();
+    expect(screen.queryByTestId('toggle-mic')).toBeNull();
+    expect(screen.queryByTestId('end-call')).toBeNull();
 
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 60));
     });
+    expect(screen.queryByTestId('call-ended')).toBeNull();
+  });
+
+  /*
+    还在响铃的来电结束时**直接收起，不留结束画面**。
+
+    原先统一进 ended，而 ended 又落在 ActiveCall 上，于是来电浮层当场变成通话页
+    （静音 / 关摄像头 / 小窗 / 挂断那一排全出来了），停一两秒再消失。
+    实测反馈：「为何还弹出一个那个接通才有的界面」。
+  */
+  it('对方取消时来电界面直接消失，不闪一下通话页', () => {
+    const engine = setup(3000);
+    ring(engine);
+    expect(screen.getByTestId('incoming-call')).toBeTruthy();
+
+    act(() => {
+      engine.emit('callEnd', { callId: 'c-1', reason: 'cancel', durationSec: 0, endedBy: 'alice' });
+    });
+
+    expect(screen.queryByTestId('incoming-call')).toBeNull();
+    expect(screen.queryByTestId('call-ended')).toBeNull();
     expect(screen.queryByTestId('active-call')).toBeNull();
+  });
+
+  /// 主叫那一侧相反：**没打通更要说清为什么**，所以停一下。
+  it('拨出去没人接时，主叫看得到原因', () => {
+    const engine = setup(3000);
+    act(() => {
+      engine.emit('callBegin', {
+        callId: 'c-2', roomId: 'r-2', mediaType: 'audio', isGroup: false, role: 'caller',
+      });
+      engine.emit('callEnd', { callId: 'c-2', reason: 'no_answer', durationSec: 0, endedBy: '' });
+    });
+    expect(screen.getByTestId('call-ended').textContent).toContain('对方无人接听');
   });
 });
 

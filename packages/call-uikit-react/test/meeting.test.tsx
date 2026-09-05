@@ -72,7 +72,7 @@ describe('会议房的进出', () => {
       engine.emit('roomLeft', { roomId: 'r-9' });
     });
     // 和通话一样先停在结束画面，再由 endedHoldMs 收走（这里 0 = 不自动收）。
-    expect(screen.getByTestId('active-call').textContent).toContain('已离开会议');
+    expect(screen.getByTestId('call-ended').textContent).toContain('已离开会议');
   });
 
   it('服务端单方面关房（roomClosed）同样收界面', async () => {
@@ -82,7 +82,7 @@ describe('会议房的进出', () => {
     act(() => {
       engine.emit('roomClosed', { roomId: 'r-9', reason: 'closed' });
     });
-    expect(screen.getByTestId('active-call').textContent).toContain('已离开会议');
+    expect(screen.getByTestId('call-ended').textContent).toContain('已离开会议');
   });
 
   it('结束画面停留之后自己收掉，界面不会一直挂着', async () => {

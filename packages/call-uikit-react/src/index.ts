@@ -21,6 +21,7 @@ export { useElapsed } from './useElapsed.js';
 export { CallOverlay } from './components/CallOverlay.js';
 export { ActiveCall } from './components/ActiveCall.js';
 export { IncomingCall } from './components/IncomingCall.js';
+export { CallEnded } from './components/CallEnded.js';
 export { MiniWindow } from './components/MiniWindow.js';
 export { ControlBar } from './components/ControlBar.js';
 export { VideoTile } from './components/VideoTile.js';
@@ -35,9 +36,11 @@ export type {
   ViewAction,
 } from './state/callView.js';
 
-export { MAX_TILES, focusedLayer, gridDimensions, tileLayer, visibleTiles } from './layout/grid.js';
+export { MAX_TILES, cellSide, focusedLayer, gridDimensions, tileLayer, visibleTiles } from './layout/grid.js';
+export { useElementSize } from './useElementSize.js';
 export type { GridDimensions } from './layout/grid.js';
 
 export { elapsedSec, formatDuration } from './format/duration.js';
+export { endReasonText, endedHoldMs } from './format/endReason.js';
 
 export { styles } from './styles.js';

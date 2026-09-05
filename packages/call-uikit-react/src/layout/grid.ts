@@ -18,17 +18,62 @@ export interface GridDimensions {
   readonly rows: number;
 }
 
+/** 间距占容器短边的比例，只影响边界情况。四端同一个数。 */
+const GAP_RATIO = 0.02;
+
 /**
- * gridDimensions 按人数算行列。
+ * gridDimensions 按人数与**容器的宽高比**算行列。
  *
- * 取「尽量接近正方形」而不是固定 3 列：4 个人排成 2×2 每格都比 3×2 大得多，
- * 而 3 个人排 2×2（留一个空位）比 3×1 那种细长条好看。
+ * # 为什么要看宽高比
+ *
+ * 原先固定取 `ceil(sqrt(n))` 列。竖屏（手机、窄浏览器窗口）上 2 个人就成了
+ * **1 行 2 列**：每格半个宽、整个高，画面被拉成两条细长条。
+ * 同样一份人数，横屏上 2 列才是对的。**决定列数的不是人数，是容器形状。**
+ *
+ * # 规则：让格子尽量大，且恒为正方形
+ *
+ * 逐个试列数，算出那种排法下正方形格子的边长
+ * `min(按列分到的宽, 按行分到的高)`，取边长最大的那个；平手时取行数少的。
+ *
+ * 这条规则四端共用一份（iOS 的 `imGridDimensions` 是同一个算法），
+ * 同样的人数 + 同样的容器形状，各端算出来必须一样。
+ *
+ * @param aspect 容器的 宽 / 高。默认 1（正方形容器），此时退化成老的 `ceil(sqrt(n))`。
  */
-export function gridDimensions(count: number): GridDimensions {
+export function gridDimensions(count: number, aspect = 1): GridDimensions {
   const n = Math.min(Math.max(count, 1), MAX_TILES);
-  const cols = Math.ceil(Math.sqrt(n));
-  const rows = Math.ceil(n / cols);
-  return { cols, rows };
+  // 归一化成「宽 = aspect、高 = 1」的容器；只比大小，绝对尺寸无所谓。
+  const width = Math.max(aspect, 0.01);
+  const gap = Math.min(width, 1) * GAP_RATIO;
+
+  let best: GridDimensions = { cols: n, rows: 1 };
+  let bestSide = -1;
+  for (let cols = 1; cols <= n; cols += 1) {
+    const rows = Math.ceil(n / cols);
+    const side = Math.min((width - (cols - 1) * gap) / cols, (1 - (rows - 1) * gap) / rows);
+    if (side > bestSide || (side === bestSide && rows < best.rows)) {
+      best = { cols, rows };
+      bestSide = side;
+    }
+  }
+  return best;
+}
+
+/**
+ * cellSide 算正方形格子的边长（像素）。
+ *
+ * **格子必须是正方形**：让它吃满整块区域（`1fr` × `1fr`）的话，
+ * 竖屏两个人就是两条又高又窄的长条，画面被拉伸得很难看。
+ */
+export function cellSide(
+  dims: GridDimensions,
+  width: number,
+  height: number,
+  gap: number,
+): number {
+  const byWidth = (width - (dims.cols - 1) * gap) / dims.cols;
+  const byHeight = (height - (dims.rows - 1) * gap) / dims.rows;
+  return Math.max(Math.min(byWidth, byHeight), 0);
 }
 
 /**
