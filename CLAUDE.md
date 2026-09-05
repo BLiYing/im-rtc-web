@@ -52,7 +52,7 @@ im-rtc-web/
 - **`current_task.md` 是「活快照」不是流水账**：固定四节，**就地覆盖、禁止追加 Status 块**。
 - **工程规范见 [CONVENTIONS.md](CONVENTIONS.md)**（分层 / 体量 / TS 严格性 / React 纪律 / 日志 / 测试）。
 - **协议契约在 `im-rtc-server/docs/RTC_PROTOCOL.md`，本仓只读引用**，不得单方面加字段。
-  改协议 = 改四个仓 + 同步一致性向量。
+  改协议 = 改五个仓 + 同步一致性向量。
 - **单文件体量红线**：非测试 `.ts`/`.tsx` **> 400 行**要按职责拆分。
   硬闸：`scripts/check-file-size.sh`（pre-commit + `test.sh` 第 1 步）。新 clone 跑 `./scripts/install-hooks.sh`。
 - 文档引用代码**不写行号**，写文件路径 + 符号名：`packages/call-engine/src/state/callMachine.ts` 的 `reduce()`。
@@ -60,7 +60,7 @@ im-rtc-web/
 ## 工作流程与「完成的定义」
 动手前（Read，不靠记忆）：
 - 改代码前先 Read [CONVENTIONS.md](CONVENTIONS.md)；涉及协议字段再 Read `../im-rtc-server/docs/RTC_PROTOCOL.md`。
-- 加/改**公开事件**前，先 Read 设计文档 §7.5 回调总表——**事件名三端同名**。
+- 加/改**公开事件**前，先 Read 设计文档 §7.5 回调总表——**事件名四端同名**。
 
 声明「完成」前必须全部满足，并在回复中**贴出 `./scripts/test.sh` 的输出**：
 1. 新功能配套测试（`*.test.ts` / `*.test.tsx`），由 `vitest run` 自动纳入。
@@ -92,6 +92,7 @@ npm run dev -w demo          # 起 Demo 站点
 | [im-rtc-ios](https://github.com/BLiYing/im-rtc-ios) | Engine + Kit + Demo（Swift） |
 | **im-rtc-web**（本仓） | engine + uikit + Demo（TS/React） |
 | [im-rtc-desktop](https://github.com/BLiYing/im-rtc-desktop) | C++17 Engine + Qt Demo |
+| [im-rtc-android](https://github.com/BLiYing/im-rtc-android) | Engine + UIKit + Demo（Kotlin） |
 
 **首批宿主（下游）**：`../../im-web`（React + TS 的 IM Web 客户端）。
 

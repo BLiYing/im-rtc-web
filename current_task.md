@@ -48,7 +48,7 @@
 9. **`CallEngine` 根本没暴露 `updateToken`**。`Connection` 上有，门面没有——
    于是协议 §1.5 要求宿主做的那件事（`4401` → 换新票重连），Web 端**做不到**。
    补上公开方法（push 不 pull：不做「token provider 回调」那种让 engine 自己去要票的设计），
-   并写进设计文档 §7.5 的主动方法表（三端同名）。
+   并写进设计文档 §7.5 的主动方法表（四端同名）。
 10. **自动重连的握手结果没人接**。`Connection` 会抛 `onConnected`，但
    `connectionFactory` 压根没把它接出去——门面只在 `login()` 里手工喂了一次 hello.ok。
    后果不是「少一个事件」，而是**重连之后状态机不知道自己重连了**：
@@ -83,7 +83,7 @@
 
 ## 已知坑 / 限制
 
-- **发送侧的默认值陷阱（三端都会踩，已写进协议 §2.4）**：「省略即取默认值」只对**真的省略**
+- **发送侧的默认值陷阱（各端都会踩，已写进协议 §2.4）**：「省略即取默认值」只对**真的省略**
   成立。`JSON.stringify` 会把显式的 `false`/`0` 编码出去——直接写 `{room_id:'r-1'}` 少了
   `auto_subscribe`，写 `auto_subscribe:false` 又把默认的 `true` 覆盖掉，**两种写法都会让人
   进了房收不到任何流**。发送侧一律用 `newFrameData(FIELDS)` 起手再改字段。
@@ -117,8 +117,10 @@
 
 ## 关联工程 / 常用命令
 
+- **各端能力对照表：`../im-rtc-server/docs/CLIENT_PARITY.md`**（逐端逐特性状态的**单一真相源**，✅ 只写在那里，本文件不重复）。
+
 - 协议契约与一致性向量：`../im-rtc-server/docs/RTC_PROTOCOL.md` 与 `../im-rtc-server/docs/conformance/`。
-  **只读引用，不得单方面加字段**；改协议 = 改四个仓 + 同步向量。
+  **只读引用，不得单方面加字段**；改协议 = 改五个仓 + 同步向量。
 - 起服务端联调：`cd ../im-rtc-server && ./scripts/dev.sh`（控制面 :8787，媒体面 UDP 7881）。
   `./scripts/e2e.sh media` 可以确认服务端这边是通的，再来排查本仓。
 - 常用命令：

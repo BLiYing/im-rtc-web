@@ -53,7 +53,7 @@ DOM/WebRTC 的接触点收敛在 `media/` 与 `devices/`，其余部分纯逻辑
 ## 4. 命名
 
 - 文件：模块 `camelCase.ts`，React 组件 `PascalCase.tsx`。
-- **事件名三端同名**：`onCallReceived` / `onCallBegin` / `onCallEnd` …
+- **事件名四端同名**：`onCallReceived` / `onCallBegin` / `onCallEnd` …
   `engine.on('callReceived', …)` 这种字符串键要与设计文档 §7.5 一一对应。
 - 时间量带单位：`timeoutMs`、`durationSec`。
 - 布尔量用 `is` / `has` / `should` 前缀。
@@ -74,7 +74,7 @@ DOM/WebRTC 的接触点收敛在 `media/` 与 `devices/`，其余部分纯逻辑
 
 ## 6. 日志
 
-> 机制与四仓对齐见 `../im-rtc-server/docs/mechanism/LOGGING.md`。
+> 机制与五仓对齐见 `../im-rtc-server/docs/mechanism/LOGGING.md`。
 > 本节只列硬约束；**每一条都有闸门**（`scripts/check-logging.sh`，进 `test.sh`）。
 
 - **统一走 engine 的日志入口**（`logger.ts`，可注入 sink），uikit 与 demo 共用。
@@ -110,7 +110,7 @@ DOM/WebRTC 的接触点收敛在 `media/` 与 `devices/`，其余部分纯逻辑
 ## 9. 测试与「完成的定义」
 
 - **每加一个功能就配测试**。状态机与帧编解码是**必须**有测试的部分。
-- 状态机跑 `im-rtc-server/docs/conformance/*.json` 的**一致性向量**，与另外三端同一份。
+- 状态机跑 `im-rtc-server/docs/conformance/*.json` 的**一致性向量**，与另外四端同一份。
 - 纯逻辑抽出来直接测（不经 React）；组件行为用 jsdom + Testing Library。
 - **时序/订阅类行为一律写 jsdom 测试**，别在浏览器里靠肉眼。姊妹项目为此空跑过一整轮：
   浏览器面板隐藏时 `document.hidden=true`、rAF 冻结、程序化 `scrollTop` 不派发 scroll 事件。
