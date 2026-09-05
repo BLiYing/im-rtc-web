@@ -34,7 +34,13 @@ export function ActiveCall(): ReactNode {
   */
   const aspect = stage.height > 0 ? stage.width / stage.height : 1;
   const { cols, rows } = gridDimensions(tileCount, aspect);
-  const side = cellSide({ cols, rows }, stage.width, stage.height, TILE_GAP);
+  /*
+    **只有一格时铺满，不做正方形。**
+
+    1v1 是「对端满屏 + 本端小窗」，把唯一那一格缩成正方形等于在上下留两条黑边——
+    正方形是为了「多格之间不互相拉伸」，一格的时候没有别人可比。
+  */
+  const side = tileCount > 1 ? cellSide({ cols, rows }, stage.width, stage.height, TILE_GAP) : 0;
   const layer = tileLayer(tileCount);
 
   return (
