@@ -1,4 +1,5 @@
 import type { CallEngine, MediaType } from '@im-rtc/call-engine';
+import { logger } from '@im-rtc/call-engine';
 import type { ReactNode } from 'react';
 import { createContext, useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 
@@ -77,10 +78,22 @@ export function CallProvider({ engine, children, endedHoldMs = 1500 }: CallProvi
     if (state.phase === 'idle') cids.current = { mic: '', cam: '' };
   }, [state.phase]);
 
+  /**
+   * publishFor 推本端媒体。
+   *
+   * **摄像头失败不能连累麦克风**：没有摄像头（或权限被拒）时通话照样该能打，
+   * 只是没有画面。而且失败必须留下痕迹——调用方是 `void publishFor(...)`，
+   * 不接住的话 promise 静静地被丢掉，界面上是「所有人都是头像」而日志里一行都没有。
+   */
   const publishFor = useCallback(
     async (mediaType: MediaType): Promise<void> => {
       cids.current.mic = await engine.publishMicrophone();
-      if (mediaType === 'video') cids.current.cam = await engine.publishCamera();
+      if (mediaType !== 'video') return;
+      try {
+        cids.current.cam = await engine.publishCamera();
+      } catch (err) {
+        logger.warn('摄像头推流失败，本通只有声音', { err: String(err) });
+      }
     },
     [engine],
   );

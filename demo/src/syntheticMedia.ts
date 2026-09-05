@@ -14,10 +14,19 @@ export class SyntheticMediaSource implements MediaSource {
 
   constructor(private readonly label: string) {}
 
+  /**
+   * getStream 按约束造流。
+   *
+   * **判据是「要不要」而不是「是不是 `true`」**：约束既可以是 `true`，
+   * 也可以是一个 `MediaTrackConstraints` 对象（engine 传画质档位时就是后者）。
+   * 原先写的是 `=== true`，档位一落地这里就悄悄不给视频轨了——
+   * `acquire` 随后抛 `deviceNotFound`，而调用方 `void` 掉了那个 promise，
+   * 于是**会议房里所有人都是头像，一行错都没有**。
+   */
   async getStream(constraints: MediaStreamConstraints): Promise<MediaStream> {
     const stream = new MediaStream();
-    if (constraints.audio === true) stream.addTrack(this.audioTrack());
-    if (constraints.video === true) stream.addTrack(this.videoTrack());
+    if (wants(constraints.audio)) stream.addTrack(this.audioTrack());
+    if (wants(constraints.video)) stream.addTrack(this.videoTrack());
     return stream;
   }
 
@@ -84,3 +93,8 @@ export class SyntheticMediaSource implements MediaSource {
 export const browserMediaSource: MediaSource = {
   getStream: (constraints) => navigator.mediaDevices.getUserMedia(constraints),
 };
+
+/** wants 判断某一路要不要：`true` 或一个约束对象都算要，`false` / 省略算不要。 */
+function wants(constraint: boolean | MediaTrackConstraints | undefined): boolean {
+  return constraint !== undefined && constraint !== false;
+}
