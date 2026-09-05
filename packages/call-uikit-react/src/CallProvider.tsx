@@ -70,6 +70,7 @@ export function CallProvider({
   /** 本端已发布轨道的 cid。放 ref 不放 state：它不参与渲染，进 state 会白白多一轮。 */
   const cids = useRef({ mic: '', cam: '' });
 
+
   useEffect(() => subscribe(engine, dispatch), [engine]);
 
   // 结束画面停留一会儿再收起。**计时器必须清理**，否则快速连打两通会互相收掉。
@@ -95,9 +96,20 @@ export function CallProvider({
    * 不接住的话 promise 静静地被丢掉，界面上是「所有人都是头像」而日志里一行都没有。
    */
   const publishFor = useCallback(
-    async (mediaType: MediaType): Promise<void> => {
+    async (mediaType: MediaType, withCamera: boolean): Promise<void> => {
       cids.current.mic = await engine.publishMicrophone();
-      if (mediaType !== 'video') return;
+      /*
+        **摄像头由调用方明说要不要，不在这里读 state。**
+
+        视频来电页上关掉摄像头再接听就是「以语音接听」（拍板 §11-10）——
+        这时连开都不开，而不是「开了再静音」：用户表示不出镜，指示灯就不该亮。
+
+        为什么是参数而不是读 `state.self.cameraOn`：这个函数在 effect 里被调用，
+        闭包捕获的 state 未必是最新的一次提交（会议那条路更明显——
+        `joinMeeting` 里 dispatch 完立刻就调它，那次 dispatch 还没提交）。
+        由知道答案的人传进来，就没有这个时序问题。
+      */
+      if (mediaType !== 'video' || !withCamera) return;
       try {
         cids.current.cam = await engine.publishCamera();
         dispatch({ type: 'localCamera', cid: cids.current.cam });
@@ -133,11 +145,12 @@ export function CallProvider({
       joinMeeting: async (roomId, roomToken): Promise<void> => {
         dispatch({ type: 'meetingJoined', roomId, nowMs: Date.now() });
         await engine.joinRoom(roomId, roomToken);
-        await publishFor('video');
+        await publishFor('video', true); // 会议恒为视频
         dispatch({ type: 'setCamera', on: true });
       },
       accept: async (): Promise<void> => {
-        if (state.mediaType === 'video') await startPreview();
+        // 来电页上关掉了摄像头就别去开它——「以语音接听」走的就是这条。
+        if (state.mediaType === 'video' && state.self.cameraOn) await startPreview();
         await engine.accept();
       },
       reject: async (): Promise<void> => {
@@ -166,6 +179,9 @@ export function CallProvider({
       toggleCamera: async (): Promise<void> => {
         const on = !state.self.cameraOn;
         dispatch({ type: 'setCamera', on });
+        // **还没进房时只改界面，不去发布**：视频来电页上也有这个开关，
+        // 那时房间还不存在，publish 会被不变量 R1 本地拒成 2005。
+        if (state.roomId === '') return;
         // 第一次开摄像头要真的发布；之后只是开关，**不走 unpublish**——
         // 反复 publish/unpublish 会触发重协商风暴（协议 §3.2）。
         if (cids.current.cam === '' && on) cids.current.cam = await engine.publishCamera();
@@ -193,8 +209,10 @@ export function CallProvider({
     if (!isLive || state.roomId === '' || publishedRoomId.current === state.roomId) return;
     publishedRoomId.current = state.roomId;
     if (state.isMeeting) return; // 会议由 joinMeeting 自己推流
-    void publishFor(state.mediaType);
-  }, [state.phase, state.roomId, state.isMeeting, state.mediaType, publishFor]);
+    // `state.self.cameraOn` 取的是「房间号刚落定」那一次提交的值——
+    // 用户在来电页上的取舍已经提交过了，所以这里读到的就是他要的。
+    void publishFor(state.mediaType, state.self.cameraOn);
+  }, [state.phase, state.roomId, state.isMeeting, state.mediaType, state.self.cameraOn, publishFor]);
 
   const value = useMemo<CallContextValue>(() => ({ state, engine, actions }), [state, engine, actions]);
   return <CallContext.Provider value={value}>{children}</CallContext.Provider>;

@@ -263,3 +263,50 @@ describe('摄像头按钮什么时候有', () => {
     expect(screen.getByTestId('toggle-camera')).toBeTruthy();
   });
 });
+
+/*
+  **视频来电页给一个摄像头开关，而不是「以语音接听」按钮**（拍板 §11-10）。
+
+  关掉它再接听就是同一件事，而且状态看得见、还能再打开；两个「接听」并排放着，
+  用户得先分辨哪个是哪个。关着接听时**连摄像头都不开**——用户表示不出镜，
+  指示灯就不该亮，而不是「开了再静音」。
+*/
+describe('来电页上的摄像头开关', () => {
+  it('视频来电有开关，语音来电没有', () => {
+    const engine = setup();
+    ring(engine);
+    expect(screen.getByTestId('incoming-toggle-camera')).toBeTruthy();
+
+    act(() => { engine.emit('callEnd', { callId: 'c-1', reason: 'cancel', durationSec: 0, endedBy: 'a' }); });
+    ring(engine, false, 'audio');
+    expect(screen.queryByTestId('incoming-toggle-camera')).toBeNull();
+  });
+
+  it('关掉摄像头再接听：既不起预览、也不推摄像头', async () => {
+    const engine = setup();
+    ring(engine);
+
+    fireEvent.click(screen.getByTestId('incoming-toggle-camera'));
+    fireEvent.click(screen.getByTestId('accept-call'));
+    await act(async () => { await Promise.resolve(); });
+    connect(engine);
+    await act(async () => { await Promise.resolve(); });
+
+    expect(engine.calls).toContain('accept');
+    expect(engine.calls).toContain('publishMic');
+    // 用户表示不出镜——摄像头连开都不该开。
+    expect(engine.calls).not.toContain('startLocalPreview');
+    expect(engine.calls).not.toContain('publishCam');
+  });
+
+  it('不关摄像头就照常推', async () => {
+    const engine = setup();
+    ring(engine);
+    fireEvent.click(screen.getByTestId('accept-call'));
+    await act(async () => { await Promise.resolve(); });
+    connect(engine);
+    await act(async () => { await Promise.resolve(); });
+
+    expect(engine.calls).toContain('publishCam');
+  });
+});

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 
+import { showsCameraButton } from './ControlBar.js';
 import { ControlButton } from './ControlButton.js';
 import { useCall } from '../useCall.js';
 import { styles } from '../styles.js';
@@ -26,6 +27,24 @@ export function IncomingCall(): ReactNode {
       </div>
       {/* 与通话页、与 iOS 用同一套圆形按钮：同一个产品不该有两种按钮长相。 */}
       <div style={styles.toastActions}>
+        {/*
+          **视频来电多一个摄像头开关，而不是「以语音接听」按钮。**
+
+          关掉它再接听就是同一件事，而且状态看得见、还能再打开；两个「接听」
+          并排放着，用户得先分辨哪个是哪个（拍板 §11-10）。
+          接听时只在摄像头开着才推流——关着就连开都不开，指示灯不亮。
+        */}
+        {showsCameraButton(state.mediaType) && (
+          <ControlButton
+            icon="video-slash"
+            caption="开摄像头"
+            onIcon="video"
+            onCaption="关摄像头"
+            isOn={state.self.cameraOn}
+            onClick={() => void actions.toggleCamera()}
+            testId="incoming-toggle-camera"
+          />
+        )}
         <ControlButton
           role="danger"
           icon="xmark"
