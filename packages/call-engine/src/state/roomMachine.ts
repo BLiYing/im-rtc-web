@@ -118,9 +118,17 @@ function reduceRoomInternal(ctx: RoomContext, name: string): MachineOutput<RoomC
     case 'reset':
       return roomOut(clearedRoom('idle'));
     case 'join_failed':
-      // 进房被拒（房间没了、票过期、已在房里…）。**退回 idle**，否则状态机
-      // 永远停在 joining，之后每次 publish 都被 R1 本地拒成 2005。
-      return ctx.state === 'joining' ? roomOut(clearedRoom('idle')) : roomOut(ctx);
+      /*
+        进房被拒（房间没了、票过期、已在房里…）。**退回 idle**，否则状态机
+        永远停在 joining，之后每次 publish 都被 R1 本地拒成 2005。
+
+        **还要抛 `onRoomLeft`**：只清状态的话宿主什么都不知道，会议界面会一直停在
+        「正在进入会议…」——和「呼叫被拒却不回 idle」是同一类毛病，
+        界面需要一个明确的收场信号。房间的收场信号就是这一条。
+      */
+      return ctx.state === 'joining'
+        ? roomOut(clearedRoom('idle'), [], [{ cb: 'onRoomLeft', args: { room_id: ctx.roomId } }])
+        : roomOut(ctx);
     default:
       return roomOut(ctx);
   }

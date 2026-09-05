@@ -132,3 +132,45 @@ function stripSend(frames: readonly OutgoingFrame[]): { type: string; data: unkn
 function stripEmit(events: readonly EmittedEvent[]): { cb: string; args: unknown }[] {
   return events.map((e) => ({ cb: e.cb, args: e.args }));
 }
+
+describe('发起呼叫被服务端拒掉', () => {
+  /**
+   * **不回 idle 的后果是「永远退不出去」**：界面停在「正在呼叫…」，
+   * 而服务端根本没建这通电话，之后每次挂断都换回 1401 call_not_found。
+   * （实测：群呼把主叫自己放进了 callee_ids，服务端回 1004，然后连点五次挂断全是 1401。）
+   */
+  it('call_failed 把通话机退回 idle 并抛唯一的结束出口', () => {
+    const placed = reduceCall(initialCallContext, {
+      kind: 'act',
+      op: 'call',
+      args: { callee_ids: ['bob'], media_type: 'audio', is_group: false },
+    });
+    expect(placed.state.state).toBe('inviting');
+
+    const failed = reduceCall(placed.state, { kind: 'internal', name: 'call_failed' });
+    expect(failed.state.state).toBe('idle');
+    expect(failed.emit.map((e) => e.cb)).toEqual(['onCallEnd']);
+    expect(failed.emit[0]?.args['reason']).toBe('error');
+    expect(failed.emit[0]?.args['duration_sec']).toBe(0);
+  });
+
+  it('已经 idle 时 call_failed 什么都不做——不能凭空造一条结束事件', () => {
+    const result = reduceCall(initialCallContext, { kind: 'internal', name: 'call_failed' });
+    expect(result.state.state).toBe('idle');
+    expect(result.emit).toEqual([]);
+  });
+
+  it('退回 idle 之后可以重新发起——这才是「退得出去」的证据', () => {
+    const placed = reduceCall(initialCallContext, {
+      kind: 'act', op: 'call',
+      args: { callee_ids: ['bob'], media_type: 'audio', is_group: false },
+    });
+    const failed = reduceCall(placed.state, { kind: 'internal', name: 'call_failed' });
+    const again = reduceCall(failed.state, {
+      kind: 'act', op: 'call',
+      args: { callee_ids: ['carol'], media_type: 'audio', is_group: false },
+    });
+    expect(again.state.state).toBe('inviting');
+    expect(again.send.map((f) => f.type)).toEqual(['call.invite']);
+  });
+});

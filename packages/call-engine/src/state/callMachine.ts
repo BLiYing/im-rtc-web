@@ -79,6 +79,30 @@ function reduceInternal(ctx: CallContext, name: string): MachineOutput<CallConte
   if (name === 'media_ready' && ctx.state === 'connecting') {
     return out({ ...ctx, state: 'connected' });
   }
+  /*
+    **`call.invite` 被服务端拒了要回 idle**，与 `join_failed` 同一个道理。
+
+    不退的话通话机永远停在 `inviting`：界面上是「正在呼叫…」转个不停，
+    而那通电话服务端根本没建；随后每一次挂断都发向一个不存在的 call，
+    换回 `1401 call_not_found`，**永远退不出去**。
+    （实测：群呼把主叫自己也放进了 callee_ids，服务端回 1004，
+    然后连点五次挂断全是 1401。）
+
+    抛 `onCallEnd` 而不是只清状态：它是所有结束分支的唯一出口（设计 §7.5），
+    界面只认这一个信号来收场子。reason 用 `error`——这通电话从未建立，
+    hangup/cancel/reject 哪个都不是实情。
+  */
+  if (name === 'call_failed' && ctx.state !== 'idle') {
+    return out(initialCallContext, [], [{
+      cb: 'onCallEnd',
+      args: {
+        call_id: ctx.callId,
+        reason: CallEndReason.error,
+        duration_sec: 0,
+        ended_by: '',
+      },
+    }]);
+  }
   return out(ctx);
 }
 

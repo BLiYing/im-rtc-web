@@ -105,6 +105,10 @@ function handleInternal(ctx: EngineContext, name: string): MachineOutput<EngineC
       emit: [{ cb: 'onDisconnected', args: {} }, ...room.emit],
     };
   }
+  if (name === 'call_failed') {
+    // 交给通话机回 idle；它抛的 onCallEnd 会顺带把房间也清掉（见 liftCall）。
+    return liftCall(ctx, reduceCall(ctx.call, { kind: 'internal', name }));
+  }
   if (name === 'join_failed') {
     const room = reduceRoom(ctx.room, { kind: 'internal', name });
     return { state: { ...ctx, room: room.state }, send: [...room.send], emit: [...room.emit] };

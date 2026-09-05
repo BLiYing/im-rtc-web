@@ -1,5 +1,7 @@
 import { EngineBus } from './engineBus.js';
+import { ErrorCode, RtcError } from './errors.js';
 import { FrameLoop } from './frameLoop.js';
+import { logger } from './logger.js';
 import type { EngineEventHandler, EngineEventName } from './events.js';
 import type { MediaAdapter } from './media/mediaAdapter.js';
 import { MediaBridge } from './media/mediaBridge.js';
@@ -48,6 +50,8 @@ export class CallEngine {
 
   private readonly sender: FrameSender;
   private connection: Connection | null = null;
+  /** 握手拿到的自己的 uid。用来挡「呼叫自己」，也供宿主读。 */
+  private myUid = '';
   private readonly loop: FrameLoop;
   /** 最近一次 hello.ok 喂进状态机的那个 promise，`login()` 要等它。 */
   private helloApplied: Promise<void> = Promise.resolve();
@@ -70,6 +74,11 @@ export class CallEngine {
   /** on 订阅事件，返回退订函数。事件表见 events.ts（= 设计文档 §7.5）。 */
   on<K extends EngineEventName>(name: K, handler: EngineEventHandler<K>): () => void {
     return this.bus.on(name, handler);
+  }
+
+  /** uid 是当前登录的用户。未登录时是空串。 */
+  get uid(): string {
+    return this.myUid;
   }
 
   /** state 返回当前的通话与房间状态，供 UI 渲染。 */
@@ -118,6 +127,7 @@ export class CallEngine {
     this.bridge.open(mediaEvents(this.mediaDeps()));
 
     const hello = await connection.connect();
+    this.myUid = hello.uid;
     // 首次登录要等状态机吃完 hello.ok 再返回：宿主拿到 login 的返回值时，
     // engine 的状态应该已经是最终的了。（重连那些不需要等——没人在 await 它们。）
     await this.helloApplied;
@@ -154,7 +164,20 @@ export class CallEngine {
   }
 
   /** call 发起通话。 */
+  /**
+   * call 发起通话。
+   *
+   * **呼叫名单里不能有自己**——服务端会以 `1004 bad_params` 拒掉
+   * （"callee_ids 不能含主叫自己"）。这里在发出去之前就拦下来：那条链路上的失败
+   * 很难看懂，界面已经乐观地进了「正在呼叫…」，而错误只是一条没头没尾的 1004。
+   * （实测撞过：Demo 的群呼默认名单里正好有登录的那个人。）
+   */
   async call(calleeIds: string[], mediaType: MediaType, isGroup = false): Promise<void> {
+    if (this.myUid !== '' && calleeIds.includes(this.myUid)) {
+      logger.warn('呼叫名单里含自己，已就地拒掉', { uid: this.myUid });
+      this.bus.emitError(new RtcError(ErrorCode.badParams));
+      return;
+    }
     await this.loop.dispatch({
       kind: 'act',
       op: 'call',
