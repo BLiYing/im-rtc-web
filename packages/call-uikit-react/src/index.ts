@@ -23,7 +23,7 @@ export { ActiveCall } from './components/ActiveCall.js';
 export { IncomingCall } from './components/IncomingCall.js';
 export { CallEnded } from './components/CallEnded.js';
 export { MiniWindow } from './components/MiniWindow.js';
-export { ControlBar } from './components/ControlBar.js';
+export { ControlBar, showsCameraButton } from './components/ControlBar.js';
 export { ControlButton } from './components/ControlButton.js';
 export type { ControlButtonProps } from './components/ControlButton.js';
 export { Icon } from './components/Icon.js';

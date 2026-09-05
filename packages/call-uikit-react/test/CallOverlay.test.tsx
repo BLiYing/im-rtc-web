@@ -23,19 +23,19 @@ function setup(endedHoldMs = 0): FakeEngine {
 }
 
 /** ring 让来电响起来。 */
-function ring(engine: FakeEngine, isGroup = false): void {
+function ring(engine: FakeEngine, isGroup = false, mediaType = 'video'): void {
   act(() => {
     engine.emit('callReceived', {
-      callId: 'c-1', caller: 'alice', mediaType: 'video', isGroup,
+      callId: 'c-1', caller: 'alice', mediaType, isGroup,
     });
   });
 }
 
 /** connect 把通话推到「通话中」。 */
-function connect(engine: FakeEngine, isGroup = false): void {
+function connect(engine: FakeEngine, isGroup = false, mediaType = 'video'): void {
   act(() => {
     engine.emit('callBegin', {
-      callId: 'c-1', roomId: 'r-1', mediaType: 'video', isGroup, role: 'callee',
+      callId: 'c-1', roomId: 'r-1', mediaType, isGroup, role: 'callee',
     });
     engine.emit('roomJoined', { roomId: 'r-1' });
   });
@@ -231,5 +231,35 @@ describe('清理', () => {
       engine.emit('userLeave', { uid: 'alice' });
     });
     expect(engine.attached.some((a) => a.uid === 'alice' && !a.hasElement)).toBe(true);
+  });
+});
+
+/*
+  语音通话里**不给摄像头按钮**。
+
+  协议上没有「转视频」这回事：media_type 只在 invite 时定死，进了房房间就不认识它。
+  原先那个按钮是半实现——点了确实出镜、对方确实看得见，而本端预览的 cid 在这条路上
+  压根没记进视图状态，于是**自己不知道自己已经出镜了**。
+*/
+describe('摄像头按钮什么时候有', () => {
+  it('语音通话里没有', () => {
+    const engine = setup();
+    ring(engine, false, 'audio');
+    connect(engine, false, 'audio');
+    expect(screen.queryByTestId('toggle-camera')).toBeNull();
+    // 麦克风与挂断照旧。
+    expect(screen.getByTestId('toggle-mic')).toBeTruthy();
+    expect(screen.getByTestId('end-call')).toBeTruthy();
+  });
+
+  it('视频通话里有；把摄像头关掉之后仍然有', () => {
+    const engine = setup();
+    ring(engine);
+    connect(engine);
+    expect(screen.getByTestId('toggle-camera')).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId('toggle-camera'));
+    // 判据是 media_type，不是「本端摄像头开没开」——对方本来就知道这是视频通话。
+    expect(screen.getByTestId('toggle-camera')).toBeTruthy();
   });
 });
