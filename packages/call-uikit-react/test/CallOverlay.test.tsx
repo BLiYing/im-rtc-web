@@ -41,6 +41,12 @@ function connect(engine: FakeEngine, isGroup = false, mediaType = 'video'): void
   });
 }
 
+/** tap 模拟一次没有位移的指针单击。 */
+function tap(el: HTMLElement): void {
+  fireEvent.pointerDown(el, { pointerId: 1, pointerType: 'mouse', clientX: 10, clientY: 10 });
+  fireEvent.pointerUp(el, { pointerId: 1, pointerType: 'mouse', clientX: 10, clientY: 10 });
+}
+
 afterEach(() => {
   document.body.innerHTML = '';
 });
@@ -109,7 +115,8 @@ describe('CallOverlay 按阶段显示', () => {
     expect(screen.getByTestId('mini-window')).toBeTruthy();
     expect(screen.queryByTestId('active-call')).toBeNull();
 
-    fireEvent.click(screen.getByTestId('mini-window'));
+    // 展开是「按下即抬起」的单击手势（拖动走同一组指针事件），不是 click。
+    tap(screen.getByTestId('mini-window'));
     expect(screen.getByTestId('active-call')).toBeTruthy();
   });
 
@@ -188,6 +195,10 @@ describe('九宫格与层上界', () => {
     const engine = setup();
     ring(engine);
     connect(engine);
+    // 对端画面来了才进视频版式（两端都没画面时是语音版式，没有格子也就没有层要报）。
+    act(() => {
+      engine.emit('userVideoAvailable', { uid: 'alice', available: true });
+    });
     expect(engine.layers.at(-1)).toEqual({ uid: 'alice', layer: 'h' });
   });
 
@@ -198,12 +209,12 @@ describe('九宫格与层上界', () => {
     act(() => {
       engine.emit('activeSpeakers', { speakers: [{ uid: 'alice', volume: 70 }] });
     });
-    expect(screen.getByTestId('tile-alice').textContent).toContain('🔊');
+    expect(screen.queryByTestId('speaking-alice')).not.toBeNull();
 
     act(() => {
       engine.emit('activeSpeakers', { speakers: [] });
     });
-    expect(screen.getByTestId('tile-alice').textContent).not.toContain('🔊');
+    expect(screen.queryByTestId('speaking-alice')).toBeNull();
   });
 });
 

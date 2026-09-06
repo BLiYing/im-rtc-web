@@ -53,6 +53,19 @@ export interface MediaAdapter {
   acquireMicrophone(): Promise<LocalTrackInfo>;
 
   /**
+   * probeMicrophone **只探一下麦克风权限**，拿到就立刻放掉，不挂到任何 PC 上。
+   *
+   * 权限申请的时机规则（交互稿 §01）：主叫在发 `call.invite` **之前**、被叫在发
+   * `call.accept` **之前**就得知道麦克风拿不拿得到——拿不到就不该去响别人的铃，
+   * 也不该让对方那边显示已接通却听不到人。而 `acquireMicrophone` 要等房间开了
+   * （pub PC 存在）才能调，那时早就过了该问的时刻。
+   *
+   * 探过之后浏览器会记住这次授权，稍后真正的 `acquireMicrophone` 不会再弹框。
+   * 被拒抛 `2001 device_permission_denied`，没设备抛 `2002 device_not_found`。
+   */
+  probeMicrophone(): Promise<void>;
+
+  /**
    * startLocalPreview 只**起采集**，不发布（设计文档 §7.5 的 `startLocalPreview`）。
    *
    * 拨出中还没有房间，推流无从谈起，但界面这时就该让人看见自己（草图 §03-E）。

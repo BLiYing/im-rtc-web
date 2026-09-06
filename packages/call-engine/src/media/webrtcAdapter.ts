@@ -36,6 +36,8 @@ export class WebRTCAdapter implements MediaAdapter {
   private preview: { track: MediaStreamTrack; stream: MediaStream } | null = null;
   /** 预览那条轨道是否已经挂到 pub 上。`addTrack` 同一条轨道两次会抛异常。 */
   private cameraPublished = false;
+  /** 麦克风权限已经探过一次。见 `probeMicrophone`：探测不是免费的。 */
+  private micProbed = false;
 
   /** source 缺省时用 navigator.mediaDevices；端到端测试可以传合成源。 */
   constructor(source?: MediaSource, videoProfile?: VideoProfile) {
@@ -75,6 +77,24 @@ export class WebRTCAdapter implements MediaAdapter {
 
   async acquireMicrophone(): Promise<LocalTrackInfo> {
     return this.acquire({ audio: true }, 'audio', 'microphone');
+  }
+
+  async probeMicrophone(): Promise<void> {
+    /*
+      **探过一次就不再探。** 一次探测要向 `MediaSource` 要一份完整的流，而源在那条流
+      背后建了什么、又由谁来收，适配器是不知道的——Demo 的合成源每次 `getStream` 都新建
+      一个 `AudioContext` + 振荡器，只在 `source.stop()` 里收。停掉轨道收不掉它们，
+      于是**每拨一次号泄漏一个 AudioContext**；浏览器对同一页面的 AudioContext 有个位数的
+      上限，几通电话之后 `new AudioContext()` 直接抛，麦克风就再也发布不出去了。
+
+      权限一旦给过就不会自己收回（真收回了，随后的 `acquireMicrophone` 会照常抛 2001，
+      界面还是能正确降级），所以缓存这一个布尔值是安全的。
+    */
+    if (this.micProbed) return;
+    const stream = await this.getStreamOrThrow({ audio: true });
+    // 探完就放：这条轨道只是为了让权限框弹出来，留着会让麦克风指示灯一直亮。
+    for (const track of stream.getTracks()) track.stop();
+    this.micProbed = true;
   }
 
   /**

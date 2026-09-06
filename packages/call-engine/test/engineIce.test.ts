@@ -34,6 +34,7 @@ class RecordingMedia implements MediaAdapter {
   async acquireMicrophone(): Promise<LocalTrackInfo> {
     return { cid: 'mic-1', kind: 'audio', source: 'microphone' };
   }
+  async probeMicrophone(): Promise<void> {}
   async startLocalPreview(): Promise<LocalTrackInfo> {
     return this.acquireCamera();
   }

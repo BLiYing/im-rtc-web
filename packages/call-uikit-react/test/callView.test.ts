@@ -138,7 +138,7 @@ describe('本端开关', () => {
 
   it('静音与关摄像头互不影响', () => {
     const state = run([incoming, { type: 'setMic', on: false }]);
-    expect(state.self).toEqual({ micOn: false, cameraOn: true });
+    expect(state.self).toEqual({ micOn: false, cameraOn: true, cameraBlocked: false });
   });
 });
 
@@ -150,12 +150,25 @@ describe('本端开关', () => {
   `userReject` / `userNoResponse` 是唯一的信号。
 */
 describe('群通话里的终局裁决', () => {
-  it('拒接的人不再占着格子', () => {
-    const state = run([
+  it('拒接的人先在格子上写明「已拒绝」，收掉是第二步', () => {
+    const settled = run([
       { type: 'callPlaced', calleeIds: ['bob', 'carol'], mediaType: 'video', isGroup: true },
-      { type: 'userSettled', uid: 'bob' },
+      { type: 'userSettled', uid: 'bob', outcome: 'rejected' },
     ]);
-    expect(state.participants.map((p) => p.uid)).toEqual(['carol']);
+    // **先标不删**：直接消失的话，从主叫的角度看拒接就跟没发生过一样（交互稿 §05 G3）。
+    expect(settled.participants.map((p) => [p.uid, p.settled])).toEqual([['bob', 'rejected'], ['carol', '']]);
+
+    const removed = run([{ type: 'userRemove', uid: 'bob' }], settled);
+    expect(removed.participants.map((p) => p.uid)).toEqual(['carol']);
+  });
+
+  it('已接听的人收到终局不受影响', () => {
+    const state = run([
+      { type: 'callPlaced', calleeIds: ['bob'], mediaType: 'video', isGroup: true },
+      { type: 'userAccept', uid: 'bob' },
+      { type: 'userSettled', uid: 'bob', outcome: 'no_answer' },
+    ]);
+    expect(state.participants[0]?.settled).toBe('');
   });
 });
 

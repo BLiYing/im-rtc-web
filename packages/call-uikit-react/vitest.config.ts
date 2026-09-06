@@ -6,5 +6,6 @@ export default defineConfig({
     // 浏览器里靠肉眼看订阅有没有清理是看不出来的。
     environment: 'jsdom',
     include: ['test/**/*.test.ts', 'test/**/*.test.tsx'],
+    setupFiles: ['test/setup.ts'],
   },
 });

@@ -62,6 +62,18 @@ export class FakeEngine {
   async hangup(): Promise<void> {
     this.calls.push('hangup');
   }
+  /** 加人失败由测试控制：设 `inviteMoreError` 让它抛（服务端 1407 / 1202）。 */
+  inviteMoreError: unknown = null;
+  async inviteMore(calleeIds: string[]): Promise<void> {
+    this.calls.push(`inviteMore:${calleeIds.join(',')}`);
+    if (this.inviteMoreError !== null) throw this.inviteMoreError;
+  }
+  /** 探测结果由测试控制：默认成功；设 `probeError` 让它抛。 */
+  probeError: unknown = null;
+  async probeMicrophone(): Promise<void> {
+    this.calls.push('probeMic');
+    if (this.probeError !== null) throw this.probeError;
+  }
   async joinRoom(roomId: string): Promise<void> {
     this.calls.push(`join:${roomId}`);
   }
@@ -73,12 +85,18 @@ export class FakeEngine {
     this.state.room.publishTrackIds['mic-1'] = 't-mic';
     return 'mic-1';
   }
+  /** 预览失败由测试控制：设 `previewError` 让它抛（= 摄像头权限被拒 / 没设备）。 */
+  previewError: unknown = null;
   async startLocalPreview(): Promise<string> {
     this.calls.push('startLocalPreview');
+    if (this.previewError !== null) throw this.previewError;
     return 'cam-1';
   }
+  /** 发布摄像头失败由测试控制：设 `publishCameraError` 让它抛。 */
+  publishCameraError: unknown = null;
   async publishCamera(): Promise<string> {
     this.calls.push('publishCam');
+    if (this.publishCameraError !== null) throw this.publishCameraError;
     this.state.room.publishTrackIds['cam-1'] = 't-cam';
     return 'cam-1';
   }

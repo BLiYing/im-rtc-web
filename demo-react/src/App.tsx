@@ -48,6 +48,14 @@ interface SavedLogin {
 
 const SAVED_KEY = 'im-rtc-demo.login';
 
+/**
+ * Demo 的「添加成员」候选名单。**这是宿主给的**（uikit 不内置联系人系统，CONVENTIONS §11）：
+ * Demo 用一份写死的名单，真实宿主传自己的联系人 / 群成员。与 Dialer 里默认的群呼名单是同一批人。
+ */
+const DEMO_CONTACTS = [
+  { uid: 'alice' }, { uid: 'bob' }, { uid: 'carol' }, { uid: 'dave' }, { uid: 'erin' },
+] as const;
+
 /*
  「自动重登」存在 **sessionStorage**，不是 localStorage。
 
@@ -207,7 +215,7 @@ export function App(): ReactNode {
       {session === null ? (
         restoring ? <div className="card">正在恢复登录…</div> : <LoginPanel onLogin={login} />
       ) : (
-        <CallProvider engine={session.engine}>
+        <CallProvider engine={session.engine} inviteCandidates={DEMO_CONTACTS}>
           <div className="card">
             <h2>已登录</h2>
             <div>

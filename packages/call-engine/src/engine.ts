@@ -232,6 +232,38 @@ export class CallEngine {
     await this.loop.dispatch({ kind: 'act', op: 'hangup' });
   }
 
+  /**
+   * inviteMore 往进行中的群通话里再拉人（协议 §4.1 `call.invite_more`）。
+   *
+   * **只有主叫能发**——非主叫会被服务端拒成 `1407 not_call_owner`，
+   * 所以界面上那个「添加成员」入口对非主叫根本不该显示（交互稿 §05）。
+   * 房间满了回 `1202 room_full`。
+   */
+  async inviteMore(calleeIds: string[]): Promise<void> {
+    if (this.myUid !== '' && calleeIds.includes(this.myUid)) {
+      logger.warn('加人名单里含自己，已就地拒掉', { uid: this.myUid });
+      this.bus.emitError(new RtcError(ErrorCode.badParams));
+      return;
+    }
+    await this.loop.dispatch({ kind: 'act', op: 'invite_more', args: { callee_ids: calleeIds } });
+  }
+
+  /**
+   * probeMicrophone 在拨出 / 接听**之前**探一下麦克风权限（交互稿 §01）。
+   *
+   * 拿到就放掉，不占设备；被拒抛 `2001`、没设备抛 `2002`。
+   * 摄像头那一侧用 `startLocalPreview` 探——它本来就该在拨出时起来给人看见自己。
+   */
+  async probeMicrophone(): Promise<void> {
+    try {
+      await this.media.probeMicrophone();
+    } catch (err) {
+      // 也走一遍 error 事件：宿主只监听事件表也该知道「这通电话是因为没权限才没打出去」。
+      this.bus.emitError(err);
+      throw err;
+    }
+  }
+
   /** joinRoom 直接进一个会议房（不走振铃）。 */
   async joinRoom(roomId: string, roomToken: string, autoSubscribe = true): Promise<void> {
     await this.loop.dispatch({
