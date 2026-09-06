@@ -84,13 +84,6 @@ export const styles = {
     position: 'absolute', left: 0, right: 0, top: 10, textAlign: 'center', fontSize: 11,
     color: callColors.fg, fontVariantNumeric: 'tabular-nums',
   } satisfies CSSProperties,
-  /** 虚线加号格：加人入口占着「下一个人的位置」（交互稿 §05）。 */
-  tileAdd: {
-    background: 'transparent', border: '1.5px dashed rgba(255,255,255,0.3)', color: callColors.fg,
-    opacity: 0.8, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    borderRadius: callMetrics.tileRadius, padding: 0,
-  } satisfies CSSProperties,
-
   video: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' } satisfies CSSProperties,
   /** 本端预览水平镜像（人照镜子的习惯）；远端不镜像。 */
   videoMirrored: { transform: 'scaleX(-1)' } satisfies CSSProperties,

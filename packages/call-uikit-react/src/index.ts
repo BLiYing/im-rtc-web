@@ -58,7 +58,7 @@ export {
 } from './state/permissions.js';
 export type { DeviceKind, PermissionFailure, PermissionQuery, PermissionStatus } from './state/permissions.js';
 
-export { MAX_TILES, cellSide, focusedLayer, gridDimensions, tileLayer, visibleTiles } from './layout/grid.js';
+export { MAX_REMOTE_TILES, MAX_TILES, cellSide, focusedLayer, gridDimensions, tileLayer, visibleTiles } from './layout/grid.js';
 export type { GridDimensions } from './layout/grid.js';
 export {
   allCorners, clampOrigin, cornerOrigin, defaultPipCorner, isPipCorner, nearestCorner, pipSizeFor,

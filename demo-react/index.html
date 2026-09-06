@@ -29,6 +29,10 @@
       th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #eef1f5; }
       th { color: #5b6472; font-weight: 600; }
       .muted { color: #8b95a3; }
+      /* 群呼选人：一排可勾的名字（多选）。到上限的那些置灰，而不是点了没反应。 */
+      .picks { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 10px; }
+      .pick { background: #eef1f5; color: #14181f; padding: 6px 12px; font-size: 13px; }
+      .pick[aria-pressed="true"] { background: #2f80ed; color: #fff; }
       .note { font-size: 12px; color: #8b95a3; margin-top: 12px; }
     </style>
   </head>

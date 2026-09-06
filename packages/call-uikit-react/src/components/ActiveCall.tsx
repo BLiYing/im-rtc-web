@@ -23,7 +23,7 @@ import { VideoStage } from './VideoStage.js';
  * ActiveCall 是通话主界面，三种版式（规范 §03 / §04）：
  * - **audio**：语音通话、拨出中 —— 96 头像 + 名字 + 状态；
  * - **video**：1v1 视频通话中 —— 远端全屏 + 本端小窗，控制条 3s 自动隐藏；
- * - **grid**：群通话 / 会议 —— 九宫格 + 加号格。
+ * - **grid**：群通话 / 会议 —— 九宫格（加人入口只在标题栏右上角那一颗）。
  *
  * 三种版式共用头部、控制条与静音 / 发言等状态，分成三个组件的话这些要维护三遍。
  * 版式由 `pickLayout` 决定，它是纯函数，好测。
@@ -80,7 +80,7 @@ export function ActiveCall(): ReactNode {
         />
       </div>
 
-      {layout === 'grid' && <GridStage onInvite={() => setPicker(true)} />}
+      {layout === 'grid' && <GridStage />}
       {layout === 'video' && peer !== undefined && (
         <VideoStage peer={peer} controlsVisible={hide.visible} onStageTap={hide.toggle} />
       )}

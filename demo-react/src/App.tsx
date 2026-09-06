@@ -12,6 +12,7 @@ import { toEntry } from './logTypes.js';
 import { RemoteLogSink } from './remoteLog.js';
 import { CallHistory } from './CallHistory.js';
 import { EngineLog } from './EngineLog.js';
+import { DEMO_CONTACTS } from './contacts.js';
 import { Dialer } from './Dialer.js';
 import { LoginPanel } from './LoginPanel.js';
 
@@ -47,14 +48,6 @@ interface SavedLogin {
 }
 
 const SAVED_KEY = 'im-rtc-demo.login';
-
-/**
- * Demo 的「添加成员」候选名单。**这是宿主给的**（uikit 不内置联系人系统，CONVENTIONS §11）：
- * Demo 用一份写死的名单，真实宿主传自己的联系人 / 群成员。与 Dialer 里默认的群呼名单是同一批人。
- */
-const DEMO_CONTACTS = [
-  { uid: 'alice' }, { uid: 'bob' }, { uid: 'carol' }, { uid: 'dave' }, { uid: 'erin' },
-] as const;
 
 /*
  「自动重登」存在 **sessionStorage**，不是 localStorage。
@@ -234,7 +227,7 @@ export function App(): ReactNode {
               {conn.detail !== '' && <span className="muted"> · {conn.detail}</span>}
             </div>
           </div>
-          <Dialer server={session.server} token={session.token} deviceId={session.deviceId} />
+          <Dialer server={session.server} token={session.token} deviceId={session.deviceId} uid={session.uid} />
           <CallHistory server={session.server} token={session.token} uid={session.uid} />
           <EngineLog />
           <CallOverlay />

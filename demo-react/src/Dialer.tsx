@@ -3,12 +3,15 @@ import type { ReactNode } from 'react';
 import { useState } from 'react';
 
 import { createMeetingRoom, fetchRoomToken } from './api.js';
+import { DEMO_CONTACTS, GROUP_PICK_LIMIT, calleesFor } from './contacts.js';
 
 /** DialerProps 是拨号面板的参数。 */
 export interface DialerProps {
   readonly server: string;
   readonly token: string;
   readonly deviceId: string;
+  /** 当前登录的 uid。**群呼名单要把自己剔掉**，见 `calleesFor`。 */
+  readonly uid: string;
 }
 
 /**
@@ -17,13 +20,21 @@ export interface DialerProps {
  * **这一整个面板都是宿主代码**——联系人从哪来、群怎么组织，SDK 一概不管
  * （CONVENTIONS §11）。它只调 `actions.placeCall` 与 `actions.joinMeeting`。
  */
-export function Dialer({ server, token, deviceId }: DialerProps): ReactNode {
+export function Dialer({ server, token, deviceId, uid }: DialerProps): ReactNode {
   const { state, actions } = useCall();
   const [callee, setCallee] = useState('bob');
-  const [group, setGroup] = useState('bob,carol');
+  const [picked, setPicked] = useState<readonly string[]>(['bob', 'carol']);
   const [roomId, setRoomId] = useState('');
   const [error, setError] = useState('');
   const busy = state.phase !== 'idle';
+  // 自己不在候选里：带着自己发出去，服务端会以 1004 拒掉**整通**电话。
+  const contacts = DEMO_CONTACTS.filter((c) => c.uid !== uid);
+  const callees = calleesFor(uid, picked);
+  const atLimit = callees.length >= GROUP_PICK_LIMIT;
+
+  const toggle = (id: string): void => {
+    setPicked((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
 
   const guard = (run: () => Promise<unknown>) => (): void => {
     setError('');
@@ -62,13 +73,30 @@ export function Dialer({ server, token, deviceId }: DialerProps): ReactNode {
           onClick={guard(() => actions.placeCall([callee.trim()], 'video'))}>视频呼叫</button>
       </div>
 
-      <div className="row" style={{ marginBottom: 12 }}>
-        <div>
-          <label htmlFor="group">群呼 uid（逗号分隔，最多 8 个）</label>
-          <input id="group" value={group} onChange={(e) => setGroup(e.target.value)} />
+      {/*
+        **群呼是勾名字，不是手打逗号分隔的 uid**（与 iOS / Android Demo 对齐——
+        本仓在这一条上一直是 🟡，见 CLIENT_PARITY「群呼选人」那一行）。
+
+        手打有两个一眼看不出的坑：把自己也写进名单里，服务端会以 `1004` 拒掉**整通**电话，
+        而界面上只看到「呼叫失败」；名字打错一个字母，那个人就成了一个永远接不起来的占位格。
+        勾选把两个都消掉了——自己压根不在候选里（`calleesFor`），名字也不可能打错。
+      */}
+      <div style={{ marginBottom: 12 }}>
+        <label>多人通话 · 已选 {callees.length} / {GROUP_PICK_LIMIT}</label>
+        <div className="picks" data-testid="group-picks">
+          {contacts.map((c) => {
+            const on = callees.includes(c.uid);
+            return (
+              <button key={c.uid} type="button" className="pick" aria-pressed={on}
+                data-testid={`pick-${c.uid}`}
+                // 到上限就不让再勾——比勾上了再弹一句「最多 8 人」温和，标题上一直写着 8 / 8。
+                disabled={busy || (!on && atLimit)}
+                onClick={() => toggle(c.uid)}>{c.uid}</button>
+            );
+          })}
         </div>
-        <button type="button" disabled={busy}
-          onClick={guard(() => actions.placeCall(splitIds(group), 'video', true))}>群视频呼叫</button>
+        <button type="button" disabled={busy || callees.length === 0}
+          onClick={guard(() => actions.placeCall(callees, 'video', true))}>群视频呼叫</button>
       </div>
 
       <div className="row">
@@ -95,9 +123,4 @@ export function Dialer({ server, token, deviceId }: DialerProps): ReactNode {
       </div>
     </div>
   );
-}
-
-/** splitIds 把逗号分隔的 uid 拆开。群通话上限 9 人 = 自己 + 8 个（拍板 §11-1）。 */
-function splitIds(text: string): string[] {
-  return text.split(',').map((s) => s.trim()).filter((s) => s !== '').slice(0, 8);
 }

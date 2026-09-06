@@ -1,30 +1,25 @@
 import type { ReactNode } from 'react';
 
 import { cellSide, gridDimensions, tileLayer, visibleTiles } from '../layout/grid.js';
-import { canShowInvite } from '../state/callView.js';
 import { useCall } from '../useCall.js';
 import { useElementSize } from '../useElementSize.js';
 import { styles } from '../styles.js';
 import { callMetrics } from '../theme.js';
-import { Icon } from './Icon.js';
 import { VideoTile } from './VideoTile.js';
 
 /**
- * GridStage 是群通话的九宫格（交互稿 §05）。本端也占一格；邀请中的人立刻占一个占位格；
- * 主叫且没满员时，末位多一个**虚线加号格**——加人入口放在网格里而不是控制条上：
- * 它天然占着「下一个人的位置」，语义直给。
+ * GridStage 是群通话的九宫格（交互稿 §05）。本端也占一格；邀请中的人立刻占一个占位格。
+ *
+ * **网格里没有加号格**（v3.3 撤掉）。加人入口只有标题栏右上角那一颗
+ * （`canShowInvite` 同一条判据）：网格里再放一个是同一个动作的第二个入口，
+ * 而它还会占掉一个格位——三个人的通话看起来像四个人，行列也跟着多排一格。
  */
-export interface GridStageProps {
-  readonly onInvite: () => void;
-}
-
-export function GridStage({ onInvite }: GridStageProps): ReactNode {
+export function GridStage(): ReactNode {
   const { state } = useCall();
   const stage = useElementSize<HTMLDivElement>();
   const tiles = visibleTiles(state.participants);
-  const showAdd = canShowInvite(state);
-  // 本端一格 + 远端 + （有的话）加号格。
-  const tileCount = tiles.length + 1 + (showAdd ? 1 : 0);
+  // 本端一格 + 远端。
+  const tileCount = tiles.length + 1;
   /*
     行列**跟着容器形状走**，不是只看人数：竖屏（手机、窄窗口）上两个人要上下摞，
     横屏上才是左右排。量不到尺寸时（jsdom、首帧）按正方形容器算，
@@ -33,8 +28,7 @@ export function GridStage({ onInvite }: GridStageProps): ReactNode {
   const aspect = stage.height > 0 ? stage.width / stage.height : 1;
   const { cols, rows } = gridDimensions(tileCount, aspect);
   const side = tileCount > 1 ? cellSide({ cols, rows }, stage.width, stage.height, callMetrics.tileGap) : 0;
-  // 层上界按**真人的格子数**算，加号格不算——它不收流。
-  const layer = tileLayer(tiles.length + 1);
+  const layer = tileLayer(tileCount);
 
   return (
     <div style={styles.stage} ref={stage.ref} data-testid="grid-stage">
@@ -68,11 +62,6 @@ export function GridStage({ onInvite }: GridStageProps): ReactNode {
             layer={layer}
           />
         ))}
-        {showAdd && (
-          <button type="button" style={styles.tileAdd} onClick={onInvite} aria-label="添加成员" data-testid="invite-tile">
-            <Icon name="plus" size={26} />
-          </button>
-        )}
       </div>
     </div>
   );

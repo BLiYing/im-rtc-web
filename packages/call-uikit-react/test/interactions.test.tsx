@@ -159,17 +159,18 @@ describe('页内小窗', () => {
 });
 
 describe('九宫格加人', () => {
-  it('主叫看得到 + 号格与右上角按钮；被叫两个都看不到', () => {
+  it('入口只有右上角那一颗：网格里没有加号格，被叫连按钮也没有', () => {
     const engine = setup();
     connectAs(engine, 'caller', true);
-    expect(screen.getByTestId('invite-tile')).toBeTruthy();
     expect(screen.getByTestId('invite-button')).toBeTruthy();
+    // **网格里不许再有第二个入口**（v3.3 撤掉加号格）：同一个动作两处入口，
+    // 而且它会占掉一个格位——三个人的通话看起来像四个人。
+    expect(screen.queryByTestId('invite-tile')).toBeNull();
 
     act(() => {
       engine.emit('callEnd', { callId: 'c-1', reason: 'hangup', durationSec: 1, endedBy: 'me' });
     });
     connectAs(engine, 'callee', true);
-    expect(screen.queryByTestId('invite-tile')).toBeNull();
     expect(screen.queryByTestId('invite-button')).toBeNull();
   });
 
@@ -177,7 +178,7 @@ describe('九宫格加人', () => {
     const engine = setup([{ uid: 'bob' }, { uid: 'dave', name: '戴夫' }]);
     connectAs(engine, 'caller', true);
 
-    fireEvent.click(screen.getByTestId('invite-tile'));
+    fireEvent.click(screen.getByTestId('invite-button'));
     expect(screen.getByTestId('invite-slots').textContent).toContain('还能加 7 人');
     expect(screen.getByTestId('invite-row-bob').getAttribute('aria-disabled')).toBe('true');
     expect(screen.getByTestId('invite-row-bob').textContent).toContain('已在通话中');
@@ -208,7 +209,7 @@ describe('九宫格加人', () => {
     try {
       const engine = setup([{ uid: 'dave' }]);
       connectAs(engine, 'caller', true);
-      fireEvent.click(screen.getByTestId('invite-tile'));
+      fireEvent.click(screen.getByTestId('invite-button'));
       fireEvent.click(screen.getByTestId('invite-row-dave'));
       fireEvent.click(screen.getByTestId('invite-go'));
 
@@ -236,7 +237,7 @@ describe('九宫格加人', () => {
     act(() => {
       engine.emit('error', { code: ErrorCode.notCallOwner, name: 'not_call_owner', message: '' });
     });
-    expect(screen.queryByTestId('invite-tile')).toBeNull();
+    expect(screen.queryByTestId('invite-button')).toBeNull();
   });
 
   it('群通话的红按钮写「离开」', () => {
@@ -308,7 +309,7 @@ describe('失败路径要收尾', () => {
     engine.inviteMoreError = new RtcError(ErrorCode.notCallOwner);
     connectAs(engine, 'caller', true);
 
-    fireEvent.click(screen.getByTestId('invite-tile'));
+    fireEvent.click(screen.getByTestId('invite-button'));
     fireEvent.click(screen.getByTestId('invite-row-dave'));
     fireEvent.click(screen.getByTestId('invite-go'));
     await flush();
@@ -344,7 +345,7 @@ describe('失败路径要收尾', () => {
       const engine = setup([{ uid: 'dave' }, { uid: 'erin' }]);
       connectAs(engine, 'caller', true);
       // 用「加人」把两个人摆成占位格（未接听），终局才有意义。
-      fireEvent.click(screen.getByTestId('invite-tile'));
+      fireEvent.click(screen.getByTestId('invite-button'));
       fireEvent.click(screen.getByTestId('invite-row-dave'));
       fireEvent.click(screen.getByTestId('invite-row-erin'));
       fireEvent.click(screen.getByTestId('invite-go'));

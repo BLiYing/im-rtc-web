@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { MAX_TILES, cellSide, gridDimensions, tileLayer, visibleTiles } from '../src/layout/grid.js';
+import { MAX_REMOTE_TILES, MAX_TILES, cellSide, gridDimensions, tileLayer, visibleTiles } from '../src/layout/grid.js';
 
 describe('九宫格布局', () => {
   it('按人数排出尽量接近正方形的格子', () => {
@@ -32,9 +32,11 @@ describe('九宫格布局', () => {
     expect(tileLayer(9)).toBe('l');
   });
 
+  /** 远端截到 8：**本端恒占一格**，9 个远端加上自己就是 10 格，而只有 9 个坑。 */
   it('超过一屏的格子被截掉，不缩到看不清', () => {
     const many = Array.from({ length: 12 }, (_, i) => i);
-    expect(visibleTiles(many)).toHaveLength(MAX_TILES);
+    expect(visibleTiles(many)).toHaveLength(MAX_REMOTE_TILES);
+    expect(visibleTiles(many).length + 1).toBe(MAX_TILES);
     expect(visibleTiles([1, 2])).toHaveLength(2);
   });
 });
@@ -58,10 +60,15 @@ describe('行列跟着容器形状走', () => {
     expect(gridDimensions(9, 0.7)).toEqual({ cols: 3, rows: 3 });
   });
 
-  /** 挑出来的排法必须**真的是格子最大的那一种**——这是这条规则的全部意义。 */
+  /**
+   * 除了「竖屏 3~4 格恒为两列」那条明写的规则，挑出来的排法必须**真的是格子最大的那一种**
+   * ——这是这条规则剩下的全部意义。
+   */
   it('挑的是正方形格子最大的排法', () => {
     for (let count = 1; count <= MAX_TILES; count += 1) {
-      for (const aspect of [0.5, 0.7, 1, 1.4, 2]) {
+      for (const aspect of [0.4, 0.5, 0.648, 0.7, 1, 1.4, 2]) {
+        // 竖屏 3~4 格是产品规则，不参与「格子最大」的比较（见 gridDimensions 的注释）。
+        if (aspect < 1 && (count === 3 || count === 4)) continue;
         const chosen = gridDimensions(count, aspect);
         const best = cellSide(chosen, aspect, 1, Math.min(aspect, 1) * 0.02);
         for (let cols = 1; cols <= count; cols += 1) {
@@ -72,6 +79,24 @@ describe('行列跟着容器形状走', () => {
         }
       }
     }
+  });
+
+  /**
+   * 竖屏上 3~4 格恒为两列——**不管容器多窄**。
+   *
+   * 按「格子最大」挑的话，翻转压在手机的常见比例上：iPhone 15 Pro 的舞台区算出来
+   * aspect ≈ 0.682（2×2）、16 Pro Max ≈ 0.648（一竖条），同一通电话两种样子。
+   * 0.48 是 Android 修 stage 下边界之前那个比例（多算了一整条控制条），一并钉住。
+   */
+  it('竖屏三格与四格恒为两列', () => {
+    for (const aspect of [0.4, 0.48, 0.6, 0.648, 0.682, 0.7, 0.9]) {
+      expect(gridDimensions(3, aspect), `aspect ${aspect}`).toEqual({ cols: 2, rows: 2 });
+      expect(gridDimensions(4, aspect), `aspect ${aspect}`).toEqual({ cols: 2, rows: 2 });
+    }
+    // 两个人仍然上下摞（那一条是尺寸判据，没被这条规则盖掉）。
+    expect(gridDimensions(2, 0.7)).toEqual({ cols: 1, rows: 2 });
+    // 横屏不受这条约束：宽容器上三个人一行排开。
+    expect(gridDimensions(3, 2)).toEqual({ cols: 3, rows: 1 });
   });
 
   /** 格子是正方形：边长取「按列分到的宽」与「按行分到的高」里小的那个。 */
