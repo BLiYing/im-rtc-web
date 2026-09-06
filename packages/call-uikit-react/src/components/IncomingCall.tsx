@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 
 import { avatarGradient, avatarInitial } from '../format/avatar.js';
+import { useDisplayName, useParticipantProfile } from '../profile.js';
 import { showsCameraButton } from './ControlBar.js';
 import { ControlButton } from './ControlButton.js';
 import { useCall } from '../useCall.js';
@@ -16,12 +17,26 @@ import { styles } from '../styles.js';
 export function IncomingCall(): ReactNode {
   const { state, actions } = useCall();
   const caller = state.participants[0]?.uid ?? state.peerUid;
+  /*
+    来电屏是**最不能显示成一串 uid** 的一屏，但它也是最可能解析不出来的一屏：
+    陌生人来电时宿主本机没有对方的名片。解析不到就退化成 uid（宿主可自行兜底），
+    解析到了就立刻显示——宿主的解析器拉回来后会通过 subscribe 通知重画。
+  */
+  const callerName = useDisplayName(caller, caller);
+  const callerAvatar = useParticipantProfile(caller)?.avatarUrl ?? '';
 
   return (
     <div style={styles.toast} role="alertdialog" aria-label="来电" data-testid="incoming-call">
-      <div style={{ ...styles.toastAvatar, background: avatarGradient(caller) }}>{avatarInitial(caller)}</div>
+      {callerAvatar === '' ? (
+        // 底色按 uid、首字母按显示名——同 VideoTile，理由见那边的注释。
+        <div style={{ ...styles.toastAvatar, background: avatarGradient(caller) }}>
+          {avatarInitial(callerName)}
+        </div>
+      ) : (
+        <img src={callerAvatar} alt="" style={{ ...styles.toastAvatar, objectFit: 'cover' }} data-testid="incoming-avatar" />
+      )}
       <div style={styles.toastText}>
-        <div style={styles.title}>{caller}</div>
+        <div style={styles.title}>{callerName}</div>
         <div style={{ ...styles.subtitle, justifyContent: 'flex-start' }}>
           {state.isGroup ? '邀请你加入群通话' : `邀请你${state.mediaType === 'video' ? '视频' : '语音'}通话`}
         </div>
