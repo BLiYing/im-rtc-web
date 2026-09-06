@@ -23,10 +23,11 @@ function setup(endedHoldMs = 0): FakeEngine {
 }
 
 /** ring 让来电响起来。 */
-function ring(engine: FakeEngine, isGroup = false, mediaType = 'video'): void {
+function ring(engine: FakeEngine, isGroup = false, mediaType = 'video',
+              calleeIds: string[] = []): void {
   act(() => {
     engine.emit('callReceived', {
-      callId: 'c-1', caller: 'alice', mediaType, isGroup,
+      callId: 'c-1', caller: 'alice', calleeIds, mediaType, isGroup,
     });
   });
 }

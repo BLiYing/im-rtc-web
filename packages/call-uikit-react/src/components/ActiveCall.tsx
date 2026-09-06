@@ -30,13 +30,21 @@ import { VideoStage } from './VideoStage.js';
  */
 export type CallLayout = 'audio' | 'video' | 'grid';
 
-/** pickLayout 决定此刻用哪种版式。**两端都关摄像头 → 整页退回语音版式**（交互稿 §04）。 */
+/**
+ * pickLayout 决定此刻用哪种版式。
+ *
+ * **接通后的 1v1 视频恒为 video 版式**，哪怕两边都关着摄像头——那时全屏格与小窗各显示一个
+ * 头像盘。原先是「都没画面就退回语音版式」，实测下来不对：小窗会整个消失，用户以为通话断了，
+ * 而且关掉摄像头之后就再也点不到「互换」。没画面是格子的事，不是版式的事。
+ *
+ * 拨出中与来电页仍用语音版式：那时对端画面不存在，本端预览叠在右上角。
+ * 与 iOS 的 `imPickLayout(for:)` 是同一条判据。
+ */
 export function pickLayout(state: CallViewState): CallLayout {
   if (state.isGroup || state.isMeeting) return 'grid';
-  if (state.mediaType !== 'video' || state.phase === 'outgoing') return 'audio';
-  const peer = state.participants[0];
-  const selfVideo = state.self.cameraOn && state.localCameraCid !== '';
-  return (peer?.hasVideo ?? false) || selfVideo ? 'video' : 'audio';
+  if (state.mediaType !== 'video') return 'audio';
+  if (state.phase === 'outgoing' || state.phase === 'incoming') return 'audio';
+  return 'video';
 }
 
 export function ActiveCall(): ReactNode {
@@ -47,6 +55,7 @@ export function ActiveCall(): ReactNode {
   const peer = state.participants[0];
   // 只有视频版式藏控制条：语音页、拨出中、九宫格上没有画面需要让出来。
   const hide = useAutoHide(layout === 'video' && state.phase === 'active');
+  const bare = state.phase === 'incoming' || state.phase === 'outgoing';
   const chrome = { opacity: hide.visible ? 1 : 0, transition: `opacity ${callMotion.fadeMs}ms ease`, pointerEvents: hide.visible ? 'auto' as const : 'none' as const };
 
   return (
@@ -58,9 +67,14 @@ export function ActiveCall(): ReactNode {
     >
       <TopBanner />
       <div style={chrome}>
+        {/*
+          **呼叫中与来电页的标题栏留空。** 那两屏的正中间已经是「大头像 + 名字 + 状态」，
+          顶部再写一遍同样的名字和同一行状态，同一句话在一屏里出现两次。
+          接通之后才有真正只属于顶栏的信息（对方名字 + 计时器 + 网络条）。
+        */}
         <CallHeader
-          title={title(state, state.participants.length)}
-          subtitle={statusLine(state, seconds)}
+          title={bare ? '' : title(state, state.participants.length)}
+          subtitle={bare ? '' : statusLine(state, seconds)}
           networkLevel={state.isGroup ? 0 : (peer?.networkLevel ?? 0)}
           onInvite={() => setPicker(true)}
         />

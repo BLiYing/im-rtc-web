@@ -35,7 +35,16 @@ export function reduceCallView(state: CallViewState, action: ViewAction): CallVi
         isGroup: action.isGroup,
         role: 'callee',
         peerUid: action.isGroup ? '' : action.caller,
-        participants: [newParticipant(action.caller, true)],
+        /*
+          主叫先摆上（他一定在通话里），其余被邀请的人摆成「还在响铃」的占位格。
+
+          不摆的话群通话在两侧长得不一样：主叫看到四格（含没接的），被叫只看到两格。
+          `calleeIds` 里已经由 subscribeEngine 去掉了自己。
+        */
+        participants: [
+          newParticipant(action.caller, true),
+          ...action.calleeIds.filter((uid) => uid !== action.caller).map((uid) => newParticipant(uid, false)),
+        ],
         self: { micOn: true, cameraOn: action.mediaType === 'video', cameraBlocked: false },
         connection: state.connection,
       };

@@ -35,6 +35,13 @@ export interface EngineEvents {
   callReceived: {
     callId: string;
     caller: string;
+    /**
+     * 这通电话邀了谁（不含主叫，**含自己**）。
+     *
+     * 群通话的界面靠它把还没接的人先摆成占位格——否则主叫那边是四格、
+     * 被叫这边只有两格，同一通电话两种样子。
+     */
+    calleeIds: string[];
     mediaType: MediaType;
     isGroup: boolean;
   };
@@ -58,6 +65,13 @@ export interface EngineEvents {
   callRejected: { uid: string };
   callBusy: { uid: string };
   callNoAnswer: { uid: string };
+  /**
+   * **通话中**有人打进来，服务端已经替你回了忙线——这一通你不会振铃。
+   *
+   * MVP 是单通道：同一时刻只有一通电话（协议 §4.3 的忙线分支）。这条事件只是让界面
+   * 提示一句「谁来过电话」，宿主不需要做任何处理。
+   */
+  callMissed: { callId: string; caller: string; reason: string };
   /** 本账号另一台设备接听/拒绝了。 */
   handledOnOtherDevice: { callId: string; action: string };
 
@@ -117,6 +131,7 @@ export const MACHINE_EVENT_NAMES: Readonly<Record<string, EngineEventName>> = {
   onCallRejected: 'callRejected',
   onCallBusy: 'callBusy',
   onCallNoAnswer: 'callNoAnswer',
+  onCallMissed: 'callMissed',
   onHandledOnOtherDevice: 'handledOnOtherDevice',
   onUserEnter: 'userEnter',
   onUserLeave: 'userLeave',

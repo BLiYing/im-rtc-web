@@ -9,7 +9,7 @@ function run(actions: ViewAction[], from: CallViewState = initialCallView): Call
 }
 
 const incoming: ViewAction = {
-  type: 'callReceived', callId: 'c-1', caller: 'alice', mediaType: 'video', isGroup: false,
+  type: 'callReceived', callId: 'c-1', caller: 'alice', calleeIds: [], mediaType: 'video', isGroup: false,
 };
 const begin: ViewAction = {
   type: 'callBegin', callId: 'c-1', roomId: 'r-1', mediaType: 'video',
@@ -131,7 +131,7 @@ describe('本端开关', () => {
   it('视频通话默认开摄像头、语音通话默认不开', () => {
     expect(run([incoming]).self.cameraOn).toBe(true);
     expect(
-      run([{ type: 'callReceived', callId: 'c', caller: 'a', mediaType: 'audio', isGroup: false }])
+      run([{ type: 'callReceived', callId: 'c', caller: 'a', calleeIds: [], mediaType: 'audio', isGroup: false }])
         .self.cameraOn,
     ).toBe(false);
   });

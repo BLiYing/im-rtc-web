@@ -13,6 +13,8 @@ export class FakeEngine {
   readonly layers: { uid: string; layer: Layer }[] = [];
   readonly calls: string[] = [];
   state = { room: { publishTrackIds: {} as Record<string, string> } };
+  /** 本端 uid。`subscribeEngine` 用它把自己从 callee_ids 里剔掉。 */
+  uid = 'me';
 
   on<K extends EngineEventName>(name: K, handler: (payload: EngineEvents[K]) => void): () => void {
     const set = this.handlers.get(name) ?? new Set();

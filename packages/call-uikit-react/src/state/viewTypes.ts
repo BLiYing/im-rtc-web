@@ -150,6 +150,8 @@ export const initialCallView: CallViewState = {
  */
 export type ViewAction =
   | { readonly type: 'callReceived'; readonly callId: string; readonly caller: string;
+      /** 这通电话邀了谁，**已去掉自己**。群通话靠它摆占位格。 */
+      readonly calleeIds: readonly string[];
       readonly mediaType: MediaType; readonly isGroup: boolean }
   | { readonly type: 'callPlaced'; readonly calleeIds: readonly string[];
       readonly mediaType: MediaType; readonly isGroup: boolean }

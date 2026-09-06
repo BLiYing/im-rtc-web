@@ -120,15 +120,21 @@ describe('1v1 视频：A/B 互换与小窗拖动', () => {
     }
   });
 
-  it('对端关了摄像头、自己也没画面 → 整页退回语音版式', () => {
+  /*
+    对端关了摄像头、自己也没画面时**仍然留在视频版式**。
+
+    原先是退回语音版式，实测下来不对：小窗整个消失，用户以为通话断了，
+    而且关掉摄像头之后就再也点不到「互换」。没画面是格子的事，不是版式的事——
+    格子里换成头像盘就够了。
+  */
+  it('两端都关了摄像头，仍留在视频版式、小窗还在', () => {
     const engine = videoCall();
     expect(screen.getByTestId('active-call').getAttribute('data-layout')).toBe('video');
     act(() => {
       engine.emit('userVideoAvailable', { uid: 'bob', available: false });
     });
-    expect(screen.getByTestId('active-call').getAttribute('data-layout')).toBe('audio');
-    // 语音版式上没有格子，声音靠隐藏元素接上——不能没声。
-    expect(screen.getByTestId('audio-bob')).toBeTruthy();
+    expect(screen.getByTestId('active-call').getAttribute('data-layout')).toBe('video');
+    expect(screen.getByTestId('pip')).toBeTruthy();
   });
 });
 
@@ -358,5 +364,47 @@ describe('失败路径要收尾', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('通话中来了第二通电话', () => {
+  /*
+    真机日志 08:30:39：bob 正在和 alice 通话，ivan 打进来，服务端判忙线后发来一条
+    `call.ended{busy}`——那条帧的 call_id 是**新来那通**的。状态机不看 call_id 时，
+    它会被当成「当前通话结束了」，媒体面全关、通话页收起，而对面还显示着通话中。
+
+    MVP 是单通道：不弹第二个来电窗，只在当前通话页上提示一句谁来过电话。
+  */
+  it('只提示「谁来电，已自动回复忙线」，当前通话纹丝不动', () => {
+    const engine = setup();
+    connectAs(engine, 'callee', false, 'video');
+    act(() => {
+      engine.emit('callMissed', { callId: 'c-2', caller: 'ivan', reason: 'busy' });
+    });
+    expect(screen.getByTestId('active-call')).toBeTruthy();
+    expect(screen.getByText('ivan 来电，已自动回复忙线')).toBeTruthy();
+  });
+});
+
+describe('群通话的被叫也要看到还没接的人', () => {
+  /*
+    `call.incoming` 一直带着 callee_ids，只是原先没人往上抛：主叫那边是四格
+    （含还没接的占位格），被叫这边只有两格，同一通电话两种样子。
+  */
+  it('来电时按 callee_ids 摆占位格，并去掉自己', () => {
+    const engine = setup();
+    act(() => {
+      engine.emit('callReceived', {
+        callId: 'c-1', caller: 'alice', calleeIds: ['me', 'carol', 'dave'],
+        mediaType: 'video', isGroup: true,
+      });
+      engine.emit('callBegin', { callId: 'c-1', roomId: 'r-1', mediaType: 'video', isGroup: true, role: 'callee' });
+      engine.emit('roomJoined', { roomId: 'r-1' });
+    });
+    expect(screen.getByTestId('tile-alice')).toBeTruthy();
+    expect(screen.getByTestId('tile-carol')).toBeTruthy();
+    expect(screen.getByTestId('tile-dave')).toBeTruthy();
+    // FakeEngine.uid 是 'me'——自己不是远端成员（本端那一格的 testid 是 tile-self）。
+    expect(screen.queryByTestId('tile-me')).toBeNull();
   });
 });

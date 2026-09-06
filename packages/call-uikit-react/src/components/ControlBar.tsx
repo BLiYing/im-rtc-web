@@ -8,11 +8,14 @@ import { callMotion } from '../theme.js';
 /**
  * ControlBar 是通话中的控制条。
  *
- * 三到四个按钮：麦克风、（视频通话才有）摄像头、小窗、红按钮。**屏幕共享 MVP 不做**
+ * 两到三个按钮：麦克风、（视频通话才有）摄像头、红按钮。**屏幕共享 MVP 不做**
  * （CONVENTIONS §11），所以这里干脆没有那个按钮——留一个灰的比不留更烦人。
  *
  * **没有扬声器按钮**：那是 iOS / Android 才有的东西（听筒 / 外放路由），
  * 浏览器没有对应的 API，放一个点了没反应的按钮更糟。
+ *
+ * **也没有「小窗」按钮**：收进小窗的唯一入口是标题栏左上角那一颗（`CallHeader`）——
+ * 那个位置在三端都是「离开这一屏」的手势位，两个地方各放一颗只会让人犹豫点哪个。
  *
  * **红按钮的语义按房间类型分叉**（规范 §05）：1v1 → `hangup`，群 / 会议 → `leaveRoom`。
  * 文案也跟着变：1v1 写「挂断」，群通话写「离开」。分辨这件事在 `actions.end` 里。
@@ -73,13 +76,6 @@ export function ControlBar({ onVideo = false, visible = true }: ControlBarProps)
           testId="toggle-camera"
         />
       )}
-
-      <ControlButton
-        icon="minimize"
-        caption="小窗"
-        onClick={() => actions.setMinimized(true)}
-        testId="minimize-control"
-      />
 
       <ControlButton
         role="danger"

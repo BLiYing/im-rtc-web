@@ -3,7 +3,7 @@ import { FrameType } from '../signaling/registry.js';
 import type { CallContext } from './callMachine.js';
 import { initialCallContext, out } from './callMachine.js';
 import type { EmittedEvent, MachineOutput } from './types.js';
-import { bool, num, str } from './types.js';
+import { bool, num, str, strArray } from './types.js';
 
 /**
  * 通话状态机的**下行帧**分支（RTC_PROTOCOL.md §5.1 的转移表右半边）。
@@ -28,6 +28,9 @@ export function reduceRecv(
   type: string,
   data: Readonly<Record<string, unknown>>,
 ): MachineOutput<CallContext> {
+  // **别的一通电话的帧一律不许碰当前这一通**（见 handleForeignCall）。
+  if (isForAnotherCall(ctx, data)) return handleForeignCall(ctx, type, data);
+
   // 终态帧优先：**任何非 idle 状态收到 call.ended 都直达 idle**（§5.1）。
   if (type === FrameType.callEnded) return handleEnded(ctx, data);
 
@@ -67,6 +70,45 @@ export function reduceRecv(
   }
 }
 
+/**
+ * 这一帧说的是不是**别的一通电话**。
+ *
+ * 通话中被第三个人呼叫时，服务端判他忙线并给我们发一条 `call.ended{busy}`——
+ * 那条帧的 `call_id` 是**新来那通**的。原先这里不看 call_id，于是它被当成
+ * 「当前通话结束了」：媒体面直接关掉、通话页收起，而对面还好好地显示着通话中
+ * （真机日志 08:30:39，iOS 侧一串 `PC 状态 closed` 紧跟一条别的 call_id 的 callEnd）。
+ */
+function isForAnotherCall(ctx: CallContext, data: Readonly<Record<string, unknown>>): boolean {
+  const frameCallId = str(data, 'call_id');
+  return ctx.callId !== '' && frameCallId !== '' && frameCallId !== ctx.callId;
+}
+
+/**
+ * 别的一通电话的帧：**一律不碰当前状态**。
+ *
+ * 只有终态帧要露个头——那说明「有人打进来，已经被自动回了忙线」，
+ * 界面据此提示一句谁来过电话（交互规则见 UX_FLOWS §06）。
+ */
+function handleForeignCall(
+  ctx: CallContext,
+  type: string,
+  data: Readonly<Record<string, unknown>>,
+): MachineOutput<CallContext> {
+  if (type !== FrameType.callEnded) return out(ctx);
+  return out(ctx, [], [
+    {
+      cb: 'onCallMissed',
+      // 状态机的 args 一律 snake_case（与向量、与另外三端同名）；
+      // 出到公开事件时由 engineBus 的 camelizeArgs 统一转。
+      args: {
+        call_id: str(data, 'call_id'),
+        caller: str(data, 'caller'),
+        reason: str(data, 'reason'),
+      },
+    },
+  ]);
+}
+
 function handleIncoming(
   ctx: CallContext,
   data: Readonly<Record<string, unknown>>,
@@ -88,6 +130,8 @@ function handleIncoming(
       args: {
         call_id: next.callId,
         caller: str(data, 'caller'),
+        // **原样带上**：群通话里被叫要靠它摆占位格（见 events.ts 的字段注释）。
+        callee_ids: strArray(data, 'callee_ids'),
         media_type: mediaType,
         is_group: next.isGroup,
       },

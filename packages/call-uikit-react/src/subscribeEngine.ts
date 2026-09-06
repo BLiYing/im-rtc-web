@@ -14,7 +14,9 @@ import type { ViewAction } from './state/viewTypes.js';
 export function subscribeEngine(engine: CallEngine, dispatch: (action: ViewAction) => void): () => void {
   const off = [
     engine.on('callReceived', (e) =>
+      // 名单里含自己，摆格子之前先去掉——「自己」不是远端成员。
       dispatch({ type: 'callReceived', callId: e.callId, caller: e.caller,
+        calleeIds: e.calleeIds.filter((uid) => uid !== engine.uid),
         mediaType: e.mediaType, isGroup: e.isGroup })),
     engine.on('callBegin', (e) =>
       dispatch({ type: 'callBegin', callId: e.callId, roomId: e.roomId, mediaType: e.mediaType,
@@ -42,6 +44,8 @@ export function subscribeEngine(engine: CallEngine, dispatch: (action: ViewActio
     engine.on('callBusy', (e) => dispatch({ type: 'hint', text: `${e.uid} 忙线中` })),
     engine.on('callNoAnswer', (e) => dispatch({ type: 'hint', text: `${e.uid} 无应答` })),
     engine.on('callCancelled', (e) => dispatch({ type: 'hint', text: `${e.by} 取消了呼叫` })),
+    // 通话中有人打进来，服务端已经替我们回了忙线——**只提示，不动当前通话**。
+    engine.on('callMissed', (e) => dispatch({ type: 'hint', text: `${e.caller} 来电，已自动回复忙线` })),
     // 他设备处理了：来电页会随后收到 callEnd 而静默消失，这里不弹提示（交互稿 §06）。
     engine.on('handledOnOtherDevice', () => undefined),
     engine.on('firstVideoFrame', () => dispatch({ type: 'mediaReady' })),
