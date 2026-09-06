@@ -5,11 +5,13 @@ import { decodeEnvelope, encodeEnvelope, okType } from './envelope.js';
 import { decodeFields, encodeFields } from './fieldSpec.js';
 import type { FrameFields } from './fieldSpec.js';
 import { HELLO_FIELDS, HELLO_OK_FIELDS } from './frames.sys.js';
+import type { ConnectionOptions, ConnectionState, HelloOk } from './connectionTypes.js';
+import { TokenExpiryTimer } from './tokenExpiry.js';
 import { Heartbeat } from './heartbeat.js';
 import { PendingRequests } from './pendingRequests.js';
 import { Reconnector } from './reconnector.js';
 import { FrameType, lookupFrame } from './registry.js';
-import type { WebSocketFactory, WebSocketLike } from './webSocket.js';
+import type { WebSocketLike } from './webSocket.js';
 import { CloseCode, WS_OPEN, browserWebSocketFactory, shouldReconnect } from './webSocket.js';
 
 /**
@@ -21,51 +23,13 @@ import { CloseCode, WS_OPEN, browserWebSocketFactory, shouldReconnect } from './
  * 只看类型对不上号。按 req_id 配对还顺带解决了「多个同类请求在途」的问题。
  */
 
-/** ConnectionState 是连接状态。 */
-export type ConnectionState = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'closed';
-
-/** HelloOk 是握手成功后的服务端信息。 */
-export interface HelloOk {
-  uid: string;
-  deviceId: string;
-  sessionId: string;
-  resumed: boolean;
-  pingIntervalSec: number;
-  limits: {
-    maxFrameBytes: number;
-    maxCallees: number;
-    maxRoomParticipants: number;
-    maxUserDataBytes: number;
-    ringTimeoutSecDefault: number;
-  };
-}
-
-/** ConnectionEvents 是连接层对外的回调。 */
-export interface ConnectionEvents {
-  /** 握手完成。resumed=true 表示恢复了旧会话，房间成员关系还在。 */
-  onConnected?: (hello: HelloOk) => void;
-  /** 连接断开。willReconnect=false 时不会再自动回来。 */
-  onDisconnected?: (info: { code: number; reason: string; willReconnect: boolean }) => void;
-  /** 被踢（同 uid 同 device_id 在别处登录）。 */
-  onKickedOut?: () => void;
-  /** 收到服务端主动推送的事件（req_id 为空的帧）。 */
-  onEvent?: (type: string, data: Record<string, unknown>, envelope: Envelope) => void;
-  /** 内部错误。 */
-  onError?: (error: RtcError) => void;
-}
-
-/** ConnectionOptions 是构造参数。带 Fn 后缀的都是为了测试可注入。 */
-export interface ConnectionOptions {
-  url: string;
-  token: string;
-  deviceId: string;
-  sdk?: string;
-  events?: ConnectionEvents;
-  webSocketFactory?: WebSocketFactory;
-  /** 请求超时。协议建议 10 秒（§2.2）。 */
-  requestTimeoutMs?: number;
-  random?: () => number;
-}
+export type {
+  ConnectionState,
+  HelloOk,
+  KickedOutReason,
+  ConnectionEvents,
+  ConnectionOptions,
+} from './connectionTypes.js';
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 
@@ -81,7 +45,7 @@ const MAX_AUTH_FAILURES = 3;
 
 /** Connection 是一条信令连接。断线会自动重连，除非关闭码明说不该重连。 */
 export class Connection {
-  private readonly options: Required<Omit<ConnectionOptions, 'events' | 'sdk'>> &
+  private readonly options: Required<Omit<ConnectionOptions, 'events' | 'sdk' | 'tokenExpiryLeadMs'>> &
     Pick<ConnectionOptions, 'events' | 'sdk'>;
 
   private ws: WebSocketLike | null = null;
@@ -95,6 +59,7 @@ export class Connection {
   private token: string;
   /** 连续鉴权失败次数。握手一成功就清零——只有**连续**失败才说明票是死的。 */
   private authFailures = 0;
+  private readonly tokenExpiry: TokenExpiryTimer;
 
   constructor(options: ConnectionOptions) {
     this.token = options.token;
@@ -103,6 +68,10 @@ export class Connection {
       onDead: (): void => this.ws?.close(CloseCode.goingAway, 'heartbeat timeout'),
     });
     this.pending = new PendingRequests(options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS);
+    this.tokenExpiry = new TokenExpiryTimer({
+      ...(options.tokenExpiryLeadMs === undefined ? {} : { leadMs: options.tokenExpiryLeadMs }),
+      onWillExpire: (info): void => this.options.events?.onTokenWillExpire?.(info),
+    });
     this.reconnector = new Reconnector(
       async (): Promise<void> => {
         await this.connect();
@@ -138,9 +107,12 @@ export class Connection {
    * **顺带把鉴权失败计数清零**：换票就是「这次不一样了」的唯一信号，
    * 不清的话已经用光重试次数的连接换了新票也再没有机会试。
    */
-  updateToken(token: string): void {
+  updateToken(token: string, expiresAtMs?: number): void {
     this.token = token;
     this.authFailures = 0;
+    // 宿主刚从自家后台拿到票，必然知道它的 expires_in。传了就按新票重新武装；
+    // 不传就让旧定时器继续跑到下一次握手——那时 sys.hello.ok 会给出权威值。
+    if (expiresAtMs !== undefined) this.tokenExpiry.arm(expiresAtMs);
   }
 
   /** connect 建立连接并完成握手。已连上时直接返回。 */
@@ -166,6 +138,7 @@ export class Connection {
     this.authFailures = 0;
     this.reconnector.succeeded();
     this.heartbeat.start(hello.pingIntervalSec);
+    this.tokenExpiry.arm(hello.tokenExpiresAtMs);
     this.options.events?.onConnected?.(hello);
     return hello;
   }
@@ -175,6 +148,7 @@ export class Connection {
     this.state = 'closed';
     this.heartbeat.stop();
     this.reconnector.stop();
+    this.tokenExpiry.disarm();
     this.pending.rejectAll(new RtcError(ErrorCode.invalidState, { cause: new Error('连接已关闭') }));
     this.ws?.close(CloseCode.normal, 'client logout');
     this.ws = null;
@@ -295,7 +269,7 @@ export class Connection {
   private dispatchEvent(envelope: Envelope): void {
     if (envelope.type === FrameType.error) {
       const error = this.toRtcError(envelope);
-      if (error.code === ErrorCode.kickedOut) this.options.events?.onKickedOut?.();
+      if (error.code === ErrorCode.kickedOut) this.options.events?.onKickedOut?.({ reason: 'takenOver' });
       this.options.events?.onError?.(error);
       return;
     }
@@ -334,7 +308,7 @@ export class Connection {
       new RtcError(ErrorCode.networkUnreachable, { cause: new Error('连接已断开') }),
     );
 
-    if (event.code === CloseCode.kickedOut) this.options.events?.onKickedOut?.();
+    if (event.code === CloseCode.kickedOut) this.options.events?.onKickedOut?.({ reason: 'takenOver' });
 
     /*
       4401 要计数。重连**带的是同一枚 token**，所以「换新 token 后重连」这条规则
@@ -348,7 +322,7 @@ export class Connection {
       if (exhausted) {
         logger.info('鉴权连续失败，停止重连', { failures: this.authFailures });
         this.reconnector.stop();
-        this.options.events?.onKickedOut?.();
+        this.options.events?.onKickedOut?.({ reason: 'authExpired' });
       }
     }
 

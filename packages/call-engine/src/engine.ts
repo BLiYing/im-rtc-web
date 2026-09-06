@@ -128,7 +128,12 @@ export class CallEngine {
           void this.loop.dispatch({ kind: 'internal', name: 'disconnected' });
           this.bus.emit('disconnected', info);
         },
-        onKickedOut: (): void => void this.loop.dispatch({ kind: 'internal', name: 'ws_closed_4403' }),
+        onKickedOut: (info): void => {
+          // 状态机只认「被踢了」这一件事，原因是给宿主做处置判断的，两者分开走。
+          void this.loop.dispatch({ kind: 'internal', name: 'ws_closed_4403' });
+          this.bus.emit('kickedOut', info);
+        },
+        onTokenWillExpire: (info): void => this.bus.emit('tokenWillExpire', info),
         onError: (error): void => this.bus.emitError(error),
       },
     );
@@ -160,8 +165,8 @@ export class CallEngine {
    *
    * 连上着的时候调它也是安全的（比如票快过期了提前换）——当前连接不受影响。
    */
-  updateToken(token: string): void {
-    this.connection?.updateToken(token);
+  updateToken(token: string, expiresAtMs?: number): void {
+    this.connection?.updateToken(token, expiresAtMs);
   }
 
   /** logout 关掉连接与媒体。 */

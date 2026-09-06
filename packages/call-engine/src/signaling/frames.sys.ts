@@ -38,6 +38,13 @@ export const HELLO_OK_FIELDS = {
   serverTimeMs: { kind: 'int', wire: 'server_time_ms' },
   resumed: { kind: 'bool', wire: 'resumed' },
   pingIntervalSec: { kind: 'int', wire: 'ping_interval_sec' },
+  /**
+   * 本次握手用的那张票的到期时刻（Unix 毫秒）。**0 = 未知**。
+   *
+   * 客户端据此在到期前主动换票，而不是等下一次重连撞上 4401 再被动补救。
+   * **禁止自己解析 token 取 exp**——票对客户端是 opaque 的，可能根本不是 JWT。
+   */
+  tokenExpiresAtMs: { kind: 'int', wire: 'token_expires_at_ms' },
   limits: { kind: 'object', wire: 'limits', fields: LIMITS_FIELDS },
 } as const satisfies FrameFields;
 
