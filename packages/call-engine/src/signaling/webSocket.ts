@@ -25,7 +25,7 @@ export const WS_OPEN = 1;
 
 /** CloseCode 是协议约定的 WS 关闭码（RTC_PROTOCOL.md §1.5）。 */
 export const CloseCode = {
-  /** 正常关闭（客户端主动 logout）。不重连。 */
+  /** 正常关闭。**我们自己 logout 时发的就是它**；别人发过来的不算数，见 shouldReconnect。 */
   normal: 1000,
   /** 服务端下线/重启。立即重连。 */
   goingAway: 1001,
@@ -44,9 +44,17 @@ export const CloseCode = {
  *
  * 4400 与 4403 **绝不重连**：前者是我们自己的实现 bug，重连只会再撞一次；
  * 后者是被踢，重连等于跟另一台设备打架。
+ *
+ * **1000 不在这张表里**——「是不是我们自己要走的」看的是意图，不是关闭码。
+ * `close()` 会先把 state 置成 `closed`，`connection.ts` 那句
+ * `this.state !== 'closed'` 已经把 logout 挡住了；再按码挡一次，挡掉的只剩
+ * **别人发过来的 1000**：浏览器掐掉后台标签页的连接、代理/系统休眠断链，
+ * 用的都是这个码。服务端从不主动发 1000（重启走 1001 goingAway），
+ * 所以这里收到的 1000 一定不是「对面让我别回来了」。
+ * 症状是一个后台标签页显示「连接已断开（1000），不会自动回」，必须手动刷新。
  */
 export function shouldReconnect(code: number): boolean {
-  return code !== CloseCode.normal && code !== CloseCode.badProtocol && code !== CloseCode.kickedOut;
+  return code !== CloseCode.badProtocol && code !== CloseCode.kickedOut;
 }
 
 /** browserWebSocketFactory 是浏览器环境的默认工厂。 */

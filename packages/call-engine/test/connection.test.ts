@@ -257,7 +257,7 @@ describe('心跳', () => {
 
 describe('关闭码决定要不要重连', () => {
   it.each([
-    ['正常关闭 1000 不重连', CloseCode.normal, false],
+    ['对端发来的 1000 要重连（浏览器掐后台标签页用的就是这个码）', CloseCode.normal, true],
     ['服务端重启 1001 重连', CloseCode.goingAway, true],
     ['协议错 4400 不重连（是我们自己的 bug）', CloseCode.badProtocol, false],
     ['鉴权失败 4401 重连（换 token 后可能成功）', CloseCode.unauthorized, true],
