@@ -64,12 +64,24 @@ export function VideoTile(props: VideoTileProps): ReactNode {
     return () => engine.attachView(uid, null);
   }, [engine, uid, localCid]);
 
-  // 格子大小变了就重报层上界。**这是省带宽的关键一步**：
-  // 九宫格里每个人都按 h 层收，一屏就是 8 路 720p。
+  /*
+   格子大小变了就重报层上界。**这是省带宽的关键一步**：
+   九宫格里每个人都按 h 层收，一屏就是 8 路 720p。
+
+   **`hasVideo` 必须在依赖里**，哪怕这个 effect 一个字都没用到它。
+   `setRemoteLayer` 是按 uid 找他当前的视频轨道再发帧的，而**人先进来、轨道后到是常态**：
+   `userEnter` 一到就摆格子、跑这个 effect，那一次引擎手里还没有他的轨道，什么都没发出去；
+   而依赖没变，之后除非格数变化就再也不会重跑——服务端于是一直按默认的 `m` 给他下发，
+   九宫格里八个小格子每格都收半高清。症状只是「画面卡、掉帧」，一条报错都没有。
+   `hasVideo` 从 false 翻成 true 正是「他的轨道到了」那一刻，借它重跑一次即可。
+   **不拿 `hasVideo` 当开关**（不是 `if (!hasVideo) return`）：轨道没到时报一次是无害的空转，
+   而「没画面就干脆不报」会在对端只是临时关了摄像头时丢掉层上界。
+   （Android 走的是 `IMCallKit.invalidateReportedLayer`，iOS 在 `report(_:layer:hasVideo:)`，同一条。）
+  */
   useEffect(() => {
     if (layer === undefined || uid === '') return;
     void engine.setRemoteLayer(uid, layer);
-  }, [engine, uid, layer]);
+  }, [engine, uid, layer, hasVideo]);
 
   const tileStyle = {
     ...styles.tile,

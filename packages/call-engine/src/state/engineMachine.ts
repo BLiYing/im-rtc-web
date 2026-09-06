@@ -44,6 +44,7 @@ const ROOM_ACTS = new Set([
   'subscribe',
   'unsubscribe',
   'update_layer',
+  'restart_pub_ice',
 ]);
 
 /** reduceEngine 是 engine 状态的唯一入口。 */

@@ -37,6 +37,9 @@ class NullMedia implements MediaAdapter {
   async createPubOffer(): Promise<string> {
     return 'offer-sdp';
   }
+  restartPubICE(): void {
+    this.iceRestarts += 1;
+  }
   async applyPubAnswer(): Promise<void> {}
   async answerSubOffer(): Promise<string> {
     return 'answer-sdp';

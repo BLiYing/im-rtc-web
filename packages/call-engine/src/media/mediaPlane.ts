@@ -96,4 +96,18 @@ function onPcState(deps: MediaPlaneDeps, pc: PcRole, state: RTCPeerConnectionSta
   if (pc === 'sub' && state === 'connected') {
     void deps.dispatch({ kind: 'internal', name: 'media_ready' });
   }
+  /*
+    **ICE 失败不是终点，是该重连的信号。**
+
+    `pub` 那条的 offerer 是本端，只能自己救；`sub` 那条由服务端救（协议 §3.3）。
+    不救的后果：网抖一下（切网、休眠、标签页被节流久了）人就**永久掉出这通通话**，
+    对端的格子从此是一块黑，而界面上一切正常、谁也不挂断。
+    真机联调时抓到过两条 PC 从某一刻起五分钟一轮地失败，再没回到 connected。
+    重启失败还会再进 failed，于是天然形成一个重试节奏。
+  */
+  if (pc === 'pub' && state === 'failed') {
+    logger.info('上行通路失败，重启 ICE', {});
+    deps.bridge.adapter.restartPubICE();
+    void deps.dispatch({ kind: 'act', op: 'restart_pub_ice' });
+  }
 }

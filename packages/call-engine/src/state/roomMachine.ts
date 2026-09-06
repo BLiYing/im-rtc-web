@@ -203,6 +203,13 @@ function reduceRoomAct(
       return unsubscribeTrack(ctx, args);
     case 'update_layer':
       return updateLayer(ctx, args);
+    /*
+      上行那条 PC 断了，重新 offer 一次把 ICE 打回来（媒体层已经把 restart 位置好了）。
+      **不进 BUFFERABLE_OPS**：这是「此刻网断了」的即时反应，等到重放的时候
+      那条 PC 早就换过一轮了，补发一个过期的重启只会白折腾一次协商。
+    */
+    case 'restart_pub_ice':
+      return roomOut(ctx, [{ type: FrameType.roomOffer, data: { pc: 'pub', sdp: '' } }]);
     default:
       return localReject(ctx);
   }

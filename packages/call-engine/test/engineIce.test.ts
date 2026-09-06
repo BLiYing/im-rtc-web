@@ -28,6 +28,8 @@ class RecordingMedia implements MediaAdapter {
   readonly remoteCandidates: { pc: PcRole; candidate: string }[] = [];
   events: MediaAdapterEvents | null = null;
 
+  iceRestarts = 0;
+
   open(events: MediaAdapterEvents): void {
     this.events = events;
   }
@@ -44,6 +46,13 @@ class RecordingMedia implements MediaAdapter {
   }
   async createPubOffer(): Promise<string> {
     return 'offer-sdp';
+  }
+  restartPubICE(): void {
+    this.iceRestarts += 1;
+  }
+  /** 手动模拟一次 PC 状态变化——真实实现里这是浏览器回调过来的。 */
+  pcState(pc: PcRole, state: RTCPeerConnectionState): void {
+    this.events?.onConnectionStateChange(pc, state);
   }
   async applyPubAnswer(): Promise<void> {}
   async answerSubOffer(): Promise<string> {
@@ -84,6 +93,24 @@ async function setup(): Promise<{ engine: CallEngine; media: RecordingMedia; ws:
   }));
   await login;
   return { engine, media, ws: socket };
+}
+
+/** joinRoom 把房间推到 joined —— 只有 joined 才允许发布/协商类动作（不变量 R1）。 */
+async function joinRoom(ws: FakeWebSocket): Promise<void> {
+  deliverEvent(ws, 'call.connected', {
+    call_id: 'call-1', room_id: 'r-1', room_token: 'tk', media_type: 'video',
+    is_group: false, connected_at_ms: 1756876812000, accepted_by: 'bob',
+  });
+  await flush(6);
+  const join = ws.frames().find((f) => f.type === 'room.join');
+  ws.receive(JSON.stringify({
+    type: 'room.join.ok', req_id: join?.req_id ?? '', ts: 1,
+    data: {
+      room_id: 'r-1', room_kind: 'call_1v1', participant_id: 'p-2',
+      max_participants: 2, joined_at_ms: 1, participants: [], tracks: [],
+    },
+  }));
+  await flush(8);
 }
 
 /** deliverEvent 模拟服务端推一个事件帧（req_id 恒为空）。 */
@@ -210,6 +237,42 @@ describe('回调顺序', () => {
     await flush(8);
 
     expect(engine.state.room.state).toBe('idle');
+  });
+});
+
+/*
+ **ICE 失败不是终点，是该重连的信号。**
+
+ `pub` 那条 PC 的 offerer 是本端，所以它 failed 了只能自己救（`sub` 那条由服务端救，协议 §3.3）。
+ 不救的后果：网抖一下（切网、休眠、标签页被节流久了）人就**永久掉出这通通话**，
+ 对端格子从此是一块黑，而界面上一切正常、谁也不挂断——真机联调抓到过两条 PC
+ 从某一刻起五分钟一轮地失败，再没回到 connected。
+*/
+describe('上行 ICE 断了要自己重连', () => {
+  it('pub failed → 置重启位 + 重新发一个 room.offer{pc:pub}', async () => {
+    const { media, ws } = await setup();
+    await joinRoom(ws);
+    const before = ws.frames().filter((f) => f.type === 'room.offer').length;
+
+    media.pcState('pub', 'failed');
+    await flush(8);
+
+    expect(media.iceRestarts, '要让下一个 offer 带上 ICE restart').toBe(1);
+    const offers = ws.frames().filter((f) => f.type === 'room.offer');
+    expect(offers.length, '要重新 offer 一次').toBe(before + 1);
+    expect(offers.at(-1)?.data).toMatchObject({ pc: 'pub' });
+  });
+
+  it('sub failed 不管——那条的 offerer 是服务端，客户端插手只会 glare', async () => {
+    const { media, ws } = await setup();
+    await joinRoom(ws);
+    const before = ws.frames().filter((f) => f.type === 'room.offer').length;
+
+    media.pcState('sub', 'failed');
+    await flush(8);
+
+    expect(media.iceRestarts).toBe(0);
+    expect(ws.frames().filter((f) => f.type === 'room.offer').length).toBe(before);
   });
 });
 

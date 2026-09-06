@@ -83,6 +83,8 @@ export interface MediaAdapter {
 
   /** createPubOffer 生成上行 offer。**pub 的 offerer 恒为本端**（协议 §3.3）。 */
   createPubOffer(): Promise<string>;
+  /** 让下一个上行 offer 带上 ICE restart。见 webrtcAdapter 里的说明。 */
+  restartPubICE(): void;
 
   /** applyPubAnswer 应用服务端对上行 offer 的应答。 */
   applyPubAnswer(sdp: string): Promise<void>;

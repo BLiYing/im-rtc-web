@@ -60,6 +60,9 @@ export class WebRTCAdapter implements MediaAdapter {
     };
   }
 
+  /** 下一个上行 offer 要不要带 ICE restart。见 restartPubICE()。 */
+  private pubICERestartPending = false;
+
   private createPeer(role: PcRole): RTCPeerConnection {
     const peer = new RTCPeerConnection({ iceServers: [] });
     peer.onicecandidate = (event): void => {
@@ -187,10 +190,24 @@ export class WebRTCAdapter implements MediaAdapter {
 
   async createPubOffer(): Promise<string> {
     const pub = this.requirePub();
-    const offer = await pub.createOffer();
+    const iceRestart = this.pubICERestartPending;
+    this.pubICERestartPending = false;
+    if (iceRestart) logger.info('上行重启 ICE', {});
+    const offer = await pub.createOffer({ iceRestart });
     await pub.setLocalDescription(offer);
     logger.debug('生成上行 offer', { sdp: redactSdp(offer.sdp) });
     return offer.sdp ?? '';
+  }
+
+  /**
+   * restartPubICE 让**下一个**上行 offer 带上 ICE restart（换一对新 ufrag/pwd 重新打洞）。
+   *
+   * `pub` 那条 PC 的 offerer 恒为本端（协议 §3.3），它 `failed` 了只能自己救；
+   * `sub` 那条由服务端救——**各自重启自己 offer 的那条**，不需要新的协议帧，也不会 glare。
+   * 做成「置一个位、下一个 offer 生效」而不是「立刻发帧」：发帧是 engine 的事，媒体层不认识信令。
+   */
+  restartPubICE(): void {
+    this.pubICERestartPending = true;
   }
 
   async applyPubAnswer(sdp: string): Promise<void> {

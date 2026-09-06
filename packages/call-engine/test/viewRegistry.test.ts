@@ -211,6 +211,7 @@ function stubAdapter(): MediaAdapter {
     startLocalPreview: notUsed,
     acquireCamera: notUsed,
     createPubOffer: notUsed,
+    restartPubICE: (): void => {},
     applyPubAnswer: notUsed,
     answerSubOffer: notUsed,
     addRemoteCandidate: notUsed,

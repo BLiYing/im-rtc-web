@@ -192,6 +192,32 @@ describe('九宫格与层上界', () => {
     expect(reported.get('alice')).toBe('l');
   });
 
+  /*
+   **人先进来、轨道后到**：`userEnter` 那一刻引擎手里还没有他的视频轨道，
+   `setRemoteLayer` 什么都发不出去。轨道到了（`userVideoAvailable` 翻 true）必须**再报一次**，
+   否则服务端一直按默认的 `m` 给他下发——九宫格里八个小格子每格都收半高清，
+   而症状只是「画面卡、掉帧」，一条报错都没有。
+   Android 走 `invalidateReportedLayer`、iOS 走 `report(_:layer:hasVideo:)`，Web 就是这条依赖。
+  */
+  it('轨道后到：他的画面一出现就重报一次层上界', () => {
+    const engine = setup();
+    ring(engine, true);
+    connect(engine, true);
+    act(() => {
+      for (const uid of ['bob', 'carol', 'dave', 'erin']) {
+        engine.emit('userEnter', { uid });
+      }
+    });
+    const before = engine.layers.length;
+
+    act(() => {
+      engine.emit('userVideoAvailable', { uid: 'bob', available: true });
+    });
+
+    const added = engine.layers.slice(before);
+    expect(added.some((l) => l.uid === 'bob')).toBe(true);
+  });
+
   it('1v1 对端满屏，报最高层', () => {
     const engine = setup();
     ring(engine);
