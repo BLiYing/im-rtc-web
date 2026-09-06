@@ -142,4 +142,12 @@ export const ENDED_FIELDS = {
   durationSec: { kind: 'int', wire: 'duration_sec' },
   /** 动作发起人 uid；服务端自行判定时为 ''。 */
   endedBy: { kind: 'string', wire: 'ended_by' },
+  /**
+   * 这通电话是谁打的。
+   *
+   * **忙线那条不振铃**，被叫拿到的第一帧也是最后一帧就是它——没有这个字段就说不出
+   * 「谁来过电话」（协议 §4.2）。字段没登记在这里的话解码器会把它丢掉，
+   * `onCallMissed` 拿到的 caller 就是空串。
+   */
+  caller: { kind: 'string', wire: 'caller' },
 } as const satisfies FrameFields;

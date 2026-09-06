@@ -18,10 +18,10 @@ import { styles } from '../styles.js';
  */
 export function CallEnded(): ReactNode {
   const { state } = useCall();
-  const seconds = state.beganAtMs === 0 ? 0 : Math.floor((Date.now() - state.beganAtMs) / 1000);
+  // 时长用服务端给的那个（不变量 I8：四端禁止自己算，时钟对不齐）。
   const text = state.isMeeting
     ? '已离开会议'
-    : endReasonText(state.endReason, state.role, seconds);
+    : endReasonText(state.endReason, state.role, state.endedDurationSec);
 
   return (
     <div style={styles.overlay} data-testid="call-ended">

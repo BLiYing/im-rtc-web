@@ -109,6 +109,8 @@ function AudioWithPreview({ state, seconds }: { readonly state: CallViewState; r
         status={statusLine(state, seconds)}
         isRinging={state.phase === 'outgoing'}
         networkLevel={peer?.networkLevel ?? 0}
+        // 接通之后名字与时长归标题栏，中间只留头像——两处各走各的计时是重复也是打架。
+        showsCaption={state.phase !== 'active'}
       />
       {showPreview && (
         <PipView

@@ -21,7 +21,8 @@ export function subscribeEngine(engine: CallEngine, dispatch: (action: ViewActio
     engine.on('callBegin', (e) =>
       dispatch({ type: 'callBegin', callId: e.callId, roomId: e.roomId, mediaType: e.mediaType,
         isGroup: e.isGroup, role: e.role, nowMs: Date.now() })),
-    engine.on('callEnd', (e) => dispatch({ type: 'callEnd', reason: e.reason })),
+    // 时长用服务端给的那个（不变量 I8：四端禁止自己算）。
+    engine.on('callEnd', (e) => dispatch({ type: 'callEnd', reason: e.reason, durationSec: e.durationSec })),
     engine.on('userEnter', (e) => dispatch({ type: 'userEnter', uid: e.uid })),
     engine.on('userLeave', (e) => dispatch({ type: 'userLeave', uid: e.uid })),
     engine.on('userAccept', (e) => dispatch({ type: 'userAccept', uid: e.uid })),

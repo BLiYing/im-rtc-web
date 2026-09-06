@@ -26,7 +26,7 @@ export function CallHeader({ title, subtitle, networkLevel, onInvite }: CallHead
     <div style={styles.header}>
       <button type="button" style={styles.headerButton} aria-label="收进小窗" data-testid="minimize"
         onClick={() => actions.setMinimized(true)}>
-        <Icon name="minimize" size={18} />
+        <Icon name="pip" size={18} />
       </button>
       <div style={styles.headerCenter}>
         <div style={styles.title}>{title}</div>

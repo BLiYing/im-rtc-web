@@ -19,11 +19,21 @@ export interface AudioStageProps {
   readonly status: string;
   readonly isRinging: boolean;
   readonly networkLevel: number;
+  /**
+   * 名字与状态这一行要不要显示。
+   *
+   * **接通之后不显示**：那时候标题栏里已经是「对方名字 + 计时器」，中间再写一遍
+   * 就是同一句话在一屏里出现两次，还各走各的计时。呼叫中 / 来电页的标题栏是空的，
+   * 名字与状态只在那两屏出现。
+   */
+  readonly showsCaption?: boolean;
   /** 叠在上面的东西（拨出中的本端预览小窗）。 */
   readonly children?: ReactNode;
 }
 
-export function AudioStage({ name, status, isRinging, networkLevel, children }: AudioStageProps): ReactNode {
+export function AudioStage({
+  name, status, isRinging, networkLevel, showsCaption = true, children,
+}: AudioStageProps): ReactNode {
   const { state } = useCall();
   const uid = state.peerUid || name;
   return (
@@ -35,8 +45,8 @@ export function AudioStage({ name, status, isRinging, networkLevel, children }: 
         {isRinging && <span className="imrtc-breathe" aria-hidden="true" />}
         {avatarInitial(name)}
       </div>
-      <div style={styles.whoName}>{name}</div>
-      <div style={styles.whoStatus}>{status}</div>
+      {showsCaption && <div style={styles.whoName}>{name}</div>}
+      {showsCaption && <div style={styles.whoStatus}>{status}</div>}
       {networkLevel > 0 && (
         <span style={{ ...styles.netChip, ...(networkLevel >= 5 ? { color: callColors.warning } : {}) }} data-testid="net-chip">
           <NetworkBars level={networkLevel} size={12} />

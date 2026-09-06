@@ -96,6 +96,13 @@ export interface CallViewState {
   readonly beganAtMs: number;
   readonly endReason: CallEndReasonValue | '';
   /**
+   * 结束时的通话时长，**由服务端给**（`call.ended.duration_sec`）。
+   *
+   * 不变量 I8：四端禁止自己算时长（时钟偏移）。结束画面原先拿 `Date.now() - beganAtMs`
+   * 现算，与另外两端各算各的。
+   */
+  readonly endedDurationSec: number;
+  /**
    * 本端摄像头轨道的 cid，空串 = 还没起摄像头。
    *
    * **进 state 是因为它决定渲染**：本端格子要显示画面还是头像，全看它有没有。
@@ -134,6 +141,7 @@ export const initialCallView: CallViewState = {
   isSwapped: false,
   beganAtMs: 0,
   endReason: '',
+  endedDurationSec: 0,
   localCameraCid: '',
   hint: '',
   isMediaReady: false,
@@ -158,7 +166,7 @@ export type ViewAction =
   | { readonly type: 'callBegin'; readonly callId: string; readonly roomId: string;
       readonly mediaType: MediaType; readonly isGroup: boolean; readonly role: CallRoleName;
       readonly nowMs: number }
-  | { readonly type: 'callEnd'; readonly reason: CallEndReasonValue }
+  | { readonly type: 'callEnd'; readonly reason: CallEndReasonValue; readonly durationSec: number }
   | { readonly type: 'localCamera'; readonly cid: string }
   /** 摄像头拿不到（权限被拒 / 没设备）：通话继续，按钮禁用。 */
   | { readonly type: 'cameraBlocked' }

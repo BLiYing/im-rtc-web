@@ -115,7 +115,13 @@ export function reduceCallView(state: CallViewState, action: ViewAction): CallVi
         主叫那一侧不一样：拨出去没打通，人需要知道为什么，所以停一下说明原因。
       */
       if (state.phase === 'incoming') return { ...initialCallView, connection: state.connection };
-      return { ...state, phase: 'ended', endReason: action.reason, isMinimized: false };
+      return {
+        ...state,
+        phase: 'ended',
+        endReason: action.reason,
+        endedDurationSec: action.durationSec,
+        isMinimized: false,
+      };
 
     case 'localCamera':
       return { ...state, localCameraCid: action.cid };

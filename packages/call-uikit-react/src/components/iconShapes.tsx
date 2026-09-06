@@ -18,6 +18,7 @@ export type IconName =
   | 'phone-down'
   | 'xmark'
   | 'minimize'
+  | 'pip'
   | 'expand'
   | 'speaker'
   | 'speaker-slash'
@@ -60,6 +61,18 @@ export function iconShape(name: IconName): ReactNode {
       return <g transform="rotate(135 12 12)">{handset()}</g>;
     case 'xmark':
       return <path d="M6 6l12 12M18 6 6 18" />;
+    case 'pip':
+      /*
+        收进小窗：**画中画字形**（外框 + 右下角一个实心小窗），对应 iOS 的 `pip.enter`
+        与 Android 的 `ic_im_pip`。双向箭头那一版（`minimize`）在真机上被认成「全屏」——
+        两个箭头无论朝里朝外，读出来都是「缩放」，说不出「小窗」这层意思。
+      */
+      return (
+        <>
+          <path d="M21 12V6.5A2.5 2.5 0 0 0 18.5 4h-13A2.5 2.5 0 0 0 3 6.5v11A2.5 2.5 0 0 0 5.5 20H12" />
+          <rect x={13.5} y={13.5} width={7.5} height={6} rx={1} fill="currentColor" />
+        </>
+      );
     case 'minimize':
       // 两支相向的箭头，对应 iOS 的 `arrow.down.right.and.arrow.up.left`。
       return (

@@ -34,6 +34,14 @@ export function endReasonText(
       return '对方当前不在线';
     case 'network':
       return '网络中断';
+    case 'answered_elsewhere':
+      return '已在其他设备接听';
+    case 'rejected_elsewhere':
+      return '已在其他设备拒绝';
+    case 'room_closed':
+      return '房间已解散';
+    case 'kicked':
+      return '已被移出';
     default:
       return '已结束';
   }
