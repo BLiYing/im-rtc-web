@@ -108,20 +108,22 @@ export function VideoTile(props: VideoTileProps): ReactNode {
           {settled === '' ? '呼叫中…' : settledText(settled)}
         </div>
       )}
-      {/* 静音角标放右上，与左下的名字牌分开：名字可能很长，挤在一起时角标会被顶出格子。 */}
-      {!hasAudio && (
-        <div style={styles.tileBadge} role="img" aria-label="已静音" data-testid={`muted-${testUid}`}>
-          <Icon name="mic-slash" size={14} />
-        </div>
-      )}
       {isNetworkPoor(networkLevel) && (
         <div style={styles.tileNetBadge} role="img" aria-label="网络不佳" data-testid={`net-${testUid}`}>
           <NetworkBars level={networkLevel} />
         </div>
       )}
-      <div style={{ ...styles.tileLabel, ...(isSpeaking ? styles.tileLabelSpeaking : {}) }}>
-        <span>{label}</span>
-        {isSpeaking && <span role="img" aria-label="正在说话" data-testid={`speaking-${testUid}`}><Icon name="speaker" size={12} /></span>}
+      {/* 名字牌 + 静音角标是左下角同一行（styles.tileBottomRow 的注释说明为什么）。 */}
+      <div style={styles.tileBottomRow}>
+        <div style={{ ...styles.tileLabel, ...(isSpeaking ? styles.tileLabelSpeaking : {}) }}>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+          {isSpeaking && <span role="img" aria-label="正在说话" data-testid={`speaking-${testUid}`}><Icon name="speaker" size={12} /></span>}
+        </div>
+        {!hasAudio && (
+          <div style={styles.tileBadge} role="img" aria-label="已静音" data-testid={`muted-${testUid}`}>
+            <Icon name="mic-slash" size={14} />
+          </div>
+        )}
       </div>
     </div>
   );

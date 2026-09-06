@@ -95,21 +95,37 @@ export const styles = {
   /** 本端预览水平镜像（人照镜子的习惯）；远端不镜像。 */
   videoMirrored: { transform: 'scaleX(-1)' } satisfies CSSProperties,
 
+  /**
+   * 名字牌与静音角标同在**左下角一行**（v3.2 改）。
+   *
+   * 静音角标原先在右上角，而 1v1 的全屏画面铺满整屏——那个位置正好压在手机状态栏的
+   * 时间与电量上。离左边与下边都留 12（原来是 8）：格子有 10 的圆角，贴到 8 的话
+   * 名字会被圆角切掉一截，窄格子上直接看不全。
+   */
+  tileBottomRow: {
+    position: 'absolute', left: 12, bottom: 12, right: 12, display: 'flex', gap: 4,
+    alignItems: 'center', pointerEvents: 'none',
+  } satisfies CSSProperties,
   tileLabel: {
-    position: 'absolute', left: 8, bottom: 8, height: 18, padding: '0 8px', borderRadius: 6,
+    height: 20, padding: '0 8px', borderRadius: 6, minWidth: 0,
     background: callColors.scrim, fontSize: 12, display: 'flex', gap: 6, alignItems: 'center',
-    maxWidth: 'calc(100% - 16px)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
   } satisfies CSSProperties,
   /** 正在说话：名字标签底变绿、字变深（规范 §06）。 */
   tileLabelSpeaking: { background: callColors.accept, color: callColors.acceptFg, fontWeight: 600 } satisfies CSSProperties,
 
+  /**
+   * 静音角标**跟着名字牌走，在它右边**（v3.2 改，原来在右上角）。
+   *
+   * 1v1 的全屏画面铺满整屏，右上角那个位置正好压在系统状态栏的时间与电量上（手机端）。
+   */
   tileBadge: {
-    position: 'absolute', right: 8, top: 8, width: 24, height: 24, borderRadius: '50%',
+    flex: '0 0 auto', width: 20, height: 20, borderRadius: '50%',
     background: callColors.scrim, display: 'flex', alignItems: 'center',
     justifyContent: 'center', color: callColors.mutedBadge,
   } satisfies CSSProperties,
   tileNetBadge: {
-    position: 'absolute', right: 8, bottom: 8, width: 24, height: 24, borderRadius: '50%',
+    position: 'absolute', right: 12, top: 12, width: 24, height: 24, borderRadius: '50%',
     background: callColors.scrim, display: 'flex', alignItems: 'center', justifyContent: 'center',
     color: callColors.warning,
   } satisfies CSSProperties,
