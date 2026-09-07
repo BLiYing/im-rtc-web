@@ -1,5 +1,5 @@
-import { checkDeviceId } from '../deviceId.js';
 import type { RtcError } from '../errors.js';
+import { checkDeviceId } from '../protocolId.js';
 import type { ConnectionOptions, HelloOk, KickedOutReason } from './connection.js';
 import { Connection } from './connection.js';
 import type { WebSocketFactory } from './webSocket.js';

@@ -1,3 +1,4 @@
+import { byteLength } from '../bytes.js';
 import { ErrorCode, RtcError } from '../errors.js';
 import { checkDiscipline } from './discipline.js';
 
@@ -112,9 +113,4 @@ function parseObject(raw: string): Record<string, unknown> {
 
 function badEnvelope(reason: string): RtcError {
   return new RtcError(ErrorCode.badEnvelope, { cause: new Error(reason) });
-}
-
-/** byteLength 按 UTF-8 计算字节数——协议的上限是**字节**不是字符。 */
-function byteLength(value: string): number {
-  return new TextEncoder().encode(value).length;
 }

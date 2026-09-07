@@ -23,8 +23,8 @@ export {
 } from './errors.js';
 export type { ErrorCodeName, ErrorCodeValue, ErrorDefinition } from './errors.js';
 
-/** 宿主可以自己先验一遍生成的 device_id，不必等到 login() 才发现（协议 §2.5）。 */
-export { checkDeviceId } from './deviceId.js';
+/** 宿主可以自己先验一遍生成的 id，不必等到 login() / joinRoom() 才发现（协议 §2.5）。 */
+export { checkDeviceId, checkRoomId } from './protocolId.js';
 
 export {
   CallEndReason,

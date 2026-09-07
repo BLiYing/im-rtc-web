@@ -2,6 +2,7 @@ import { EngineBus } from './engineBus.js';
 import { ErrorCode, RtcError } from './errors.js';
 import { FrameLoop } from './frameLoop.js';
 import { logger } from './logger.js';
+import { checkDeviceId, checkRoomId } from './protocolId.js';
 import { CallEndReason } from './reasons.js';
 import type { EngineEventHandler, EngineEventName } from './events.js';
 import type { MediaAdapter } from './media/mediaAdapter.js';
@@ -66,6 +67,8 @@ export class CallEngine {
   private helloApplied: Promise<void> = Promise.resolve();
 
   constructor(options: EngineOptions) {
+    // 与 Android 的 `Config.init` 对齐：构造时就拦，不等宿主取完票走到 login()。
+    checkDeviceId(options.deviceId);
     this.options = options;
     this.media = options.media ?? new WebRTCAdapter(undefined, options.videoProfile);
     this.bridge = new MediaBridge(this.media);
@@ -182,7 +185,6 @@ export class CallEngine {
     this.loop.reset();
   }
 
-  /** call 发起通话。 */
   /**
    * call 发起通话。
    *
@@ -276,6 +278,8 @@ export class CallEngine {
 
   /** joinRoom 直接进一个会议房（不走振铃）。 */
   async joinRoom(roomId: string, roomToken: string, autoSubscribe = true): Promise<void> {
+    // 宿主指定的房间号同属 §2.5，不拦的话又是一条「1004 但不说为什么」。
+    checkRoomId(roomId);
     await this.loop.dispatch({
       kind: 'act',
       op: 'join',
