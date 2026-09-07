@@ -23,6 +23,9 @@ export {
 } from './errors.js';
 export type { ErrorCodeName, ErrorCodeValue, ErrorDefinition } from './errors.js';
 
+/** 宿主可以自己先验一遍生成的 device_id，不必等到 login() 才发现（协议 §2.5）。 */
+export { checkDeviceId } from './deviceId.js';
+
 export {
   CallEndReason,
   GROUP_DOMINANT_PRIORITY,

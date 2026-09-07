@@ -1,3 +1,4 @@
+import { checkDeviceId } from '../deviceId.js';
 import type { RtcError } from '../errors.js';
 import type { ConnectionOptions, HelloOk, KickedOutReason } from './connection.js';
 import { Connection } from './connection.js';
@@ -43,6 +44,10 @@ export function createConnection(
   config: EngineConnectionConfig,
   handlers: EngineConnectionHandlers,
 ): Connection {
+  // **在开 socket 之前拦**：不拦的话服务端回 1004，而它那句「device_id 只允许
+  // [A-Za-z0-9_-]」到不了宿主手里——宿主看到的只有一个 bad_params，
+  // 界面上就是「登录失败」四个字。安卓真机上为此查了一轮（见 deviceId.ts）。
+  checkDeviceId(config.deviceId);
   const options: ConnectionOptions = {
     url: config.url,
     token: config.token,
