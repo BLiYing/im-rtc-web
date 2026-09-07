@@ -49,6 +49,26 @@ export function mediaEvents(deps: MediaPlaneDeps): MediaAdapterEvents {
  *
  * `candidate` 为空串表示收集结束，协议要求容忍（§3.3）。
  */
+/**
+ * 会话恢复之后重新协商上行（协议 §1.4）。
+ *
+ * 服务端那侧主动重发 `room.offer{pc:"sub"}`，`pub` 这条的 offerer 是本端，只能自己重发。
+ *
+ * **触发点必须是「恢复之后」，不能只有 [onPcState] 里「PC 判 failed 的那一刻」那一条**：
+ * 网一断信令也跟着断，房间立刻变成 `reconnecting`，而 PC 要等约 30 秒才判 `failed`——
+ * 那时 `restart_pub_ice` 会被状态机以 `invalid_state` 拒掉，且它**不进 BUFFERABLE_OPS**，
+ * 于是永远丢失。iOS 真机 2026-09-07 抓到过实证（`动作被状态机本地拒绝
+ * op=restart_pub_ice room_state=reconnecting`），三端同一条路。
+ *
+ * **不查 PC 当前状态、无条件重启**：换了连接就等于换了网络路径，旧候选多半已废；
+ * 服务端那侧也是无条件重启 `sub`，两边对称。多一次协商比漏一次自愈便宜得多。
+ * 房间不在 joined 时状态机自会拒掉，不必在这里判。
+ */
+export async function renegotiateAfterResume(deps: MediaPlaneDeps): Promise<void> {
+  deps.bridge.adapter.restartPubICE();
+  await deps.dispatch({ kind: 'act', op: 'restart_pub_ice' });
+}
+
 export async function addRemoteCandidate(
   deps: MediaPlaneDeps,
   addTo: (pc: PcRole, init: RTCIceCandidateInit) => Promise<void>,

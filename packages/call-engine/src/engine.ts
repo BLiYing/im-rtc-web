@@ -7,7 +7,7 @@ import type { EngineEventHandler, EngineEventName } from './events.js';
 import type { MediaAdapter } from './media/mediaAdapter.js';
 import { MediaBridge } from './media/mediaBridge.js';
 import type { MediaPlaneDeps } from './media/mediaPlane.js';
-import { mediaEvents } from './media/mediaPlane.js';
+import { mediaEvents, renegotiateAfterResume } from './media/mediaPlane.js';
 import type { ViewElement } from './media/viewRegistry.js';
 import type { VideoProfile } from './media/videoProfile.js';
 import { WebRTCAdapter } from './media/webrtcAdapter.js';
@@ -116,11 +116,16 @@ export class CallEngine {
           换票重连其实成功了，界面却一直停在「重连中」。
         */
         onConnected: (hello): void => {
-          this.helloApplied = this.loop.dispatch({
-            kind: 'recv',
-            type: 'sys.hello.ok',
-            data: { session_id: hello.sessionId, resumed: hello.resumed },
-          });
+          this.helloApplied = this.loop
+            .dispatch({
+              kind: 'recv',
+              type: 'sys.hello.ok',
+              data: { session_id: hello.sessionId, resumed: hello.resumed },
+            })
+            .then(async () => {
+              // 恢复之后要重新协商上行（§1.4）。**为什么触发点在这里**见 renegotiateAfterResume。
+              if (hello.resumed) await renegotiateAfterResume(this.mediaDeps());
+            });
           void this.helloApplied.catch((err: unknown) => this.bus.emitError(err));
         },
         onEvent: (type, data): void => void this.loop.handleIncoming(type, data),
