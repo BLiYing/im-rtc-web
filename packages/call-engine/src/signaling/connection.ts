@@ -1,4 +1,4 @@
-import { ErrorCode, RtcError } from '../errors.js';
+import { ErrorCode, RtcError, isRtcError } from '../errors.js';
 import { logger, redact } from '../logger.js';
 import type { Envelope } from './envelope.js';
 import { decodeEnvelope, encodeEnvelope, okType } from './envelope.js';
@@ -231,11 +231,18 @@ export class Connection {
       token: redact(hello.token),
     });
 
-    const { envelope, data } = await this.dispatchRequest(
-      FrameType.hello,
-      HELLO_FIELDS,
-      hello as unknown as Record<string, unknown>,
-    );
+    let reply: { envelope: Envelope; data: Record<string, unknown> };
+    try {
+      reply = await this.dispatchRequest(
+        FrameType.hello,
+        HELLO_FIELDS,
+        hello as unknown as Record<string, unknown>,
+      );
+    } catch (err) {
+      this.abortIfHandshakeRejected(err);
+      throw err;
+    }
+    const { envelope, data } = reply;
     if (envelope.type !== okType(FrameType.hello)) {
       throw new RtcError(ErrorCode.notAuthenticated, {
         cause: new Error(`握手应答是 ${envelope.type}`),
@@ -245,6 +252,32 @@ export class Connection {
     const ok = decodeFields(HELLO_OK_FIELDS, data);
     this.sessionId = ok.sessionId;
     return ok as unknown as HelloOk;
+  }
+
+  /**
+   * 握手被拒且**重试不可能变好**时，一次就放弃。
+   *
+   * 判据是错误码表里的 `retryable`，不是我在这里另立一张名单——那张表是四端共用的
+   * 一致性向量的一部分（`error_codes.json`），另立名单等于给它开了个后门。
+   *
+   * # 为什么不像 4401 那样给三次机会
+   *
+   * 4401 给三次是因为「票刚好过期」换一枚新票就能好，而重连时宿主可能已经
+   * `updateToken` 了。这里不一样：**`device_id` 里有个空格这件事，重连一万次
+   * 它还是有空格**。给三次机会只是把同一条错误在日志里刷三遍，把真正的原因埋掉。
+   *
+   * 只拦服务端应答（`sys.error`）带回来的码；超时（2004）和断线（2003）都是
+   * retryable，会照常走重连。**握手应答类型不对那条不走这里**——那是对端的实现
+   * bug，处置另说，不该借这条路悄悄改掉。
+   */
+  private abortIfHandshakeRejected(err: unknown): void {
+    if (!isRtcError(err) || err.retryable) return;
+    logger.error('握手参数被拒，不再重连', { code: err.code, name: err.name_ });
+    // stop() 是闩不是取消：connect() 被拒那条是微任务，排在 close 事件之后，
+    // 只取消定时器的话它会把重连又排回来（见 Reconnector.stop 的注释）。
+    this.reconnector.stop();
+    this.state = 'closed';
+    this.options.events?.onKickedOut?.({ reason: 'configRejected' });
   }
 
   private handleMessage(raw: unknown): void {

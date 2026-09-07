@@ -37,6 +37,8 @@ export const ErrorCode = {
   kickedOut: 1104,
   /** session_id 无效或超出 30s 恢复窗口 */
   sessionNotResumable: 1105,
+  /** 票据合法，但该 app_id 已被控制台停用 */
+  appDisabled: 1106,
   /** 房间不存在或已关闭 */
   roomNotFound: 1201,
   /** 超出 max_participants */

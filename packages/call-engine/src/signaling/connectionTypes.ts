@@ -33,11 +33,11 @@ export interface HelloOk {
 /**
  * KickedOutReason 是被踢的原因。
  *
- * **不合并成一个「被踢」**：这两种情况宿主的处置完全相反——一个该回登录页，
- * 一个该换票重来。合并的结果是宿主只能都当登录失效处理，把可以静默恢复的场景
- * 也变成了「请重新登录」。
+ * **不合并成一个「被踢」**：三种情况宿主的处置完全不同——一个该回登录页，
+ * 一个该悄悄换票重来，一个该去改配置。合并的结果是宿主只能都当登录失效处理，
+ * 把可以静默恢复的场景也变成了「请重新登录」，把该改配置的场景变成了让用户干瞪眼。
  */
-export type KickedOutReason = 'takenOver' | 'authExpired';
+export type KickedOutReason = 'takenOver' | 'authExpired' | 'configRejected';
 
 /** ConnectionEvents 是连接层对外的回调。 */
 export interface ConnectionEvents {
@@ -48,11 +48,15 @@ export interface ConnectionEvents {
   /**
    * 被踢，**不会自动重连**。
    *
-   * reason 决定宿主该做什么，两者处置完全不同：
+   * reason 决定宿主该做什么，三者处置完全不同：
    * - `takenOver` —— 同账号同设备号在别处登录，或宿主主动吊销（都是 4403/1104，
    *   客户端无从区分）。**回登录页**，换票也没用。
    * - `authExpired` —— 票不被接受且连续三次都没换上（4401 用尽）。
    *   宿主应重新取一枚票再 `login`。
+   * - `configRejected` —— 服务端拒绝了这次接入的**参数**（握手应答里 retryable=false
+   *   的错误码：device_id 不合规、协议版本不受支持、应用被停用……）。
+   *   **去改配置**——换票和重试都救不了。具体哪里不对看 `login()` 抛出的 RtcError；
+   *   如果是重连期间被拒，那条码走 onError。
    */
   onKickedOut?: (info: { reason: KickedOutReason }) => void;
   /** 票快到期了，宿主该去取新票并 updateToken。见 tokenExpiry.ts。 */

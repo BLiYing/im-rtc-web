@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ErrorCode, isRtcError } from '../src/errors.js';
 import { Connection } from '../src/signaling/connection.js';
-import type { HelloOk } from '../src/signaling/connection.js';
+import type { HelloOk, KickedOutReason } from '../src/signaling/connection.js';
 import { CALL_ID_FIELDS } from '../src/signaling/frames.call.js';
 import { SDP_FIELDS } from '../src/signaling/frames.room.js';
 import { EMPTY_FIELDS } from '../src/signaling/frames.sys.js';
@@ -31,13 +31,23 @@ interface Harness {
   conn: Connection;
   sockets: FakeWebSocket[];
   latest: () => FakeWebSocket;
-  events: { kicked: number; disconnects: { code: number; willReconnect: boolean }[]; errors: number };
+  events: {
+    kicked: number;
+    reasons: KickedOutReason[];
+    disconnects: { code: number; willReconnect: boolean }[];
+    errors: number;
+  };
   received: { type: string; data: Record<string, unknown> }[];
 }
 
 function setup(): Harness {
   const sockets: FakeWebSocket[] = [];
-  const events = { kicked: 0, disconnects: [] as { code: number; willReconnect: boolean }[], errors: 0 };
+  const events = {
+    kicked: 0,
+    reasons: [] as KickedOutReason[],
+    disconnects: [] as { code: number; willReconnect: boolean }[],
+    errors: 0,
+  };
   const received: { type: string; data: Record<string, unknown> }[] = [];
 
   const conn = new Connection({
@@ -54,7 +64,10 @@ function setup(): Harness {
       return socket;
     },
     events: {
-      onKickedOut: () => (events.kicked += 1),
+      onKickedOut: (info) => {
+        events.kicked += 1;
+        events.reasons.push(info.reason);
+      },
       onDisconnected: (info) => events.disconnects.push({ code: info.code, willReconnect: info.willReconnect }),
       onError: () => (events.errors += 1),
       onEvent: (type, data) => received.push({ type, data }),
@@ -119,6 +132,107 @@ describe('握手', () => {
     const hello = h.latest().lastFrame();
     expect(hello?.type).toBe('sys.hello');
     expect(hello?.data['session_id']).toBe('s-1');
+  });
+});
+
+/** helloErr 让当前 socket 用一个 sys.error 回掉在途的握手。 */
+function helloErr(h: Harness, code: number, name: string, retryable: boolean): void {
+  const hello = h.latest().lastFrame();
+  h.latest().receive(
+    JSON.stringify({
+      type: 'sys.error',
+      req_id: hello?.req_id,
+      ts: 1,
+      data: { code, name, msg: name, for_type: 'sys.hello', retryable },
+    }),
+  );
+}
+
+/**
+ * reconnectThenFailHello 先连上，再让服务端断开，然后把**重连那次**的握手用错误回掉。
+ *
+ * 必须走重连路径：首次 `connect()` 失败只是把错误抛给宿主，重连器压根没参与，
+ * 在那里数 socket 恒等于 1，测不出「会不会无限重连」。
+ */
+async function reconnectThenFailHello(
+  h: Harness,
+  code: number,
+  name: string,
+  retryable: boolean,
+): Promise<void> {
+  await connect(h);
+  h.latest().closeFromServer(CloseCode.goingAway, 'restart');
+  await flush();
+  await vi.advanceTimersByTimeAsync(1_000); // 第一档退避（抖动固定为 0）
+  await flush();
+  expect(h.sockets).toHaveLength(2);
+  helloErr(h, code, name, retryable);
+  // 真实服务端拒了握手就会关连接——**这一步不能省**：不关的话没有任何东西会去排
+  // 下一次重连，「不再重连」那条断言就成了永远为真的空断言（iOS 侧注入 bug 时验过）。
+  h.latest().closeFromServer(CloseCode.goingAway, 'rejected');
+  await flush();
+}
+
+/**
+ * 握手被拒之后不该再重连——这是 Pixel 2 XL 那个 bug 的通用形状。
+ *
+ * `Build.MODEL` 里带空格 → device_id 不合规 → 服务端回 1004。参数不会因为重连而
+ * 改变，可当时四端都在无限重连：界面只写「登录失败」，日志刷满同一条错误，
+ * 真正的原因被埋在里面。
+ */
+describe('握手被拒（retryable=false）一次就放弃', () => {
+  const cases: [string, number, string][] = [
+    ['device_id 不合规', ErrorCode.badParams, 'bad_params'],
+    ['协议版本不受支持', ErrorCode.protocolVersionUnsupported, 'protocol_version_unsupported'],
+    ['应用被停用', ErrorCode.appDisabled, 'app_disabled'],
+  ];
+
+  it.each(cases)('%s：重连时被拒就彻底停手', async (_name, code, wireName) => {
+    const h = setup();
+    await reconnectThenFailHello(h, code, wireName, false);
+
+    expect(h.events.reasons).toEqual(['configRejected']);
+    // 退避档最长也就几十秒；再等 30s 不该出现第三个 socket。
+    await vi.advanceTimersByTimeAsync(30_000);
+    await flush();
+    expect(h.sockets).toHaveLength(2);
+  });
+
+  it('可重试的握手错误照常重连 —— 别把 1102 也一起停了', async () => {
+    const h = setup();
+    await reconnectThenFailHello(h, ErrorCode.tokenExpired, 'token_expired', true);
+
+    expect(h.events.reasons).toEqual([]);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await flush();
+    expect(h.sockets.length).toBeGreaterThan(2);
+  });
+
+  it('握手超时不算被拒 —— 那是网络，重连正是它该有的处置', async () => {
+    const h = setup();
+    await connect(h);
+    h.latest().closeFromServer(CloseCode.goingAway, 'restart');
+    await flush();
+    await vi.advanceTimersByTimeAsync(1_000);
+    await flush();
+
+    // 重连那次的握手一直没人应答，走请求超时（2004，retryable）。
+    await vi.advanceTimersByTimeAsync(30_000);
+    await flush();
+    expect(h.events.reasons).toEqual([]);
+    expect(h.sockets.length).toBeGreaterThan(2);
+  });
+
+  it('首次登录被拒：错误抛给宿主，同时告诉它「去改配置」', async () => {
+    const h = setup();
+    const pending = h.conn.connect();
+    await flush();
+    helloErr(h, ErrorCode.badParams, 'bad_params', false);
+
+    await expect(pending).rejects.toSatisfy(
+      (err: unknown) => isRtcError(err) && err.code === ErrorCode.badParams,
+    );
+    expect(h.events.reasons).toEqual(['configRejected']);
   });
 });
 

@@ -11,32 +11,31 @@
 
 ## 当前焦点
 
-**会话恢复之后重新协商上行（2026-09-07）**，`./scripts/test.sh` 全绿。
+**握手被拒就一次放弃（2026-09-07）**，`./scripts/test.sh` 13 步全绿。
 
-与 iOS 同一条：`restart_pub_ice` 只在房间 `joined` 时被接受，而网一断信令也断、房间变
-`reconnecting`，PC 却要 30 秒后才判 `failed`——那时动作被拒且**不进 `BUFFERABLE_OPS`**，
-永远丢失。iOS 真机 2026-09-07 抓到了实证（`动作被状态机本地拒绝 op=restart_pub_ice
-room_state=reconnecting`），Web 这条路一模一样。
-
-改法：`engine.ts` 的 `onConnected` 里等 `sys.hello.ok` 落地之后，`resumed===true` →
-`media.restartPubICE()` + dispatch `restart_pub_ice`（协议 §1.4 早有规定，只是没实现）。
-测试脚手架顺带改了：`setup()` 现在留住**每一条**连接（`latest()`），重连的断言要看新那条。
-
-**没做 / 已知限制**：本轮**没有任何真机复验**——ICE 那条尤其要真的拔网线才验得了。
-Android「无法挂断」的**根因未定**（Android 不上报日志到 logsink，只有 logcat），
-只做了「红按钮永不静默」的兜底；服务端补发一落地，那个僵尸态本身就不该再出现了。
-
-## 上一轮
-
-**上行 ICE 断了自己重连 + 补上「轨道后到要重报层上界」那个洞（2026-09-06 夜）**，
-`./scripts/test.sh` 13 步全绿（engine 186 + uikit 93）。
+补的是 Android 那条五端契约（`CLIENT_PARITY.md` v1.17）。原先的放弃逻辑**只认关闭码
+4401**，不认 `sys.hello` 应答里的错误码：`device_id` 不合规回的是 1004 错误帧，于是
+握手 reject → 连接断 → `handleClose` 拿到一个普通关闭码 → 无限退避重连。真机上的样子是
+界面写着「登录失败」，日志刷满同一条错误，真正的原因被埋在里面。
 
 | 改动 | 为什么 |
 |---|---|
-| **`pub` PC failed → 置重启位 + 重发 `room.offer{pc:pub}`**（`mediaPlane.onPcState` + `webrtcAdapter.restartPubICE` + 状态机新 act `restart_pub_ice`） | 那条 PC 的 offerer 是本端，**只能自己救**；`sub` 那条由服务端救（协议 §3.3 已补规则）。不救的后果：切网 / 休眠 / 标签页被节流久了，人就**永久掉出这通通话**，对端格子从此是一块黑，而界面上一切正常、谁也不挂断。`restart_pub_ice` **不进 `BUFFERABLE_OPS`**：那是「此刻网断了」的即时反应，重放一个过期的重启只会白折腾一次协商 |
-| **`VideoTile` 的层上界 effect 把 `hasVideo` 加进依赖** | `setRemoteLayer` 按 uid 找他当前的视频轨道再发帧，而**人先进来、轨道后到是常态**：`userEnter` 那一跑什么都没发出去，而依赖没变就再也不会重跑——服务端一直按默认的 `m` 下发，九宫格里八个小格子每格都收半高清，症状只是「画面卡」，一条报错都没有。**不拿它当开关**（不是 `if (!hasVideo) return`）：轨道没到时报一次是无害空转，而「没画面就不报」会在对端只是临时关了摄像头时丢掉层上界 |
+| `connection.ts` 的 `handshake()` 只把 **dispatchRequest 那一段**包进 try，失败走 `abortIfHandshakeRejected` | 判据是错误码表里的 `retryable`（四端共用的一致性向量），不另立名单。「握手应答类型不对」那条**刻意留在 try 外**——那是对端实现 bug，处置另说 |
+| 停手用 `reconnector.stop()` 而不是 `cancel()` | 一次失败从**两条路**走到 `schedule()`（close 事件 + `connect()` 被拒的微任务），只取消定时器的话迟到的那条会把重连排回来。注入 `cancel()` 验过：三条用例立刻红 |
+| `KickedOutReason` 加 `'configRejected'` | `takenOver` 是回登录页、`authExpired` 是换票重来，都救不了 `device_id` 里的空格 |
+| `ErrorCode` 常量表补 `appDisabled: 1106` | 之前只加进了 `ERROR_DEFINITIONS`，而一致性测试比的是那张表，所以没抓到——宿主根本引用不到这个码 |
 
-两条都先回滚实现看它红过。**没做**：浏览器实测。
+**测试里踩到一个空断言**：假服务端只回错误帧、不关连接，于是没有任何东西会去排下一次
+重连，「不再重连」那条断言**永远为真、注入 bug 也不红**。补上 `closeFromServer` 才载重。
+两个方向都验过红（完全不放弃 → 4 条红；连 1102 也停 → 3 条红）。
+
+## 上一轮
+
+**会话恢复之后重新协商上行（2026-09-07）**。`restart_pub_ice` 只在房间 `joined` 时被接受，
+而网一断信令也断、房间变 `reconnecting`，PC 却要 30 秒后才判 `failed`——那时动作被拒且
+**不进 `BUFFERABLE_OPS`**，永远丢失。改法是在 `onConnected` 里等 `sys.hello.ok` 落地后，
+`resumed===true` → `media.restartPubICE()` + dispatch（协议 §1.4 早有规定，只是没实现）。
+**没有真机复验**——ICE 那条要真的拔网线才验得了。
 
 ## 下一步
 
