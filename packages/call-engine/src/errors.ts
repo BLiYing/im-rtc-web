@@ -138,6 +138,9 @@ export const ERROR_DEFINITIONS: readonly ErrorDefinition[] = [
   { code: 1103, name: 'not_authenticated', msg: 'not authenticated', retryable: false, local: false },
   { code: 1104, name: 'kicked_out', msg: 'kicked out', retryable: false, local: false },
   { code: 1105, name: 'session_not_resumable', msg: 'session not resumable', retryable: false, local: false },
+  // 票据合法但该 app_id 已被停用（宿主在控制台停用了整个应用）。
+  // 与 1101/1102 不同：那两个是「换张票再来」，这个是「这个应用被停了」。
+  { code: 1106, name: 'app_disabled', msg: 'application disabled', retryable: false, local: false },
   { code: 1201, name: 'room_not_found', msg: 'room not found', retryable: false, local: false },
   { code: 1202, name: 'room_full', msg: 'room is full', retryable: false, local: false },
   { code: 1203, name: 'not_in_room', msg: 'not in room', retryable: false, local: false },
