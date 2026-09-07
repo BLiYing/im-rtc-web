@@ -70,5 +70,9 @@ export { elapsedSec, formatDuration } from './format/duration.js';
 export { endReasonText, endedHoldMs } from './format/endReason.js';
 export { avatarGradient, avatarIndex, avatarInitial, fnv1a32 } from './format/avatar.js';
 
+// 宿主身份解析（uid → 本机该显示的名字/头像）。见 profile.tsx 的模块注释。
+export { ProfileProvider, useDisplayName, useParticipantProfile } from './profile.js';
+export type { ParticipantProfile, ProfileProviderProps, ProfileResolver } from './profile.js';
+
 export { styles } from './styles.js';
 export { avatarGradients, callColors, callFont, callMetrics, callMotion } from './theme.js';

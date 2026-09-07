@@ -116,6 +116,16 @@ export class FrameLoop {
         宿主想数重连次数就没法数了。
       */
       if (event.cb === 'onDisconnected') continue;
+      /*
+        **`onKickedOut` 同理由连接层独占。**
+
+        状态机那一份也是空载荷的，而宿主真正需要的是**为什么被踢**：
+        `takenOver`（被顶号/被吊销，回登录页）与 `authExpired`（票的问题，换票重来）
+        处置完全相反。状态机不可能知道这个——它只收到一个 `ws_closed_4403` 内部事件，
+        而「鉴权失败到顶」也复用了同一个内部事件（见上面那段注释）。
+        两边都发的话宿主会收到两条 kickedOut，其中一条还没有 reason。
+      */
+      if (event.cb === 'onKickedOut') continue;
       bus.emitMachine(event);
     }
     for (const frame of result.send) {

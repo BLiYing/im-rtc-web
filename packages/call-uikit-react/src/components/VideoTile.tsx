@@ -3,6 +3,7 @@ import type { CSSProperties, ReactNode } from 'react';
 import { useEffect, useRef } from 'react';
 
 import { avatarGradient, avatarInitial } from '../format/avatar.js';
+import { useDisplayName, useParticipantProfile } from '../profile.js';
 import type { SettledOutcome } from '../state/viewTypes.js';
 import { settledText } from '../state/participants.js';
 import { useCall } from '../useCall.js';
@@ -51,6 +52,14 @@ export function VideoTile(props: VideoTileProps): ReactNode {
   } = props;
   const { engine } = useCall();
   const videoRef = useRef<HTMLVideoElement>(null);
+  /*
+    显示名与头像交给宿主解析（见 profile.tsx）。没有 ProfileProvider 时
+    `useDisplayName` 原样返回 `label`，行为与加这个钩子之前完全一致。
+
+    **本端那格 uid 是空串**，解析不了也不该解析——`label` 就是「我」。
+  */
+  const displayName = useDisplayName(uid, label);
+  const avatarUrl = useParticipantProfile(uid)?.avatarUrl ?? '';
 
   // 挂载与卸载成对：卸载时必须把 srcObject 清掉，否则解码器还占着（CONVENTIONS §5）。
   useEffect(() => {
@@ -107,12 +116,26 @@ export function VideoTile(props: VideoTileProps): ReactNode {
       />
       {!hasVideo && (
         <div style={styles.avatar}>
-          <div style={{
-            ...styles.avatarDisc, width: avatarSize, height: avatarSize,
-            fontSize: Math.round(avatarSize / 3), background: avatarGradient(uid || label),
-          }}>
-            {avatarInitial(label)}
-          </div>
+          {avatarUrl === '' ? (
+            /*
+              **底色按 uid 取，首字母按显示名取。**
+              底色跟 uid 走是为了四端稳定（规范 §02）——同一个人在谁的屏幕上都是同一个颜色，
+              而显示名是每台设备各算各的（备注！），拿它取色会让同一个人换台设备就变个颜色。
+            */
+            <div style={{
+              ...styles.avatarDisc, width: avatarSize, height: avatarSize,
+              fontSize: Math.round(avatarSize / 3), background: avatarGradient(uid || label),
+            }}>
+              {avatarInitial(displayName)}
+            </div>
+          ) : (
+            <img
+              src={avatarUrl}
+              alt=""
+              style={{ ...styles.avatarDisc, width: avatarSize, height: avatarSize, objectFit: 'cover' }}
+              data-testid={`avatar-${testUid}`}
+            />
+          )}
         </div>
       )}
       {isRinging && (
@@ -128,7 +151,7 @@ export function VideoTile(props: VideoTileProps): ReactNode {
       {/* 名字牌 + 静音角标是左下角同一行（styles.tileBottomRow 的注释说明为什么）。 */}
       <div style={styles.tileBottomRow}>
         <div style={{ ...styles.tileLabel, ...(isSpeaking ? styles.tileLabelSpeaking : {}) }}>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{displayName}</span>
           {isSpeaking && <span role="img" aria-label="正在说话" data-testid={`speaking-${testUid}`}><Icon name="speaker" size={12} /></span>}
         </div>
         {!hasAudio && (

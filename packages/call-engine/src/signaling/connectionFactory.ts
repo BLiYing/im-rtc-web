@@ -1,5 +1,5 @@
 import type { RtcError } from '../errors.js';
-import type { ConnectionOptions, HelloOk } from './connection.js';
+import type { ConnectionOptions, HelloOk, KickedOutReason } from './connection.js';
 import { Connection } from './connection.js';
 import type { WebSocketFactory } from './webSocket.js';
 
@@ -24,7 +24,9 @@ export interface EngineConnectionHandlers {
   onConnected: (hello: HelloOk) => void;
   onEvent: (type: string, data: Record<string, unknown>) => void;
   onDisconnected: (info: { code: number; willReconnect: boolean }) => void;
-  onKickedOut: () => void;
+  onKickedOut: (info: { reason: KickedOutReason }) => void;
+  /** 票快到期，宿主该换票。 */
+  onTokenWillExpire: (info: { expiresAtMs: number }) => void;
   onError: (error: RtcError) => void;
 }
 
@@ -54,7 +56,8 @@ export function createConnection(
       onEvent: (type, data): void => handlers.onEvent(type, data),
       onDisconnected: (info): void =>
         handlers.onDisconnected({ code: info.code, willReconnect: info.willReconnect }),
-      onKickedOut: (): void => handlers.onKickedOut(),
+      onKickedOut: (info): void => handlers.onKickedOut(info),
+      onTokenWillExpire: (info): void => handlers.onTokenWillExpire(info),
       onError: (error): void => handlers.onError(error),
     },
   };

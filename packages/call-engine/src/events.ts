@@ -1,4 +1,5 @@
 import type { CallEndReasonValue } from './reasons.js';
+import type { KickedOutReason } from './signaling/connectionTypes.js';
 import type { MediaType } from './signaling/enums.js';
 
 /**
@@ -27,8 +28,28 @@ export interface EngineEvents {
    * 见 `updateToken`。
    */
   disconnected: { code: number; willReconnect: boolean };
-  /** 同账号同设备号在别处登录。**不会自动重连**。 */
-  kickedOut: Record<string, never>;
+  /**
+   * 被踢，**不会自动重连**。
+   *
+   * `reason` 决定宿主该做什么，两者处置相反——合并成一个「被踢」的话，
+   * 宿主只能都当登录失效处理，把本可静默恢复的场景也变成「请重新登录」：
+   * - `takenOver` —— 同账号同设备号在别处登录，或宿主主动吊销（都是 4403/1104，
+   *   客户端无从区分）。**回登录页**，换票没用。
+   * - `authExpired` —— 票不被接受且连续三次没换上（4401 用尽）。
+   *   宿主取一枚新票再 `login` 即可。
+   */
+  kickedOut: { reason: KickedOutReason };
+  /**
+   * 当前这张票快到期了（默认到期前 60s），宿主该去取新票并 `updateToken`。
+   *
+   * **不处理也不会立刻出事**——服务端不复查活连接，票过期不断线。但下一次重连
+   * （网络抖动、切后台回来、服务端重启）会撞上 4401，用户被踢回登录页。
+   * 这个事件就是为了把那次「必然会发生但时间不定」的掉线消灭在发生之前。
+   *
+   * 服务端说「未知」（`token_expires_at_ms` 为 0）时**不会触发**，此时退化成
+   * 被动行为（4401 → 换票重连），是刻意降级不是故障。
+   */
+  tokenWillExpire: { expiresAtMs: number };
   error: { code: number; name: string; message: string };
 
   // ── 来电与拨出 ──────────────────────────────────────────
