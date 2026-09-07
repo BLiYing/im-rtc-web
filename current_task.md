@@ -11,6 +11,20 @@
 
 ## 当前焦点
 
+**上行 simulcast 只是「说了没做」，已修（2026-09-08）**，`./scripts/test.sh` 13 步全绿。
+
+`publishCamera(simulcast = true)` 这一位一路传进了 `room.publish` 帧、**告诉服务端「我有三层」**，
+可媒体面走的是裸 `pub.addTrack(track, stream)` —— 那只会产生一个 encoding，
+整个 `packages/` 里搜不到一处 `sendEncodings` / `rid`。
+
+后果不是「少一层可选」而是**层选择整条链路失效**：服务端只看到空 RID 的单层，
+订阅者报 `l` 也只能拿到全速率的 h（`selectLayer` 的兜底），弱下行的那一方被自己收到的流压死。
+真机 2026-09-08 坐实：Android 老实发三层，web 只发一层，手机侧估计值一路锁在 100kbps。
+
+改成 `addTransceiver(track, { sendEncodings })`（**必须建 transceiver 时给出**，
+协商后再 `setParameters` 加不出层）。同轮修掉 `applyVideoBitrate` 把三层码率抹平成同值的问题。
+
+
 **握手被拒就一次放弃（2026-09-07）**，`./scripts/test.sh` 13 步全绿。
 
 补的是 Android 那条五端契约（`CLIENT_PARITY.md` v1.17）。原先的放弃逻辑**只认关闭码
@@ -28,14 +42,6 @@
 **测试里踩到一个空断言**：假服务端只回错误帧、不关连接，于是没有任何东西会去排下一次
 重连，「不再重连」那条断言**永远为真、注入 bug 也不红**。补上 `closeFromServer` 才载重。
 两个方向都验过红（完全不放弃 → 4 条红；连 1102 也停 → 3 条红）。
-
-## 上一轮
-
-**会话恢复之后重新协商上行（2026-09-07）**。`restart_pub_ice` 只在房间 `joined` 时被接受，
-而网一断信令也断、房间变 `reconnecting`，PC 却要 30 秒后才判 `failed`——那时动作被拒且
-**不进 `BUFFERABLE_OPS`**，永远丢失。改法是在 `onConnected` 里等 `sys.hello.ok` 落地后，
-`resumed===true` → `media.restartPubICE()` + dispatch（协议 §1.4 早有规定，只是没实现）。
-**没有真机复验**——ICE 那条要真的拔网线才验得了。
 
 ## 下一步
 

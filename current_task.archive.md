@@ -220,3 +220,16 @@
   npm run dev:react                                # 引 uikit 的 Demo（:5179）
   RTC_CONFORMANCE_DIR=/path/to/conformance ./scripts/test.sh   # 向量不在同级目录时
   ```
+
+
+---
+
+# 2026-09-08 搬入：上一轮（已完成）
+
+## 上一轮
+
+**会话恢复之后重新协商上行（2026-09-07）**。`restart_pub_ice` 只在房间 `joined` 时被接受，
+而网一断信令也断、房间变 `reconnecting`，PC 却要 30 秒后才判 `failed`——那时动作被拒且
+**不进 `BUFFERABLE_OPS`**，永远丢失。改法是在 `onConnected` 里等 `sys.hello.ok` 落地后，
+`resumed===true` → `media.restartPubICE()` + dispatch（协议 §1.4 早有规定，只是没实现）。
+**没有真机复验**——ICE 那条要真的拔网线才验得了。
