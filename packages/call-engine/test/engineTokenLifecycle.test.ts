@@ -32,7 +32,27 @@ interface Harness {
   expiries: { expiresAtMs: number }[];
 }
 
-async function setup(tokenExpiresAtMs: number): Promise<Harness> {
+/**
+ * answerPings 让假服务端回 `sys.pong`。
+ *
+ * **不回 pong 的代价不是「少一帧」，是整条用例测的东西全变了**：连续 3 个周期没动静
+ * 触发判死 → 关连接 → 重连 → 新握手也没人应答 → 请求超时 → 再重连。
+ * 「永不抛」那条要推进 24 小时假时钟，于是它实际跑的是**一场 2159 条连接的重连风暴**
+ * （量过），耗时 1.3s~4.2s 全看机器忙不忙，长期贴着 5s 超时线——干净树上三次能红两次。
+ *
+ * 真实服务端是会回 pong 的。回上之后，那条用例才是它名字说的那件事。
+ */
+function answerPings(socket: FakeWebSocket): void {
+  const send = socket.send.bind(socket);
+  socket.send = (data: string): void => {
+    send(data);
+    const frame = JSON.parse(data) as { type: string; req_id: string };
+    if (frame.type !== 'sys.ping') return;
+    socket.receive(JSON.stringify({ type: 'sys.pong', req_id: frame.req_id, ts: 1, data: {} }));
+  };
+}
+
+async function setup(tokenExpiresAtMs: number, pingIntervalSec = 15): Promise<Harness> {
   const sockets: FakeWebSocket[] = [];
   const engine = new CallEngine({
     url: 'wss://example.test/v1/ws',
@@ -40,6 +60,7 @@ async function setup(tokenExpiresAtMs: number): Promise<Harness> {
     media: new NullMedia(),
     webSocketFactory: (): FakeWebSocket => {
       const socket = new FakeWebSocket();
+      answerPings(socket);
       sockets.push(socket);
       queueMicrotask(() => socket.open());
       return socket;
@@ -59,7 +80,11 @@ async function setup(tokenExpiresAtMs: number): Promise<Harness> {
       type: 'sys.hello.ok',
       req_id: hello?.req_id ?? '',
       ts: 1,
-      data: { ...BASE_HELLO, token_expires_at_ms: tokenExpiresAtMs },
+      data: {
+        ...BASE_HELLO,
+        ping_interval_sec: pingIntervalSec,
+        token_expires_at_ms: tokenExpiresAtMs,
+      },
     }),
   );
   await login;
@@ -91,7 +116,11 @@ describe('接入票生命周期', () => {
     抛一个假的会让宿主按错误的节奏去换票。
   */
   it('服务端说未知（0）时永不抛', async () => {
-    const h = await setup(0);
+    // **心跳拉到 1 小时一次**：这一条要推进 24 小时假时钟才能说「永不」，
+    // 而默认 15s 意味着 5760 次 ping/pong 往返——那点开销和票期毫无关系，
+    // 却占掉这条用例的绝大部分耗时（量过：5760 次 ≈ 2.4s，24 次 ≈ 56ms）。
+    // 拉到 3600s 只剩 24 次，断言一个字没改。
+    const h = await setup(0, 3_600);
     await vi.advanceTimersByTimeAsync(24 * 3_600_000);
     expect(h.expiries).toHaveLength(0);
 
