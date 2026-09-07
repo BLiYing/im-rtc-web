@@ -1,10 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CallEngine } from '../src/engine.js';
 import { parseCandidate } from '../src/signaling/candidate.js';
 import type { LocalTrackInfo, MediaAdapter, MediaAdapterEvents } from '../src/media/mediaAdapter.js';
 import type { PcRole } from '../src/signaling/enums.js';
 import { FakeWebSocket, flush } from './fakeWebSocket.js';
+import { CloseCode } from '../src/signaling/webSocket.js';
 
 /**
  * 双向 trickle ICE 的接线测试。
@@ -68,16 +69,19 @@ class RecordingMedia implements MediaAdapter {
   close(): void {}
 }
 
-async function setup(): Promise<{ engine: CallEngine; media: RecordingMedia; ws: FakeWebSocket }> {
+async function setup(): Promise<{
+  engine: CallEngine; media: RecordingMedia; ws: FakeWebSocket; latest: () => FakeWebSocket;
+}> {
   const media = new RecordingMedia();
-  let ws: FakeWebSocket | undefined;
+  // 重连会**换一条**连接，所以要留着每一条：断线重连的用例断言的是新那条上的帧。
+  const sockets: FakeWebSocket[] = [];
   const engine = new CallEngine({
     url: 'ws://test/v1/ws',
     deviceId: 'd1',
     media,
     webSocketFactory: () => {
       const socket = new FakeWebSocket();
-      ws = socket;
+      sockets.push(socket);
       queueMicrotask(() => socket.open());
       return socket;
     },
@@ -85,14 +89,19 @@ async function setup(): Promise<{ engine: CallEngine; media: RecordingMedia; ws:
 
   const login = engine.login('token');
   await flush(6);
-  const socket = ws;
+  const socket = sockets.at(-1);
   if (socket === undefined) throw new Error('没有建立连接');
   const hello = socket.lastFrame();
   socket.receive(JSON.stringify({
     type: 'sys.hello.ok', req_id: hello?.req_id ?? '', ts: 1, data: HELLO_OK_DATA,
   }));
   await login;
-  return { engine, media, ws: socket };
+  const latest = (): FakeWebSocket => {
+    const s = sockets.at(-1);
+    if (s === undefined) throw new Error('没有连接');
+    return s;
+  };
+  return { engine, media, ws: socket, latest };
 }
 
 /** joinRoom 把房间推到 joined —— 只有 joined 才允许发布/协商类动作（不变量 R1）。 */
@@ -273,6 +282,62 @@ describe('上行 ICE 断了要自己重连', () => {
 
     expect(media.iceRestarts).toBe(0);
     expect(ws.frames().filter((f) => f.type === 'room.offer').length).toBe(before);
+  });
+});
+
+/*
+ 会话恢复之后必须重新协商上行（协议 §1.4：客户端的 pub PC 若已失效则重发
+ `room.offer{pc:"pub"}`）。
+
+ **这一条不能只挂在「PC 判 failed 的那一刻」**：网一断信令也跟着断，房间立刻变成
+ reconnecting，而 PC 要等约 30 秒才判 failed——那时 `restart_pub_ice` 会被状态机
+ 本地拒掉，且它不进 BUFFERABLE_OPS，于是永远丢失。iOS 真机 2026-09-07 抓到过
+ `动作被状态机本地拒绝 op=restart_pub_ice room_state=reconnecting`，
+ 三端同一条路，ICE 自愈在它唯一该生效的场景里等于不存在。
+*/
+describe('会话恢复之后要重新协商上行', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
+  async function reconnect(
+    h: Awaited<ReturnType<typeof setup>>, resumed: boolean,
+  ): Promise<void> {
+    h.latest().closeFromServer(CloseCode.goingAway, 'restart');
+    await flush(4);
+    await vi.advanceTimersByTimeAsync(1_400);
+    await flush(6);
+    const hello = h.latest().lastFrame();
+    h.latest().receive(JSON.stringify({
+      type: 'sys.hello.ok', req_id: hello?.req_id ?? '', ts: 1,
+      data: { ...HELLO_OK_DATA, session_id: 's-2', resumed },
+    }));
+    await flush(10);
+  }
+
+  it('resumed=true → 置重启位 + 补一条 room.offer{pc:pub}', async () => {
+    const h = await setup();
+    await joinRoom(h.ws);
+    const before = h.latest().frames().filter((f) => f.type === 'room.offer').length;
+
+    await reconnect(h, true);
+
+    expect(h.media.iceRestarts, '要让下一个 offer 带上 ICE restart').toBe(1);
+    const offers = h.latest().frames().filter((f) => f.type === 'room.offer');
+    expect(offers.length, '光置位不发帧等于没做').toBe(before + 1);
+    expect(offers.at(-1)?.data).toMatchObject({ pc: 'pub' });
+  });
+
+  it('resumed=false 不重协商——那时房间已归零，发上去只会换回 1203', async () => {
+    const h = await setup();
+    await joinRoom(h.ws);
+
+    await reconnect(h, false);
+
+    expect(h.media.iceRestarts).toBe(0);
+    expect(h.latest().frames().filter((f) => f.type === 'room.offer').length).toBe(0);
   });
 });
 
