@@ -37,6 +37,31 @@ export const VideoProfiles = {
 export const defaultVideoProfile: VideoProfile = VideoProfiles.p720;
 
 /**
+ * simulcastEncodings 把档位翻成三层 simulcast 的编码参数。
+ *
+ * # rid 必须恰好是 l / m / h
+ *
+ * 服务端直接拿 RID 当层名（`internal/sfu/layer.go` 的 `ridToLayer`），**不做映射表**。
+ * 拼错一个字母就会被当成「空 RID = 单层发布」，于是三层全被认成 h，
+ * 层选择彻底失效而且不报错。
+ *
+ * # 顺序是 l → m → h
+ *
+ * `scaleResolutionDownBy` 是相对采集分辨率的**缩小倍数**，所以 h 恒为 1。
+ * 按由低到高排是各家 SFU 的通行做法（LiveKit 的 q/h/f 同序），
+ * Chrome 在这个顺序下最稳。
+ *
+ * 码率折算沿用 VideoProfile 里写的那套：m 取 1/3、l 取 1/10。
+ */
+export function simulcastEncodings(profile: VideoProfile): RTCRtpEncodingParameters[] {
+  return [
+    { rid: 'l', scaleResolutionDownBy: 4, maxBitrate: Math.round(profile.maxBitrateBps / 10) },
+    { rid: 'm', scaleResolutionDownBy: 2, maxBitrate: Math.round(profile.maxBitrateBps / 3) },
+    { rid: 'h', scaleResolutionDownBy: 1, maxBitrate: profile.maxBitrateBps },
+  ];
+}
+
+/**
  * videoConstraints 把档位翻成 `getUserMedia` 的约束。
  *
  * 用 `ideal` 不用 `exact`：**`exact` 在不支持该分辨率的摄像头上直接抛

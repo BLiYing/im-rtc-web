@@ -8,7 +8,7 @@ import type {
   MediaSource,
 } from './mediaAdapter.js';
 import type { VideoProfile } from './videoProfile.js';
-import { defaultVideoProfile, videoConstraints } from './videoProfile.js';
+import { defaultVideoProfile, simulcastEncodings, videoConstraints } from './videoProfile.js';
 
 /**
  * 浏览器 WebRTC 的媒体适配器。
@@ -121,14 +121,49 @@ export class WebRTCAdapter implements MediaAdapter {
     return previewInfo(track);
   }
 
-  async acquireCamera(): Promise<LocalTrackInfo> {
+  async acquireCamera(simulcast = true): Promise<LocalTrackInfo> {
     // **复用预览那条轨道**：拨出时已经开过摄像头了，再开一次会抢设备。
     const info = await this.startLocalPreview();
     if (this.preview === null || this.cameraPublished) return info;
     this.cameraPublished = true;
-    const sender = this.requirePub().addTrack(this.preview.track, this.preview.stream);
-    this.applyVideoBitrate(sender);
+    this.addVideoTrack(this.preview.track, this.preview.stream, simulcast);
     return info;
+  }
+
+  /**
+   * addVideoTrack 把一条上行视频挂到 pub 上。
+   *
+   * # 为什么不能用 addTrack
+   *
+   * `addTrack` 只会产生**一个 encoding**，浏览器里发 simulcast 必须在建
+   * transceiver 时就把 `sendEncodings` 给出来——协商之后再 `setParameters`
+   * 加层是加不上的（规范不允许改 encoding 的条数）。
+   *
+   * 这正是之前那个洞：`publishCamera(simulcast = true)` 的这个参数一路传进了
+   * `room.publish` 帧、**告诉服务端「我是 simulcast」**，可媒体面走的是裸
+   * `addTrack`，实际只发一层。服务端于是只看到空 RID 的单层（`ridToLayer("")`
+   * 当成 h），层选择无从谈起：订阅者报 `l` 也只能收到全速率的 h
+   * （`selectLayer` 的兜底），弱下行的那一方被自己的全速率流压死。
+   *
+   * `streams: [stream]` 不能省：msid 的第二段就是 cid，服务端靠它认领 m-line
+   * （协议 §3.2）。省掉它服务端永远认不回这条轨道。
+   */
+  private addVideoTrack(track: MediaStreamTrack, stream: MediaStream, simulcast: boolean): void {
+    const pub = this.requirePub();
+    if (!simulcast) {
+      this.applyVideoBitrate(pub.addTrack(track, stream));
+      return;
+    }
+    const transceiver = pub.addTransceiver(track, {
+      direction: 'sendonly',
+      streams: [stream],
+      sendEncodings: simulcastEncodings(this.video),
+    });
+    logger.info('上行视频已按 simulcast 发布', {
+      cid: track.id,
+      layers: simulcastEncodings(this.video).map((e) => e.rid).join(','),
+    });
+    this.applyVideoBitrate(transceiver.sender);
   }
 
   /**
@@ -151,9 +186,12 @@ export class WebRTCAdapter implements MediaAdapter {
         cause: new Error(`getUserMedia 没返回 ${kind} 轨道`),
       });
     }
-    const sender = pub.addTrack(track, stream);
+    if (kind === 'video') {
+      this.addVideoTrack(track, stream, true);
+    } else {
+      pub.addTrack(track, stream);
+    }
     this.locals.set(track.id, track);
-    if (kind === 'video') this.applyVideoBitrate(sender);
     return { cid: track.id, kind, source };
   }
 
@@ -182,7 +220,16 @@ export class WebRTCAdapter implements MediaAdapter {
     const params = sender.getParameters();
     // encodings 可能还是空的（协商之前）；补一个默认项，浏览器会认。
     if (params.encodings.length === 0) params.encodings = [{}];
-    for (const encoding of params.encodings) encoding.maxBitrate = this.video.maxBitrateBps;
+    /*
+     **simulcast 的三层各有各的码率，不能抹平成同一个值。**
+     全设成 h 的目标码率等于让 l / m 两层也按 1.5Mbps 发，
+     上行瞬间涨到三倍，而降层根本省不下带宽——降了个寂寞。
+     按 rid 对号入座；没有 rid（单层发布）才用整档的上限。
+    */
+    const byRid = new Map(simulcastEncodings(this.video).map((e) => [e.rid, e.maxBitrate]));
+    for (const encoding of params.encodings) {
+      encoding.maxBitrate = byRid.get(encoding.rid) ?? this.video.maxBitrateBps;
+    }
     void sender.setParameters(params).catch((err: unknown) => {
       logger.info('设置上行码率失败，用浏览器默认值', { err: String(err) });
     });

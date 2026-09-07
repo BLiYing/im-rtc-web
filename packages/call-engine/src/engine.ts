@@ -323,7 +323,8 @@ export class CallEngine {
 
   /** publishCamera 发布摄像头。已经在预览的话复用那条轨道。 */
   async publishCamera(simulcast = true): Promise<string> {
-    const info = await this.media.acquireCamera();
+    // 这一位**同时喂给媒体面与信令**：只喂一边就是「报了三层、实际发一层」。
+    const info = await this.media.acquireCamera(simulcast);
     await this.loop.dispatch({
       kind: 'act',
       op: 'publish',
@@ -395,6 +396,5 @@ export class CallEngine {
       dispatch: (input): Promise<void> => this.loop.dispatch(input),
     };
   }
-
 }
 

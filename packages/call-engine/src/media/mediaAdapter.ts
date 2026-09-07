@@ -78,8 +78,11 @@ export interface MediaAdapter {
   startLocalPreview(): Promise<LocalTrackInfo>;
 
   /** acquireCamera 拿摄像头轨道并挂到 pub PC 上，返回它的 cid。
-   *  已经在预览的话**复用那条轨道**，不重开摄像头。 */
-  acquireCamera(): Promise<LocalTrackInfo>;
+   *  已经在预览的话**复用那条轨道**，不重开摄像头。
+   *
+   *  simulcast 必须与随后 `room.publish` 帧里报的值一致：那一位是告诉服务端
+   *  「这条流有几层」，报了不发就等于骗它——层选择会按不存在的层去挑。 */
+  acquireCamera(simulcast?: boolean): Promise<LocalTrackInfo>;
 
   /** createPubOffer 生成上行 offer。**pub 的 offerer 恒为本端**（协议 §3.3）。 */
   createPubOffer(): Promise<string>;
