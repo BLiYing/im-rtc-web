@@ -23,3 +23,6 @@ yarn-error.log*
 .idea/
 .vscode/
 *.swp
+
+# git worktree（隔离工作区），不进版本库
+.claude/worktrees/
