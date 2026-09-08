@@ -99,6 +99,9 @@ function handleJoinOk(
   const replayed = replayBuffered({
     ...ctx,
     state: 'joined',
+    // **这一笔账只在这里记**：它是「服务端真的受理了我们」的唯一证据，
+    // resumeRoom 靠它分辨 reconnecting 的两种来路。
+    didJoin: true,
     roomId: str(data, 'room_id'),
     participantId: str(data, 'participant_id'),
     remoteTracks,

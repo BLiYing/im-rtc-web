@@ -2,6 +2,39 @@
 
 > 2026-09-05 从 `current_task.md` 整体搬来。之后的历史看 `git log`。
 
+
+## 2026-09-08 之前的「当前焦点」（resumeRoom 那一刀挤下来的）
+
+**`/code-review high` 的 13 条一次修完（2026-09-08）**，在 worktree `../wt-web-review`
+（分支 `fix/review-11`）上做，`./scripts/test.sh` 十三步全绿。**没上浏览器，没真机。**
+
+其中 11 条是本仓自审出来的，另外 2 条是 iOS 评审在 `IMFrameLoop` 上发现、
+本仓一模一样也有的（`leave_failed` 与 `accept/join` 不回滚）。
+
+| # | 症状 | 改在哪 | 三端情况 |
+|---|---|---|---|
+| 1 | 坏应答帧解码抛错 → `request()` 永不落定，房间永停 `joining`，宿主一条错都收不到 | `connection.decodeData` 解不动就按原始 data 放行 | iOS/Android 本来就有兜底，**只有本仓漏了** |
+| 2 | 没连接时帧被静默丢弃、状态机卡死（未登录就 `call()` → 永停 `inviting`） | `frameLoop.sendFrame` 回 `2007` 并走 `rollback` | **iOS 同病**；Android 早就是对的，照抄它 |
+| 3 | `login()` 不关旧连接 → 假 `kickedOut`，旧 `ResumeDeadline` 75s 后杀掉**新**会话 | `login()` 已连接就拒，失败收摊 | iOS 早修过并留了注释，本仓是没跟上的那个 |
+| 4 | `resumed=false` 静默清房、一个事件都不抛 → 会议界面永远显示「会议中」，媒体面不归零 | `engineMachine.dropLostSession` 没 call 时补 `onRoomLeft` | **三端同源，iOS/Android 都没修** |
+| 5 | `room.leave` 被拒无回滚 → 房间永停 `leaving`，**摄像头指示灯一直亮** | 新增 `leave_failed` | iOS 同病；Android 有 |
+| 6 | `call.accept`/`call.join` 被拒无回滚 → 滞留 `accepting`，来电屏没有出口 | `rollback` 表加这两个 type | iOS 同病；Android 有 |
+| 7 | `ViewRegistry.removeTrack` 从未接线 → 退订的轨道留在 `MediaStream` 上 | `MediaBridge.syncRemoteTracks` 双向对账 | Android 干净；iOS 是另一种形态（重复 sink） |
+| 8 | `joinMeeting` 先置界面态，`joinRoom` 同步抛 1004 后卡死、拨号面板全禁 | 只包 `joinRoom` 那一句，失败 `dismiss` 并重抛 | 本仓独有（那两端 `joinRoom` 不校验也不抛） |
+| 9 | 麦克风推流失败成 unhandled rejection，**声音画面一起丢**且零提示 | `publishFor` 接住麦克风那半，出提示后继续推摄像头 | iOS 是弱化版（`try?` 吞掉，同样没提示） |
+| 10 | 九宫格截断的人**连声音一起没了**（会议第 9 人起） | `GridStage` 给 offscreen 的人补 `RemoteAudioSink` | 本仓独有（那两端远端音频不绑视图） |
+| 11 | 小窗跟着主讲人换 → 每 300ms 重挂两个人的 `srcObject`，音频断续 | 小窗固定画 `participants[0]` | 本仓独有（那两端浮窗不挑主讲人） |
+| 12 | `tokenExpiry` 延时超 2^31 溢出 → 长有效期票每次握手都误报一次 | 分段续排 | 本仓独有（Int64 / Long 没这个坎） |
+| 13 | 根 `npm test` 把 uikit 用例塞进 node 环境跑，红 63 条 | 拆成 `test:engine` + `test:uikit` | 不适用 |
+
+**新增用例 21 条**（`failureRecovery.test.ts` 7 + engineMachine 6 + viewRegistry 3 +
+tokenExpiry 2 + meeting 2 + interactions 2）。第 10、11 条**注入旧实现验过载重**——
+换回原样后那两条立刻红。
+
+**没做**：iOS 与 Android 的第 4 条（三端同源那个）**没动那两个仓**，
+`IMRoomMachine.resume` 两处都要补同样的 `onRoomLeft`；iOS 的第 2/5/6 条同理。
+`CLIENT_PARITY.md` 也没更新。
+
 # Current Task — im-rtc-web（TS engine + React uikit + Demo）
 
 > **活快照**：只记当前状态，**就地覆盖、不追加**。历史见 `git log`。

@@ -11,35 +11,45 @@
 
 ## 当前焦点
 
-**`/code-review high` 的 13 条一次修完（2026-09-08）**，在 worktree `../wt-web-review`
-（分支 `fix/review-11`）上做，`./scripts/test.sh` 十三步全绿。**没上浏览器，没真机。**
+**补上跨端 review 的最后一条：`resumeRoom` 无条件推 joined（2026-09-08）**，
+`./scripts/test.sh` 十三步全绿（engine 288 / uikit 105）。
+分支 `fix/parity-recovery-0908`（worktree `../wt-web-review-fixes`）。
 
-其中 11 条是本仓自审出来的，另外 2 条是 iOS 评审在 `IMFrameLoop` 上发现、
-本仓一模一样也有的（`leave_failed` 与 `accept/join` 不回滚）。
+那一轮 review 在 iOS/Android 上抓到三条「某一帧被拒之后没人收场」，本仓的
+`9ddc6d2`（13 条那一刀）已经顺手带掉了其中两条——`room.leave → leave_failed`、
+`call.accept` / `call.join → call_failed`，改法与另外两端一致。**只剩这一条。**
 
-| # | 症状 | 改在哪 | 三端情况 |
-|---|---|---|---|
-| 1 | 坏应答帧解码抛错 → `request()` 永不落定，房间永停 `joining`，宿主一条错都收不到 | `connection.decodeData` 解不动就按原始 data 放行 | iOS/Android 本来就有兜底，**只有本仓漏了** |
-| 2 | 没连接时帧被静默丢弃、状态机卡死（未登录就 `call()` → 永停 `inviting`） | `frameLoop.sendFrame` 回 `2007` 并走 `rollback` | **iOS 同病**；Android 早就是对的，照抄它 |
-| 3 | `login()` 不关旧连接 → 假 `kickedOut`，旧 `ResumeDeadline` 75s 后杀掉**新**会话 | `login()` 已连接就拒，失败收摊 | iOS 早修过并留了注释，本仓是没跟上的那个 |
-| 4 | `resumed=false` 静默清房、一个事件都不抛 → 会议界面永远显示「会议中」，媒体面不归零 | `engineMachine.dropLostSession` 没 call 时补 `onRoomLeft` | **三端同源，iOS/Android 都没修** |
-| 5 | `room.leave` 被拒无回滚 → 房间永停 `leaving`，**摄像头指示灯一直亮** | 新增 `leave_failed` | iOS 同病；Android 有 |
-| 6 | `call.accept`/`call.join` 被拒无回滚 → 滞留 `accepting`，来电屏没有出口 | `rollback` 表加这两个 type | iOS 同病；Android 有 |
-| 7 | `ViewRegistry.removeTrack` 从未接线 → 退订的轨道留在 `MediaStream` 上 | `MediaBridge.syncRemoteTracks` 双向对账 | Android 干净；iOS 是另一种形态（重复 sink） |
-| 8 | `joinMeeting` 先置界面态，`joinRoom` 同步抛 1004 后卡死、拨号面板全禁 | 只包 `joinRoom` 那一句，失败 `dismiss` 并重抛 | 本仓独有（那两端 `joinRoom` 不校验也不抛） |
-| 9 | 麦克风推流失败成 unhandled rejection，**声音画面一起丢**且零提示 | `publishFor` 接住麦克风那半，出提示后继续推摄像头 | iOS 是弱化版（`try?` 吞掉，同样没提示） |
-| 10 | 九宫格截断的人**连声音一起没了**（会议第 9 人起） | `GridStage` 给 offscreen 的人补 `RemoteAudioSink` | 本仓独有（那两端远端音频不绑视图） |
-| 11 | 小窗跟着主讲人换 → 每 300ms 重挂两个人的 `srcObject`，音频断续 | 小窗固定画 `participants[0]` | 本仓独有（那两端浮窗不挑主讲人） |
-| 12 | `tokenExpiry` 延时超 2^31 溢出 → 长有效期票每次握手都误报一次 | 分段续排 | 本仓独有（Int64 / Long 没这个坎） |
-| 13 | 根 `npm test` 把 uikit 用例塞进 node 环境跑，红 63 条 | 拆成 `test:engine` + `test:uikit` | 不适用 |
+### 症状
 
-**新增用例 21 条**（`failureRecovery.test.ts` 7 + engineMachine 6 + viewRegistry 3 +
-tokenExpiry 2 + meeting 2 + interactions 2）。第 10、11 条**注入旧实现验过载重**——
-换回原样后那两条立刻红。
+`disconnected` 会把**任何**非 idle 状态推进 `reconnecting`，`joining` 也在内。
+而从 `joining` 断的那一种，`room.join` 当时还在飞：服务端从没受理过我们，
+恢复的只是那条 WS 会话，**不是房间成员关系**。原先 `resumeRoom` 无条件宣布 `joined`：
 
-**没做**：iOS 与 Android 的第 4 条（三端同源那个）**没动那两个仓**，
-`IMRoomMachine.resume` 两处都要补同样的 `onRoomLeft`；iOS 的第 2/5/6 条同理。
-`CLIENT_PARITY.md` 也没更新。
+- 本端以为自己在房里 → 之后每一帧都换回 1201/1203；
+- 重新 join 又因为「不在 idle」被本地拒成 2005；
+- 一个哑掉的死局，**日志里一条报错都没有**。
+
+### 本端踩得比另外两端更稳
+
+`handleClose` 是**同步**调 `onDisconnected` 的，而 `dispatch` 头一行就同步 reduce；
+`rejectAll` 触发的 `join_failed` 只能等微任务。所以 `disconnected` **每次都赢**，
+那条本该兜住它的 `join_failed` 必定变成空操作（它 guard 在 `joining` 上，状态早被推走了）。
+**iOS 那边是竞态、这里是稳定复现**——所以判据不能靠时序。
+
+### 改法（四端同一份）
+
+`RoomContext` 加 `didJoin`，**只由 `room.join.ok` 置位**（`roomRecv.ts` 的 `handleJoinOk`）。
+`resumeRoom` 据它分辨来路：真进过房才回 `joined`，否则走 `rejoin()`——
+**重发一次 `room.join`**（房号、房票、`auto_subscribe` 都还在手上，攒下的意图照旧留着重放）。
+连房号都没有（join 的帧还没产出就断了）就干净地回 idle，不发帧。
+
+**向量没动**：两条 reconnect 向量的初始态都是 `room: joined`，`didJoin` 影响不到它们。
+向量跑法里补了一句种子（初始就在房里的把 `didJoin` 一起置上）——
+**是种子不完整，不是实现变了**。
+
+**新增 7 条用例**（`test/roomResume.test.ts`）。把 `resumeRoom` 里那行 `didJoin` 判断
+删掉注回旧逻辑，其中 4 条立刻红（重发、意图留存、auto_subscribe、无房号回 idle），
+另外 3 条是护栏（从 joined 恢复、resumed=false、join.ok 置位），本就不该被这个注入影响。
 
 ## 下一步
 
