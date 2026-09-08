@@ -59,6 +59,14 @@ export interface ConnectionEvents {
    *   如果是重连期间被拒，那条码走 onError。
    */
   onKickedOut?: (info: { reason: KickedOutReason }) => void;
+  /**
+   * 断得太久了，**服务端那一侧的会话已经不可能再恢复**（§1.4 的恢复窗口过了）。
+   *
+   * 与「重连上了但 `resumed=false`」是同一件事，只是**不必等重连成功**——
+   * 网络一直不回来的话那一刻永远不会到。少了它，界面就永远停在「正在重连」、
+   * 连挂断都点不动（真机 2026-09-08 的 iOS 端）。
+   */
+  onSessionUnrecoverable?: () => void;
   /** 票快到期了，宿主该去取新票并 updateToken。见 tokenExpiry.ts。 */
   onTokenWillExpire?: (info: { expiresAtMs: number }) => void;
   /** 收到服务端主动推送的事件（req_id 为空的帧）。 */

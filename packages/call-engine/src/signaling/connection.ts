@@ -10,6 +10,7 @@ import { TokenExpiryTimer } from './tokenExpiry.js';
 import { Heartbeat } from './heartbeat.js';
 import { PendingRequests } from './pendingRequests.js';
 import { Reconnector } from './reconnector.js';
+import { ResumeDeadline } from './resumeDeadline.js';
 import { FrameType, lookupFrame } from './registry.js';
 import type { WebSocketLike } from './webSocket.js';
 import { CloseCode, WS_OPEN, browserWebSocketFactory, shouldReconnect } from './webSocket.js';
@@ -60,6 +61,8 @@ export class Connection {
   /** 连续鉴权失败次数。握手一成功就清零——只有**连续**失败才说明票是死的。 */
   private authFailures = 0;
   private readonly tokenExpiry: TokenExpiryTimer;
+  /** 「服务端已经彻底放弃这条会话」的倒计时。见 `ResumeDeadline`。 */
+  private readonly resumeDeadline: ResumeDeadline;
 
   constructor(options: ConnectionOptions) {
     this.token = options.token;
@@ -71,6 +74,10 @@ export class Connection {
     this.tokenExpiry = new TokenExpiryTimer({
       ...(options.tokenExpiryLeadMs === undefined ? {} : { leadMs: options.tokenExpiryLeadMs }),
       onWillExpire: (info): void => this.options.events?.onTokenWillExpire?.(info),
+    });
+    this.resumeDeadline = new ResumeDeadline((): void => {
+      this.sessionId = ''; // 服务端已经丢掉它，再拿去要 resume 只会白跑一趟
+      this.options.events?.onSessionUnrecoverable?.();
     });
     this.reconnector = new Reconnector(
       async (): Promise<void> => {
@@ -137,6 +144,7 @@ export class Connection {
     this.state = 'connected';
     this.authFailures = 0;
     this.reconnector.succeeded();
+    this.resumeDeadline.connected(hello.pingIntervalSec);
     this.heartbeat.start(hello.pingIntervalSec);
     this.tokenExpiry.arm(hello.tokenExpiresAtMs);
     this.options.events?.onConnected?.(hello);
@@ -148,6 +156,8 @@ export class Connection {
     this.state = 'closed';
     this.heartbeat.stop();
     this.reconnector.stop();
+    // **只有 logout 撤这条倒计时**：鉴权连续失败那条路要让它走完（见 ResumeDeadline）。
+    this.resumeDeadline.cancel();
     this.tokenExpiry.disarm();
     this.pending.rejectAll(new RtcError(ErrorCode.invalidState, { cause: new Error('连接已关闭') }));
     this.ws?.close(CloseCode.normal, 'client logout');
@@ -370,6 +380,7 @@ export class Connection {
       return;
     }
     this.state = 'reconnecting';
+    this.resumeDeadline.arm();
     this.reconnector.schedule();
   }
 

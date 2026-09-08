@@ -110,14 +110,8 @@ export class CallEngine {
           : { webSocketFactory: this.options.webSocketFactory }),
       },
       {
-        /*
-          **握手结果一律从这里进状态机**，`login()` 不再自己喂一遍。
-
-          只在 `login()` 里喂的话，自动重连那次握手就没人接——状态机不知道自己
-          重连了（`resumed=false` 时房间与通话不归零、`resumed=true` 时攒下的意图
-          不重放），宿主也收不到第二次 `connected`。实测症状：服务端重启后页面
-          换票重连其实成功了，界面却一直停在「重连中」。
-        */
+        // **握手结果一律从这里进状态机**，`login()` 不再自己喂一遍。
+        // 为什么（连同那次实测症状）写在 `EngineConnectionHandlers.onConnected` 上。
         onConnected: (hello): void => {
           this.helloApplied = this.loop
             .dispatch({
@@ -136,6 +130,8 @@ export class CallEngine {
           void this.loop.dispatch({ kind: 'internal', name: 'disconnected' });
           this.bus.emit('disconnected', info);
         },
+        onSessionUnrecoverable: (): void =>
+          void this.loop.dispatch({ kind: 'internal', name: 'session_unrecoverable' }),
         onKickedOut: (info): void => {
           // 状态机只认「被踢了」这一件事，原因是给宿主做处置判断的，两者分开走。
           void this.loop.dispatch({ kind: 'internal', name: 'ws_closed_4403' });

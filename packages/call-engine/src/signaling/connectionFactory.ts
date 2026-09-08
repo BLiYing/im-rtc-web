@@ -26,6 +26,14 @@ export interface EngineConnectionHandlers {
   onEvent: (type: string, data: Record<string, unknown>) => void;
   onDisconnected: (info: { code: number; willReconnect: boolean }) => void;
   onKickedOut: (info: { reason: KickedOutReason }) => void;
+  /**
+   * 断得太久，服务端那一侧的会话已经不可能再恢复（§1.4）。
+   *
+   * 与「重连上了但 `resumed=false`」是同一件事，只是**不必等重连成功**——
+   * 网络一直不回来的话那一刻永远不会到，界面就永远停在「正在重连」、
+   * 连挂断都点不动（真机 2026-09-08 的 iOS 端）。
+   */
+  onSessionUnrecoverable: () => void;
   /** 票快到期，宿主该换票。 */
   onTokenWillExpire: (info: { expiresAtMs: number }) => void;
   onError: (error: RtcError) => void;
@@ -58,6 +66,7 @@ export function createConnection(
       : { webSocketFactory: config.webSocketFactory }),
     events: {
       onConnected: (hello): void => handlers.onConnected(hello),
+      onSessionUnrecoverable: (): void => handlers.onSessionUnrecoverable(),
       onEvent: (type, data): void => handlers.onEvent(type, data),
       onDisconnected: (info): void =>
         handlers.onDisconnected({ code: info.code, willReconnect: info.willReconnect }),

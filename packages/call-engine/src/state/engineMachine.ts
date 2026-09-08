@@ -88,6 +88,27 @@ function handleHelloOk(
 }
 
 function handleInternal(ctx: EngineContext, name: string): MachineOutput<EngineContext> {
+  /*
+    **服务端那一侧已经不可能再恢复这条会话了**（§1.4 的恢复窗口过了）。
+
+    语义与「重连上了但 resumed=false」完全一样，所以走同一段代码：房间归零、
+    通话本地合成一条 ended{network}。差别只在**不必等重连成功**——
+    网络一直不回来的话那一刻永远不会到，界面就永远停在「正在重连」、
+    连挂断都点不动（真机 2026-09-08 的 iOS 端）。
+
+    「什么时候算过了窗口」由连接层算（只有它知道心跳周期），见 ResumeDeadline。
+  */
+  if (name === 'session_unrecoverable') {
+    const room = resumeRoom(ctx.room, false);
+    const emit: EmittedEvent[] = [...room.emit];
+    let call = ctx.call;
+    if (ctx.call.state !== 'idle') {
+      const synthesized = synthesizeNetworkEnd(ctx.call, Date.now());
+      call = synthesized.state;
+      emit.push(...synthesized.emit);
+    }
+    return { state: { room: room.state, call }, send: [...room.send], emit };
+  }
   if (name === 'ws_closed_4403') {
     // 被踢：什么都不留。重连没有意义——那等于跟另一台设备打架。
     return {
