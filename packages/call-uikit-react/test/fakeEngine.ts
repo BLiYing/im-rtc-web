@@ -76,14 +76,25 @@ export class FakeEngine {
     this.calls.push('probeMic');
     if (this.probeError !== null) throw this.probeError;
   }
+  /**
+   * 进房失败由测试控制：设 `joinRoomError` 让它抛。
+   *
+   * 真 engine 的 `joinRoom` 会**同步**抛 1004（`checkRoomId` 拦下带空格 / 中文的房间号），
+   * 而「拿群名当房间号」正是宿主最常见的写法。
+   */
+  joinRoomError: unknown = null;
   async joinRoom(roomId: string): Promise<void> {
     this.calls.push(`join:${roomId}`);
+    if (this.joinRoomError !== null) throw this.joinRoomError;
   }
   async leaveRoom(): Promise<void> {
     this.calls.push('leaveRoom');
   }
+  /** 麦克风推流失败由测试控制：探测放掉设备之后被别的程序抢走就是这条路。 */
+  publishMicError: unknown = null;
   async publishMicrophone(): Promise<string> {
     this.calls.push('publishMic');
+    if (this.publishMicError !== null) throw this.publishMicError;
     this.state.room.publishTrackIds['mic-1'] = 't-mic';
     return 'mic-1';
   }

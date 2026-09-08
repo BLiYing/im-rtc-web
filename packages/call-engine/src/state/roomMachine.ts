@@ -129,6 +129,18 @@ function reduceRoomInternal(ctx: RoomContext, name: string): MachineOutput<RoomC
       return ctx.state === 'joining'
         ? roomOut(clearedRoom('idle'), [], [{ cb: 'onRoomLeft', args: { room_id: ctx.roomId } }])
         : roomOut(ctx);
+    case 'leave_failed':
+      /*
+        离房被拒（1203 未在房间里、1201 房间没了…）。**照样当离成功收场**——
+        服务端回 1203 恰恰说明我们已经不在房里了，本地再挂着毫无意义。
+
+        不接这一条的后果比进房失败更重：房间永久停在 `leaving`，`onRoomLeft` 抛不出去，
+        于是 engine 那边的 `LEAVE_CALLBACKS` 不命中、媒体面不归零，**摄像头指示灯一直亮**；
+        而之后每次 join / leave 都被 R1 本地拒成 2005，除非 logout 否则再也进不了房。
+      */
+      return ctx.state === 'leaving'
+        ? roomOut(clearedRoom('idle'), [], [{ cb: 'onRoomLeft', args: { room_id: ctx.roomId } }])
+        : roomOut(ctx);
     default:
       return roomOut(ctx);
   }

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { DEFAULT_LEAD_MS, TokenExpiryTimer } from '../src/signaling/tokenExpiry.js';
+import { DEFAULT_LEAD_MS, MAX_TIMER_DELAY_MS, TokenExpiryTimer } from '../src/signaling/tokenExpiry.js';
 
 /** harness 造一个时钟与定时器都可控的 timer。 */
 function harness(nowMs = 1_757_000_000_000, leadMs?: number) {
@@ -149,5 +149,43 @@ describe('接入票到期提醒', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+/*
+  `setTimeout` 的延时是 32 位有符号整数：超过 2^31-1 ms（约 24.8 天）会**溢出成立刻触发**。
+  一枚有效期 30 天的票算出来的延时正好越界，症状是每次握手成功都马上抛一条
+  tokenWillExpire——宿主老实去换一次票，下次重连再来一遍，而真正该在到期前 60 秒
+  响的那次反而没有了。iOS 的 Int64 毫秒、Android 的 Long 都没有这个坎，只有 JS 有。
+*/
+describe('超过 32 位上限的长有效期票', () => {
+  it('分段排定，第一段睡满上限而不是立刻触发', () => {
+    const h = harness();
+    const thirtyDays = 30 * 24 * 3_600_000;
+    h.timer.arm(1_757_000_000_000 + thirtyDays);
+
+    expect(h.scheduled).toHaveLength(1);
+    expect(h.scheduled[0]?.ms).toBe(MAX_TIMER_DELAY_MS);
+    expect(h.fired).toEqual([]); // 关键：**这时候一条都不该抛**
+  });
+
+  it('睡满一段之后接着排，剩多久算多久', () => {
+    const h = harness();
+    const start = 1_757_000_000_000;
+    const expiresAt = start + 30 * 24 * 3_600_000;
+    h.timer.arm(expiresAt);
+
+    // 第一段到点：时钟往前走满上限，此时离到期还有 5 天多。
+    h.advanceTo(start + MAX_TIMER_DELAY_MS);
+    h.runLast();
+    expect(h.fired).toEqual([]);
+    expect(h.timer.isArmed).toBe(true);
+    expect(h.scheduled.at(-1)?.ms).toBe(expiresAt - DEFAULT_LEAD_MS - (start + MAX_TIMER_DELAY_MS));
+
+    // 第二段到点：这一次才是真的「到期前 60 秒」。
+    h.advanceTo(expiresAt - DEFAULT_LEAD_MS);
+    h.runLast();
+    expect(h.fired).toEqual([{ expiresAtMs: expiresAt }]);
+    expect(h.timer.isArmed).toBe(false);
   });
 });

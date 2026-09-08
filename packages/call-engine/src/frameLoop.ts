@@ -1,5 +1,5 @@
 import type { EngineBus } from './engineBus.js';
-import { ErrorCode } from './errors.js';
+import { ErrorCode, RtcError } from './errors.js';
 import { logger } from './logger.js';
 import type { MediaAdapter } from './media/mediaAdapter.js';
 import type { MediaBridge } from './media/mediaBridge.js';
@@ -88,7 +88,8 @@ export class FrameLoop {
     const result = reduceEngine(this.ctx, input);
     this.ctx = result.state;
 
-    bridge.claim(this.ctx.room.remoteTracks);
+    // 认领新到的远端轨道，**并把状态机里已经没有的那些摘掉**（见 syncRemoteTracks）。
+    bridge.syncRemoteTracks(this.ctx.room.remoteTracks);
     // **一通结束就把媒体面归零**，在抛事件之前：宿主收到 onCallEnd 时
     // engine 已经是干净的，下一通不会带着上一通的轨道去协商。
     if (result.emit.some((event) => LEAVE_CALLBACKS.has(event.cb))) bridge.reset();
@@ -136,7 +137,23 @@ export class FrameLoop {
   /** sendFrame 发一帧，并把应答喂回状态机。 */
   private async sendFrame(frame: OutgoingFrame): Promise<void> {
     const connection = this.deps.connection();
-    if (connection === null) return;
+    /*
+      **没有连接不是「什么都不做」，是一次失败。**
+
+      原先这里是裸的 `if (connection === null) return`：状态机已经迁移过了，帧却没发出去，
+      既不回滚也不报错。宿主在 `login()` 之前（或 `logout()` 之后）调一次 `call()`，
+      通话机就永久停在 `inviting`——界面「正在呼叫…」转个不停，之后 `hangup()` 被本地
+      拒成 2005、`cancel()` 产出的帧同样被丢掉，**再也回不到 idle**，下一通真电话也被
+      2005 挡住。走下面这条收场路径之后，宿主拿到的是一条 `2007 not_logged_in`
+      加一次正常的 `callEnd`，界面收得掉。（Android 的 `IMSignalConnection.request`
+      未连接时就是立刻回 `NOT_LOGGED_IN`，本端这个码定义了却一直没人用。）
+    */
+    if (connection === null) {
+      const err = new RtcError(ErrorCode.notLoggedIn, { forType: frame.type });
+      this.deps.bus.emitError(err);
+      await this.rollback(frame.type);
+      return;
+    }
     try {
       const reply = await this.deps.sender.send(connection, frame.type, frame.data);
       // **应答也要喂回状态机**：join.ok / publish.ok 都是状态推进的关键一步。
@@ -144,25 +161,52 @@ export class FrameLoop {
     } catch (err) {
       // 请求失败不该中断整个事件流：转成 error 事件交给宿主。
       this.deps.bus.emitError(err);
-      /*
-        **进房失败要把房间状态退回 idle**。
+      await this.rollback(frame.type);
+    }
+  }
 
-        不退的话状态机永远停在 `joining`，之后每一次 publish 都会被不变量 R1
-        本地拒掉（2005 invalid_state），而宿主只看到两条没头没尾的 2005——
-        真正的原因（那条 room.join 被服务端拒了）已经淹在上一条 error 里了。
-        退回 idle 至少让「重进一次」成为可能。
-      */
-      if (frame.type === 'room.join') {
-        await this.dispatch({ kind: 'internal', name: 'join_failed' });
-      }
-      /*
-        同理，**发起呼叫被拒也要退回 idle**。不退的话界面停在「正在呼叫…」，
-        而服务端根本没有这通电话，之后每次挂断都换回 1401 call_not_found，
-        用户永远退不出那一屏。
-      */
-      if (frame.type === 'call.invite') {
-        await this.dispatch({ kind: 'internal', name: 'call_failed' });
-      }
+  /**
+   * rollback 把「这一帧没送到」翻译成状态机能收场的内部事件。
+   *
+   * **一张表管住所有中间态**：留在中间态的代价永远是同一种——界面停在一个转圈的屏上，
+   * 而之后每一个动作都被不变量本地拒成 2005，宿主只看到一串没头没尾的 2005，
+   * 真正的原因早淹在上一条 error 里了。四端同一张表（Android 的
+   * `IMCallEngine.onRequestFailed`、iOS 的 `IMFrameLoop.sendFrame`）。
+   */
+  private async rollback(type: string): Promise<void> {
+    /*
+      呼叫 / 接听 / 主动加入被拒都要退回 idle。
+
+      `call.invite` 不退的话界面停在「正在呼叫…」，而服务端根本没有这通电话，
+      之后每次挂断都换回 1401 call_not_found，用户永远退不出那一屏。
+      **`call.accept` 与 `call.join` 是后补的**：被拒时通话机滞留在 `accepting`，
+      而 `reject()` 要求 `ringing`——来电屏上两个按钮全都点不动，一个出口都没有。
+    */
+    if (type === 'call.invite' || type === 'call.accept' || type === 'call.join') {
+      await this.dispatch({ kind: 'internal', name: 'call_failed' });
+      return;
+    }
+    /*
+      **进房失败要把房间状态退回 idle**。
+
+      不退的话状态机永远停在 `joining`，之后每一次 publish 都会被不变量 R1
+      本地拒掉（2005 invalid_state），而宿主只看到两条没头没尾的 2005——
+      真正的原因（那条 room.join 被服务端拒了）已经淹在上一条 error 里了。
+      退回 idle 至少让「重进一次」成为可能。
+    */
+    if (type === 'room.join') {
+      await this.dispatch({ kind: 'internal', name: 'join_failed' });
+      return;
+    }
+    /*
+      **离房被拒也要退回 idle**：服务端在「会话已不在房间里」时回 1203，
+      而那正说明我们已经不在房里了。不接这一条的话房间永久停在 `leaving`——
+      `onRoomLeft` 抛不出来，于是 `LEAVE_CALLBACKS` 不命中、`bridge.reset()` 不跑，
+      **摄像头与麦克风一直开着**，而之后每次 join / leave 都被本地拒成 2005，
+      这台 engine 除非 logout 否则再也进不了房。
+    */
+    if (type === 'room.leave') {
+      await this.dispatch({ kind: 'internal', name: 'leave_failed' });
     }
   }
 

@@ -5,6 +5,7 @@ import { useCall } from '../useCall.js';
 import { useElementSize } from '../useElementSize.js';
 import { styles } from '../styles.js';
 import { callMetrics } from '../theme.js';
+import { RemoteAudioSink } from './RemoteAudioSink.js';
 import { VideoTile } from './VideoTile.js';
 
 /**
@@ -30,8 +31,22 @@ export function GridStage(): ReactNode {
   const side = tileCount > 1 ? cellSide({ cols, rows }, stage.width, stage.height, callMetrics.tileGap) : 0;
   const layer = tileLayer(tileCount);
 
+  /*
+    **超出一屏的人只是没有格子，不是不在通话里——声音必须接上。**
+
+    浏览器只播挂在媒体元素上的流（`engine.attachView(uid, el)`），没有元素的人
+    就是**彻底静音**。原先九宫格只为前 8 位远端渲染 VideoTile，会议房（服务端不设
+    人数上限）进到第 10 个人时，第 9、10 位在场却完全听不见，界面上还没有任何提示。
+    小窗（MiniWindow）与语音页（AudioStage）本来就为没画格子的人补了 sink，
+    只有这里漏了。iOS / Android 没有这个坑——那两端的远端音频由音频设备直接播，不绑视图。
+  */
+  const offscreen = state.participants.slice(tiles.length);
+
   return (
     <div style={styles.stage} ref={stage.ref} data-testid="grid-stage">
+      {offscreen.map((p) => (
+        <RemoteAudioSink key={p.uid} uid={p.uid} />
+      ))}
       <div
         style={{
           ...styles.grid,

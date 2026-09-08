@@ -101,10 +101,35 @@ export class MediaBridge {
     track.addEventListener('unmute', () => onFirstVideo(trackId), { once: true });
   }
 
-  /** claim 把「轨道先到、归属后到」的那些补挂上去。 */
-  claim(remoteTracks: Readonly<Record<string, RemoteTrackOwner>>): void {
+  /**
+   * syncRemoteTracks 把挂载登记与状态机的远端轨道表对账：**认领新的，摘掉没了的**。
+   *
+   * # 为什么摘除这一半不能少
+   *
+   * 原先这里只认领不摘除，`ViewRegistry.removeTrack` 整个是死代码。于是对方关掉摄像头
+   * （`room.track_unpublished`）或直接离房之后，那条已经不存在的轨道**仍然挂在该 uid 的
+   * `MediaStream` 上、仍然绑在 `<video>.srcObject` 上**：自画 UI 的宿主看到的是一帧
+   * 冻住的画面而不是清空（uikit 只是拿 `visibility:hidden` 盖住了它）；同一个人反复
+   * 开关摄像头还会让他的流里越堆越多条废轨道，直到整轮房间结束才随 `clear()` 释放。
+   *
+   * # 两条边界
+   *
+   * - **orphans 不参与对账**：`ontrack` 先到、`track_published` 后到是常态，那时轨道
+   *   还不在 remoteTracks 里——按对账扫的话会把刚到的轨道当场摘掉，正好打断认领机制。
+   *   只扫**已认领**的。
+   * - **本端预览不归房间管**：它用 `:local:` 前缀登记，永远不在 remoteTracks 里，
+   *   扫到就跳过。不跳的话拨出中的自拍小窗会被第一次 dispatch 摘掉。
+   */
+  syncRemoteTracks(remoteTracks: Readonly<Record<string, RemoteTrackOwner>>): void {
     for (const [trackId, info] of Object.entries(remoteTracks)) {
       this.views.claim(trackId, info.uid);
+    }
+    for (const [trackId, owner] of this.views.claimedTracks()) {
+      if (owner.startsWith(LOCAL_VIEW_PREFIX)) continue;
+      if (Object.hasOwn(remoteTracks, trackId)) continue;
+      this.views.removeTrack(trackId);
+      // 忘掉「首帧抛过了」：同一条 track_id 再回来时该重新抛一次 firstVideoFrame。
+      this.seenVideo.delete(trackId);
     }
   }
 
@@ -132,11 +157,15 @@ export class MediaBridge {
 }
 
 /**
- * localViewKey 给本端预览一个不会与 uid 撞车的登记键。
+ * LOCAL_VIEW_PREFIX 是本端预览的登记键前缀。
  *
  * 本端与远端共用一张登记表（挂载/卸载逻辑完全一样），所以只需要一个前缀区分开。
  * 前缀里带冒号：uid 是宿主给的业务 id，冒号开头的 uid 本来就不该出现在业务里。
+ * `syncRemoteTracks` 的对账要靠它把本端预览摘出去。
  */
+const LOCAL_VIEW_PREFIX = ':local:';
+
+/** localViewKey 给本端预览一个不会与 uid 撞车的登记键。 */
 function localViewKey(cid: string): string {
-  return `:local:${cid}`;
+  return `${LOCAL_VIEW_PREFIX}${cid}`;
 }

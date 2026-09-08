@@ -10,7 +10,9 @@
   ],
   "scripts": {
     "build": "tsc -b",
-    "test": "vitest run",
+    "test": "npm run test:engine && npm run test:uikit",
+    "test:engine": "vitest run --root packages/call-engine",
+    "test:uikit": "vitest run --root packages/call-uikit-react",
     "typecheck": "tsc -b --pretty",
     "dev": "npm run dev -w demo",
     "dev:react": "npm run dev -w demo-react"

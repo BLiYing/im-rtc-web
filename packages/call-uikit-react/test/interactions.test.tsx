@@ -409,3 +409,79 @@ describe('群通话的被叫也要看到还没接的人', () => {
     expect(screen.queryByTestId('tile-me')).toBeNull();
   });
 });
+
+/*
+  **超出一屏的人只是没有格子，不是不在通话里。**
+
+  浏览器只播挂在媒体元素上的流（`engine.attachView(uid, el)`），没有元素的人就是彻底静音。
+  九宫格只画前 8 位远端，而会议房服务端不设人数上限——原先第 9 个人起在场却完全听不见，
+  界面上也没有任何提示。iOS / Android 没有这个坑：那两端的远端音频由音频设备直接播。
+*/
+describe('九宫格放不下的人也要有声音', () => {
+  function bigMeeting(count: number): FakeEngine {
+    const engine = setup();
+    act(() => {
+      engine.emit('callBegin', {
+        callId: 'c-1', roomId: 'r-1', mediaType: 'video', isGroup: true, role: 'callee',
+      });
+      engine.emit('roomJoined', { roomId: 'r-1' });
+      for (let i = 1; i <= count; i += 1) engine.emit('userEnter', { uid: `p${i}` });
+    });
+    return engine;
+  }
+
+  it('第 9 个人起没有格子，但必须有音频出口', () => {
+    bigMeeting(10);
+
+    // 本端占一格，远端只剩 8 个位置。
+    expect(screen.getByTestId('tile-p8')).toBeTruthy();
+    expect(screen.queryByTestId('tile-p9'), '第 9 位没有格子（v1 不做翻页）').toBeNull();
+
+    // 关键：没格子的人也要挂上元素，否则他说话谁也听不见。
+    expect(screen.getByTestId('audio-p9')).toBeTruthy();
+    expect(screen.getByTestId('audio-p10')).toBeTruthy();
+  });
+
+  it('人数没超的时候不多挂元素——一个 uid 只能挂一个，多挂会互相顶掉', () => {
+    bigMeeting(3);
+    expect(screen.getByTestId('tile-p3')).toBeTruthy();
+    expect(screen.queryByTestId('audio-p3')).toBeNull();
+  });
+});
+
+/*
+  小窗里画谁**必须是固定的**。
+
+  原先是「谁在说话画谁」，而 activeSpeakers 是服务端每 300ms 推一次的全量快照：
+  主讲人一换，两个人的媒体元素同时被重挂（旧主讲人从 <video> 挪进新建的 <audio>、
+  新主讲人反过来）。一个 uid 只能挂一个元素，所以这不是两边都留着的事；
+  而每次重挂 srcObject 都会让播放从头开始，群里来回对话时就是持续的音频断续。
+*/
+describe('小窗不跟着主讲人抖', () => {
+  it('主讲人变了，小窗那一格不动，音频出口也不重挂', () => {
+    const engine = setup();
+    act(() => {
+      engine.emit('callBegin', {
+        callId: 'c-1', roomId: 'r-1', mediaType: 'video', isGroup: true, role: 'callee',
+      });
+      engine.emit('roomJoined', { roomId: 'r-1' });
+      engine.emit('userEnter', { uid: 'bob' });
+      engine.emit('userEnter', { uid: 'carol' });
+    });
+    fireEvent.click(screen.getByTestId('minimize'));
+
+    expect(screen.getByTestId('tile-bob')).toBeTruthy();
+    expect(screen.getByTestId('audio-carol')).toBeTruthy();
+    const attachedBefore = engine.attached.length;
+
+    // carol 开始说话：这一条每 300ms 就来一次。
+    act(() => {
+      engine.emit('activeSpeakers', { speakers: [{ uid: 'carol', volume: 80 }] });
+    });
+
+    expect(screen.getByTestId('tile-bob'), '小窗那一格不该换人').toBeTruthy();
+    expect(screen.queryByTestId('tile-carol')).toBeNull();
+    expect(screen.getByTestId('audio-carol')).toBeTruthy();
+    expect(engine.attached.length, '一次挂载都不该重来').toBe(attachedBefore);
+  });
+});

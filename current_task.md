@@ -11,57 +11,35 @@
 
 ## 当前焦点
 
-**握手被拒按「谁救得了」分流（2026-09-08）**，`./scripts/test.sh` 十三步全绿。
+**`/code-review high` 的 13 条一次修完（2026-09-08）**，在 worktree `../wt-web-review`
+（分支 `fix/review-11`）上做，`./scripts/test.sh` 十三步全绿。**没上浏览器，没真机。**
 
-补齐 Android `629352a` 那条五端契约。原先 `abortIfHandshakeRejected` 是
-「不可重试 → 一律 `configRejected`」一个桶，**不可重试 ≠ 参数不对**，
-合成一类等于给宿主一条错的建议。同轮修掉两条边界，三个缺陷都在这一条路上：
+其中 11 条是本仓自审出来的，另外 2 条是 iOS 评审在 `IMFrameLoop` 上发现、
+本仓一模一样也有的（`leave_failed` 与 `accept/join` 不回滚）。
 
-| 缺陷 | 症状 | 改法 |
-|---|---|---|
-| 三类合成一桶 | 1101 明明换一枚票就能好，报成「去改配置」；1104 是被顶下线，该回登录页 | 1101 → `authExpired`、1104 → `takenOver`、其余 → `configRejected`。`KickedOutReason` 三个值本来就都在，只是没往那儿分 |
-| local 组没挡 | `close()` 拿 `2005 invalid_state`（`retryable === false`）结掉在飞的握手，那是**宿主自己按的 logout**。只看 `retryable` 的话一次正常 logout 就报成「服务端拒了你的参数」——而静默续期正是先 logout 再换票，等于**续期把人踹回登录页** | 判据先 `isLocalError(code)` 挡掉 |
-| 未知码兜底反了 | 未知码在 `RtcError` 里折成 internal（1501，而它 `retryable === true`）→ **服务端每加一个新的终局码，客户端就多一种无限重连**。1106 在四端漏过一次就是这个形状 | 折算前把帧上的 `retryable` 留进 `RtcError.unknownCodeRetryable`，只在本端不认识那个码时才有值；判据变成 `unknownCodeRetryable ?? retryable` |
+| # | 症状 | 改在哪 | 三端情况 |
+|---|---|---|---|
+| 1 | 坏应答帧解码抛错 → `request()` 永不落定，房间永停 `joining`，宿主一条错都收不到 | `connection.decodeData` 解不动就按原始 data 放行 | iOS/Android 本来就有兜底，**只有本仓漏了** |
+| 2 | 没连接时帧被静默丢弃、状态机卡死（未登录就 `call()` → 永停 `inviting`） | `frameLoop.sendFrame` 回 `2007` 并走 `rollback` | **iOS 同病**；Android 早就是对的，照抄它 |
+| 3 | `login()` 不关旧连接 → 假 `kickedOut`，旧 `ResumeDeadline` 75s 后杀掉**新**会话 | `login()` 已连接就拒，失败收摊 | iOS 早修过并留了注释，本仓是没跟上的那个 |
+| 4 | `resumed=false` 静默清房、一个事件都不抛 → 会议界面永远显示「会议中」，媒体面不归零 | `engineMachine.dropLostSession` 没 call 时补 `onRoomLeft` | **三端同源，iOS/Android 都没修** |
+| 5 | `room.leave` 被拒无回滚 → 房间永停 `leaving`，**摄像头指示灯一直亮** | 新增 `leave_failed` | iOS 同病；Android 有 |
+| 6 | `call.accept`/`call.join` 被拒无回滚 → 滞留 `accepting`，来电屏没有出口 | `rollback` 表加这两个 type | iOS 同病；Android 有 |
+| 7 | `ViewRegistry.removeTrack` 从未接线 → 退订的轨道留在 `MediaStream` 上 | `MediaBridge.syncRemoteTracks` 双向对账 | Android 干净；iOS 是另一种形态（重复 sink） |
+| 8 | `joinMeeting` 先置界面态，`joinRoom` 同步抛 1004 后卡死、拨号面板全禁 | 只包 `joinRoom` 那一句，失败 `dismiss` 并重抛 | 本仓独有（那两端 `joinRoom` 不校验也不抛） |
+| 9 | 麦克风推流失败成 unhandled rejection，**声音画面一起丢**且零提示 | `publishFor` 接住麦克风那半，出提示后继续推摄像头 | iOS 是弱化版（`try?` 吞掉，同样没提示） |
+| 10 | 九宫格截断的人**连声音一起没了**（会议第 9 人起） | `GridStage` 给 offscreen 的人补 `RemoteAudioSink` | 本仓独有（那两端远端音频不绑视图） |
+| 11 | 小窗跟着主讲人换 → 每 300ms 重挂两个人的 `srcObject`，音频断续 | 小窗固定画 `participants[0]` | 本仓独有（那两端浮窗不挑主讲人） |
+| 12 | `tokenExpiry` 延时超 2^31 溢出 → 长有效期票每次握手都误报一次 | 分段续排 | 本仓独有（Int64 / Long 没这个坎） |
+| 13 | 根 `npm test` 把 uikit 用例塞进 node 环境跑，红 63 条 | 拆成 `test:engine` + `test:uikit` | 不适用 |
 
-**修的时候撞到一个同源问题**：「线路错误帧 → `RtcError`」有**两份实现**
-（`pendingRequests.settle` 与 `connection.toRtcError`），第一版只改了后者，
-而握手恰恰走前者——用例当场红。已收敛成 `errors.ts` 的 `rtcErrorFromWire()` 一份。
+**新增用例 21 条**（`failureRecovery.test.ts` 7 + engineMachine 6 + viewRegistry 3 +
+tokenExpiry 2 + meeting 2 + interactions 2）。第 10、11 条**注入旧实现验过载重**——
+换回原样后那两条立刻红。
 
-**顺手拆了 `connection.ts`**：判据加进去后它涨到 428 行、过了 400 红线，
-按仓规矩拆而不是抬阈值——判据独立成 `signaling/handshakeGiveUp.ts` 的纯函数，
-`connection.ts` 回到 375 行。纯函数也让那两条在假服务端里造不出来的分支
-（local 组里可重试的码、未知码而帧上没带 `retryable`）能被直接钉住。
-
-**新增用例：`connection.test.ts` 4 组 + `handshakeGiveUp.test.ts` 5 条，注入旧逻辑验过载重**——
-换回「不可重试 → configRejected」后四条立刻红（1101、1104、未知终局码、logout 误判）。
-
-**没做**：纯信令逻辑，**没上浏览器**；iOS 侧同一条契约已在 `im-rtc-ios` 落地（同日）。
-`CLIENT_PARITY.md` 第 180 行那格与第 124 行的历史说明目前仍不准（写着「只有 Android 有」），
-两端都齐了，可以一次改到位。
-
----
-
-**网络一直不回来时通话再也退不出去，已修（2026-09-08）**，`./scripts/test.sh` 十三步全绿。
-**未真机复验。**
-
-本地放弃的**唯一**入口是「重连上了但 `resumed=false`」时的 `synthesizeNetworkEnd`，
-它要求先连回来；网络不回来那一刻永远不会到，界面就永远停在「正在重连」，
-而且**连挂断都点不动**（挂断只产出一帧发不出去的 `call.hangup`，本地状态按 §4.2 铁律 1
-一动不动）。真机是在 iOS 上撞到的，四端同形；iOS / Android 已先修，本仓跟上。
-
-`ResumeDeadline`（单独一个模块，理由与 `Reconnector` 相同：体量红线 + 独立测试面）
-起一条倒计时，断开超过**上界**就抛 `onSessionUnrecoverable`，
-状态机走与 `resumed=false` 完全相同的那段。协议 §1.4 有对应条款。
-
-**上界 = `3×ping + 30s + 5s` 余量（默认 80 秒），不是恢复窗口那 30 秒**：
-服务端的 30 秒是从**它自己察觉**算起，而它要连续 3 个心跳周期收不到东西才察觉（§1.3）。
-**取短了会杀掉一通还能恢复的电话** —— 真机实测断开 14 秒后重连成功、通话照常继续。
-
-顺带：`engine.ts` 里那段关于「握手结果一律从这里进状态机」的 8 行注释
-与 `EngineConnectionHandlers.onConnected` 上的文档几乎逐字重复，去重后
-`engine.ts` 从顶格的 400 行降到 396 —— **这不等于那个拆分做完了**，只是腾出了余量。
-
-**上行 simulcast 只是「说了没做」，已修（2026-09-08）**，`./scripts/test.sh` 13 步全绿。
+**没做**：iOS 与 Android 的第 4 条（三端同源那个）**没动那两个仓**，
+`IMRoomMachine.resume` 两处都要补同样的 `onRoomLeft`；iOS 的第 2/5/6 条同理。
+`CLIENT_PARITY.md` 也没更新。
 
 ## 下一步
 
@@ -71,7 +49,7 @@
 - iOS / Android 已按同一份稿落地（见各自的 `current_task.md`），**都还没真机验**。
 - Demo 还没演示的：主动换设备、桌面独立窗口（那是 desktop 仓的事）。
 - **体量阈值已由 400 抬到 600**（2026-09-08，按语言与其余四端对齐，理由见 CONVENTIONS §2）；
-  预警线随之是 480，当前最大的 `signaling/connection.ts` 386，**一条预警都没有**。
+  预警线随之是 480，当前最大的 `signaling/connection.ts` 405，**一条预警都没有**。
   抬阈值前先按规矩拆了 `engine.ts`（400 → 353，接线与媒体编排各自成模块）——
   **顺序不能倒过来**，否则那条红线就成了摆设。
 
@@ -85,8 +63,15 @@
   `getUserMedia`，浏览器说「已拒绝」而媒体层其实拿得到——信了查询就把能打的电话拦下来（本轮实测撞到）。
 - **Safari 的 `getUserMedia` 必须在用户手势的调用栈里**：接听流程是「点接听 → 先探设备 → 再发 accept」，
   中间不能夹别的 `await` 网络请求。
-- **语音版式与页内小窗都没有对端的 `<video>`，声音靠 `RemoteAudioSink`**——engine 只把流挂到
-  `attachView` 给的元素上，没挂元素的人是没有声音的。别删那个隐藏 `<audio>`。
+- **没挂元素的人就是彻底静音**——engine 只把流挂到 `attachView` 给的元素上。语音版式、
+  页内小窗、**九宫格里被截断的第 9 人起**都没有格子，声音全靠 `RemoteAudioSink` 那个隐藏
+  `<audio>`，别删。**一个 uid 只能挂一个元素**（后挂的顶掉先挂的），所以画了格子的人不要再给 sink，
+  也别让「谁上格子」跟着 `activeSpeakers` 抖——每抖一次就是一次 `srcObject` 重挂。
+- **中间态一定要有回滚**：帧发不出去（没连接）或被服务端拒掉时，状态机必须收到对应的
+  `*_failed`，否则界面停在转圈屏、之后每个动作都被拒成 2005。表在 `frameLoop.rollback`，
+  与 Android 的 `onRequestFailed` 逐条对齐。
+- **解不动的下行帧按原始 data 放行，绝不往上抛**：抛在 `PendingRequests.settle` 里会让
+  `request()` 的 promise 永不落定（waiter 已摘、超时已清）。
 - **jsdom 25 没有 `PointerEvent`**：`test/setup.ts` 用 `MouseEvent` 垫了一个，只补手势层读到的字段。
   jsdom 里容器量出来是 0×0，拖动用例只验「拖了 → 吸角 → 不互换」这条逻辑，不验坐标。
 - **`getUserMedia` 只在 localhost / HTTPS 可用**；公网联调必须 HTTPS。
@@ -111,6 +96,7 @@
   ./scripts/test.sh                                # 唯一测试入口（13 步）
   npx vitest run --root packages/call-engine       # 只跑 engine 测试
   npx vitest run --root packages/call-uikit-react  # 只跑 uikit 测试（jsdom）
+  npm test                                         # = 上面两条；根目录没有 vitest 配置，不能裸跑 vitest
   npm run dev                                      # 自画 UI 的 Demo（:5178）
   npm run dev:react                                # 引 uikit 的 Demo（:5179）
   ```

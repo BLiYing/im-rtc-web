@@ -30,6 +30,14 @@ export type TimerHandle = ReturnType<typeof setTimeout>;
  */
 export const DEFAULT_LEAD_MS = 60_000;
 
+/**
+ * MAX_TIMER_DELAY_MS 是 `setTimeout` 延时的 32 位上限（2^31-1 ≈ 24.8 天）。
+ *
+ * 超过它的值不会「等很久」，而是**立刻触发**——长有效期的票会因此每次握手都误报一次。
+ * 见 {@link TokenExpiryTimer.armStep}。
+ */
+export const MAX_TIMER_DELAY_MS = 2_147_483_647;
+
 /** TokenExpiryOptions 是构造参数。带 Fn 的都是为了测试可注入。 */
 export interface TokenExpiryOptions {
   /** 到期前多久触发。默认 {@link DEFAULT_LEAD_MS}。 */
@@ -74,17 +82,33 @@ export class TokenExpiryTimer {
   arm(expiresAtMs: number): void {
     this.disarm();
     if (expiresAtMs <= 0) return;
+    this.armStep(expiresAtMs);
+  }
 
-    const delay = expiresAtMs - this.leadMs - this.now();
+  /**
+   * armStep 排一段定时；**超过 32 位上限就先睡满一段再续排**。
+   *
+   * `setTimeout` 的延时是 32 位有符号整数：传超过 2^31-1 ms（约 24.8 天）的值，
+   * 浏览器与 Node 都会**溢出成立刻触发**。一枚有效期 30 天的票算出来的延时正好越界，
+   * 于是每次握手成功都马上抛一条 `tokenWillExpire`——宿主老老实实去后台换一次票，
+   * 下次重连再来一遍，而真正该在到期前 60 秒响的那一次**反而没有了**。
+   *
+   * 分段续排比钳到上限对：钳完就在第 24.8 天误报，而分段是「睡满一段，醒来重算」，
+   * 剩多久算多久。（iOS 的 Int64 毫秒、Android 的 Long 都没有这个坎，只有 JS 有。）
+   */
+  private armStep(expiresAtMs: number): void {
+    const remaining = expiresAtMs - this.leadMs - this.now();
+    const delay = Math.min(Math.max(0, remaining), MAX_TIMER_DELAY_MS);
     // 用 setTimer(…, 0) 而不是同步调用：arm 是在握手成功的路径上调的，
     // 同步回调会让宿主的 updateToken 重入到还没走完的连接流程里。
-    this.handle = this.setTimer(
-      () => {
-        this.handle = null;
-        this.onWillExpire({ expiresAtMs });
-      },
-      Math.max(0, delay),
-    );
+    this.handle = this.setTimer(() => {
+      this.handle = null;
+      if (remaining > MAX_TIMER_DELAY_MS) {
+        this.armStep(expiresAtMs);
+        return;
+      }
+      this.onWillExpire({ expiresAtMs });
+    }, delay);
   }
 
   /** disarm 解除武装。重复调用安全。 */

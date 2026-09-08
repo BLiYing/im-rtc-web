@@ -110,3 +110,113 @@ describe('通话与房间的接线', () => {
     expect(out.send).toEqual([]);
   });
 });
+
+/**
+ * 会话没了（重连回来 `resumed=false`，或断得太久 `session_unrecoverable`）时，
+ * **宿主必须拿到一个收场信号**。
+ *
+ * 有 call 的场合一直有 `onCallEnd(network)` 兜着，可**会议是直接 joinRoom 的、
+ * 压根没有 call**：房间机悄悄回了 idle，而界面还显示着「会议中」、计时器还在走，
+ * 用户完全不知道自己已经掉出去了。更糟的是一个结束类回调都没抛，engine 那边的
+ * `LEAVE_CALLBACKS` 不命中、媒体面不归零，上一轮的 PeerConnection 会被带进下一次进房。
+ *
+ * **iOS 的 `IMRoomMachine.resume` 与 Android 的 `IMRoomMachine.resume` 是同一处漏洞。**
+ */
+describe('会话没了要给宿主一个收场信号', () => {
+  const inMeeting = run([
+    { kind: 'act', op: 'join', args: { room_id: 'r-9', room_token: 'tk' } },
+    {
+      kind: 'recv',
+      type: 'room.join.ok',
+      data: { room_id: 'r-9', participant_id: 'p-1', participants: [], tracks: [] },
+    },
+  ]);
+
+  const helloNotResumed: MachineInput = {
+    kind: 'recv',
+    type: 'sys.hello.ok',
+    data: { session_id: 's-2', resumed: false },
+  };
+
+  it('会议里重连发现会话没了：房间回 idle，并抛 onRoomLeft', () => {
+    expect(inMeeting.room.state).toBe('joined');
+
+    const result = reduceEngine(inMeeting, helloNotResumed);
+    expect(result.state.room.state).toBe('idle');
+    expect(result.emit.map((e) => e.cb)).toEqual(['onConnected', 'onRoomLeft']);
+    expect(result.emit.at(-1)?.args).toEqual({ room_id: 'r-9' });
+  });
+
+  it('断太久（session_unrecoverable）走同一条收场路径', () => {
+    const result = reduceEngine(inMeeting, { kind: 'internal', name: 'session_unrecoverable' });
+    expect(result.state.room.state).toBe('idle');
+    expect(result.emit.map((e) => e.cb)).toEqual(['onRoomLeft']);
+  });
+
+  /*
+    有通话时**不能**补 onRoomLeft：`onCallEnd` 是所有结束分支的唯一出口（设计 §7.5），
+    为同一件事抛两个回调会让宿主的记账重复一次。这条也是一致性向量
+    `reconnect_not_resumed_synthesizes_call_end` 钉住的行为。
+  */
+  it('有通话时只抛 onCallEnd，不重复抛 onRoomLeft', () => {
+    const inCall = run([
+      incoming,
+      { kind: 'act', op: 'accept' },
+      connected,
+      {
+        kind: 'recv',
+        type: 'room.join.ok',
+        data: { room_id: 'r-1', participant_id: 'p-1', participants: [], tracks: [] },
+      },
+    ]);
+
+    const result = reduceEngine(inCall, helloNotResumed);
+    expect(result.emit.map((e) => e.cb)).toEqual(['onConnected', 'onCallEnd']);
+  });
+
+  it('本来就在 idle：只报连接，不凭空抛一条离房', () => {
+    const result = reduceEngine(initialEngineContext, helloNotResumed);
+    expect(result.emit.map((e) => e.cb)).toEqual(['onConnected']);
+  });
+});
+
+/**
+ * 离房被拒（1203 未在房间里、1201 房间没了…）**照样当离成功收场**。
+ *
+ * 不接这一条的后果比进房失败更重：房间永久停在 `leaving`，`onRoomLeft` 抛不出去，
+ * 于是媒体面不归零、**摄像头指示灯一直亮**，而之后每次 join / leave 都被本地拒成 2005，
+ * 除非 logout 否则再也进不了房。Android 的 `onRequestFailed` 早就接了 `ROOM_LEAVE`。
+ */
+describe('离房被拒也要回 idle', () => {
+  it('leaving 态收到 leave_failed：回 idle 并抛 onRoomLeft', () => {
+    const leaving = run([
+      { kind: 'act', op: 'join', args: { room_id: 'r-9', room_token: 'tk' } },
+      {
+        kind: 'recv',
+        type: 'room.join.ok',
+        data: { room_id: 'r-9', participant_id: 'p-1', participants: [], tracks: [] },
+      },
+      { kind: 'act', op: 'leave' },
+    ]);
+    expect(leaving.room.state).toBe('leaving');
+
+    const result = reduceEngine(leaving, { kind: 'internal', name: 'leave_failed' });
+    expect(result.state.room.state).toBe('idle');
+    expect(result.emit.map((e) => e.cb)).toEqual(['onRoomLeft']);
+  });
+
+  it('不在 leaving 时是空操作——迟到的失败不能把人踢出正常的房间', () => {
+    const joined = run([
+      { kind: 'act', op: 'join', args: { room_id: 'r-9', room_token: 'tk' } },
+      {
+        kind: 'recv',
+        type: 'room.join.ok',
+        data: { room_id: 'r-9', participant_id: 'p-1', participants: [], tracks: [] },
+      },
+    ]);
+
+    const result = reduceEngine(joined, { kind: 'internal', name: 'leave_failed' });
+    expect(result.state.room.state).toBe('joined');
+    expect(result.emit).toEqual([]);
+  });
+});

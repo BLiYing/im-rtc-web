@@ -108,8 +108,33 @@ export class CallEngine {
     return this.loop.state;
   }
 
-  /** login 建立信令连接并完成握手。 */
+  /**
+   * login 建立信令连接并完成握手。
+   *
+   * # 重复调用会被拒掉
+   *
+   * **两条 WS 带着同一个 uid + device_id，服务端按顶号把先来的那条踢下线**，于是宿主收到
+   * 一个**假的 `kickedOut{takenOver}`**——「账号在别处登录」，可根本没有别处，就是这台
+   * 机器自己把自己踢了。更隐蔽的是旧那条**从不 close**：它的 `ResumeDeadline` 在第一次
+   * 断开时就已经武装好（只有 `close()` 撤得掉），约 75 秒后照样触发 `onSessionUnrecoverable`，
+   * 把**新会话**的房间清成 idle 并合成一条 `onCallEnd(network)`——用户刚换票重登、
+   * 正通着话，画面无故收场。而 `events.ts` 恰恰建议宿主在 `kickedOut{authExpired}` 之后
+   * 「取一枚新票再 login」，正好走的就是这条路。
+   *
+   * 要换账号或换一枚票，先 `logout()`。（连着的时候换票用 {@link updateToken}。）
+   * iOS 的 `login(_:)` 早就是这条规矩，本端是没跟上的那个。
+   *
+   * # 失败会把摊子收干净
+   *
+   * 握手失败时把连接关掉、`connection` 置回 null。不收的话上面那道门会把**重试**
+   * 也一起挡掉，用户从此再也登不上——比原来的毛病还糟。
+   */
   async login(token: string): Promise<HelloOk> {
+    if (this.connection !== null) {
+      throw new RtcError(ErrorCode.invalidState, {
+        cause: new Error('已经登录了：换账号或换票请先 logout()'),
+      });
+    }
     const connection = createConnection(
       {
         url: this.options.url,
@@ -126,7 +151,16 @@ export class CallEngine {
     this.connection = connection;
     this.bridge.open(mediaEvents(engineMediaDeps(this.wiring())));
 
-    const hello = await connection.connect();
+    let hello: HelloOk;
+    try {
+      hello = await connection.connect();
+    } catch (err) {
+      // 收摊：不收的话上面那道「已经登录了」的门会把重试也挡掉。
+      connection.close();
+      this.bridge.close();
+      if (this.connection === connection) this.connection = null;
+      throw err;
+    }
     this.myUid = hello.uid;
     // 首次登录要等状态机吃完 hello.ok 再返回：宿主拿到 login 的返回值时，
     // engine 的状态应该已经是最终的了。（重连那些不需要等——没人在 await 它们。）

@@ -98,6 +98,16 @@ export class ViewRegistry {
     this.refresh(uid);
   }
 
+  /**
+   * claimedTracks 列出**已认领**的 track_id → 归属。
+   *
+   * 给 `MediaBridge.syncRemoteTracks` 做对账用：状态机里已经没有的那些要摘掉。
+   * 返回快照而不是内部 Map——调用方要边遍历边 `removeTrack`。
+   */
+  claimedTracks(): [string, string][] {
+    return [...this.owners];
+  }
+
   /** streamFor 取某人的流，宿主想自己挂载时用。 */
   streamFor(uid: string): MediaStream | undefined {
     return this.streams.get(uid);

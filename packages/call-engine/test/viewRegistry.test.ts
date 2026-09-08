@@ -200,6 +200,56 @@ describe('MediaBridge 的首帧判据', () => {
 });
 
 /** stubAdapter 是 MediaBridge 用不到的那部分适配器接口的空壳。 */
+describe('MediaBridge 与状态机对账（syncRemoteTracks）', () => {
+  /*
+    这一组守的是原先整条缺失的**摘除**那一半：`ViewRegistry.removeTrack` 曾经只有测试
+    在调，生产路径一次都没接。后果是对方关掉摄像头（`room.track_unpublished`）或直接
+    离房之后，那条已经不存在的轨道仍然挂在他的 MediaStream 上、仍然绑在 `<video>` 上：
+    自画 UI 的宿主看到一帧冻住的画面，反复开关摄像头还会让废轨道越堆越多。
+  */
+  const owner = (uid: string): { uid: string } => ({ uid });
+
+  it('状态机里已经没有的远端轨道要摘掉', () => {
+    const bridge = new MediaBridge(stubAdapter());
+    const el = { srcObject: null as MediaStream | null };
+    bridge.attachView('alice', el);
+    bridge.addRemoteTrack('t-1', fakeTrack('t-1'), 'alice', () => undefined);
+    bridge.syncRemoteTracks({ 't-1': owner('alice') });
+    expect(trackIds(el.srcObject ?? undefined)).toEqual(['t-1']);
+
+    // 对方 unpublish：状态机的表里没有它了。
+    bridge.syncRemoteTracks({});
+    expect(el.srcObject, '轨道没了就该断开，不留一帧冻住的画面').toBeNull();
+  });
+
+  it('还没认领的轨道不参与对账——那正是「轨道先到、归属后到」', () => {
+    const bridge = new MediaBridge(stubAdapter());
+    const el = { srcObject: null as MediaStream | null };
+    bridge.attachView('alice', el);
+
+    // ontrack 先到，track_published 还没来：这时它不在 remoteTracks 里。
+    bridge.addRemoteTrack('t-1', fakeTrack('t-1'), '', () => undefined);
+    bridge.syncRemoteTracks({}); // 按对账扫的话会在这里把它当场摘掉
+    bridge.syncRemoteTracks({ 't-1': owner('alice') }); // 归属到了
+
+    expect(trackIds(el.srcObject ?? undefined), '认领机制不能被对账打断').toEqual(['t-1']);
+  });
+
+  it('本端预览不归房间管，对账扫不到它', () => {
+    const track = fakeTrack('cam-1');
+    const adapter = { ...stubAdapter(), localTrack: (): MediaStreamTrack => track };
+    const bridge = new MediaBridge(adapter);
+    const el = { srcObject: null as MediaStream | null };
+
+    bridge.attachLocalView('cam-1', el);
+    expect(trackIds(el.srcObject ?? undefined)).toEqual(['cam-1']);
+
+    // 拨出中一次 dispatch：房间还是空的，本端预览不能被顺手摘掉。
+    bridge.syncRemoteTracks({});
+    expect(trackIds(el.srcObject ?? undefined), '自拍小窗不该被房间对账清掉').toEqual(['cam-1']);
+  });
+});
+
 function stubAdapter(): MediaAdapter {
   const notUsed = (): never => {
     throw new Error('这条用例不该走到媒体适配器');

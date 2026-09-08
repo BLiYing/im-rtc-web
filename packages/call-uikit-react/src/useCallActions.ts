@@ -62,7 +62,22 @@ export function useCallActions({ engine, state, dispatch, cids, gate }: CallActi
    */
   const publishFor = useCallback(
     async (mediaType: MediaType, withCamera: boolean): Promise<void> => {
-      cids.current.mic = await engine.publishMicrophone();
+      /*
+        **麦克风也要接住。** 这里原先是裸 await，而调用点是 effect 里的
+        `void publishFor(...)`——推流失败时那条 promise 静静变成 unhandled rejection：
+        界面照常显示已接通、计时器在走、静音按钮显示未静音，**可对方什么也听不见**，
+        而且抛出去之后下面的摄像头分支整个不执行，连画面也一起没了。
+
+        权限门里的探测是「探完就 stop() 放掉设备」，所以从探到真正 acquire 之间
+        设备完全可能被别的程序抢走（或者用户拔了 USB 麦），这不是罕见路径。
+        接住之后：出一条提示、继续去推摄像头——与 iOS 的 `try?` 同一个取舍。
+      */
+      try {
+        cids.current.mic = await engine.publishMicrophone();
+      } catch (err) {
+        logger.warn('麦克风推流失败，对方听不到你', { err: String(err) });
+        dispatch({ type: 'hint', text: '麦克风打不开，对方听不到你' });
+      }
       // **摄像头由调用方明说要不要，不在这里读 state**：这个函数在 effect 里被调用，
       // 闭包捕获的 state 未必是最新的一次提交。
       if (mediaType !== 'video' || !withCamera) return;
@@ -93,7 +108,22 @@ export function useCallActions({ engine, state, dispatch, cids, gate }: CallActi
         const gateResult = await gate.ensure(devicesFor('video', true));
         if (gateResult === 'cancelled' || gateResult === 'mic-blocked') return;
         dispatch({ type: 'meetingJoined', roomId, nowMs: Date.now() });
-        await engine.joinRoom(roomId, roomToken);
+        /*
+          **进房这一步抛了就要把界面收回来。** 先摆界面是对的（不然点下去几百毫秒没反应），
+          但 `joinRoom` 会**同步**抛 1004：`checkRoomId` 拦下带空格 / 中文的房间号，
+          而「拿群名当房间号」正是宿主最常见的写法。不收的话界面永远停在
+          「正在进入会议…」——既没有 roomLeft 也没有 callEnd，红按钮走 leaveRoom 又被
+          房间机以 2005 本地拒掉，拨号面板的 `busy` 还把所有按钮一起禁死，只能刷新页面。
+
+          只包 `joinRoom` 这一句：**进房成功之后的失败不能收界面**——那时人已经在房里了，
+          收掉界面等于把一场还在进行的会议从屏幕上抹掉。推流失败由 publishFor 自己出提示。
+        */
+        try {
+          await engine.joinRoom(roomId, roomToken);
+        } catch (err) {
+          dispatch({ type: 'dismiss' });
+          throw err; // 调用方（宿主的拨号面板）还要把这条错误显示出来
+        }
         await publishFor('video', gateResult !== 'camera-blocked'); // 会议恒为视频
         dispatch({ type: 'setCamera', on: gateResult !== 'camera-blocked' });
       },

@@ -323,11 +323,30 @@ export class Connection {
    * 「解出来再编回去」看着多余，其实是在做三件事：填默认值、枚举兜底、数值钳制。
    * 保持 snake_case 是因为**状态机吃的是线路形状**——它跑的一致性向量就是线路形状，
    * 换成 camelCase 会让状态机与向量之间多一层翻译，而那层翻译没人测。
+   *
+   * # 解不动就按原始 data 放行，**绝不往上抛**
+   *
+   * 这里原先是裸的 `decodeFields`。字段类型对不上（服务端把 int 位置发成了字符串）时它抛
+   * `bad_params`，而调用点在 `PendingRequests.settle` 里——那时 waiter **已经被摘掉、
+   * 超时也已经清掉**，`resolve` 却还没执行：那个 `request()` 的 promise 从此永远不落定。
+   * 症状是 `room.join.ok` 明明回来了，房间机却永远停在 `joining`，之后每次 publish 被
+   * R1 拒成 2005，而宿主一条错误都收不到（异常从 `onmessage` 里冲出去成了未捕获错误）。
+   * iOS（`(try? decodedData()) ?? envelope.data`）与 Android（catch 后回退 `envelope.data`）
+   * 本来就是这么做的，本端是四端里唯一漏掉兜底的。
+   *
+   * 回退之后字段读取一律走 `Wire.*` 那套「读不出来就取零值」的取数器，状态机不会崩；
+   * 真正的原因进日志 + 一条 error 事件，不塞进应答里让业务分不清。
    */
   private decodeData(envelope: Envelope): Record<string, unknown> {
     const fields = lookupFrame(envelope.type);
     if (fields === undefined) return { ...envelope.data };
-    return encodeFields(fields, decodeFields(fields, envelope.data));
+    try {
+      return encodeFields(fields, decodeFields(fields, envelope.data));
+    } catch (err) {
+      logger.warn('帧解码失败，按原始 data 放行', { type: envelope.type, cause: String(err) });
+      this.emitError(err);
+      return { ...envelope.data };
+    }
   }
 
   private handleClose(event: { code: number; reason: string }): void {

@@ -73,18 +73,50 @@ function handleHelloOk(
     { cb: 'onConnected', args: { session_id: str(data, 'session_id'), resumed } },
   ];
 
-  const room = resumeRoom(ctx.room, resumed);
-  const send: OutgoingFrame[] = [...room.send];
-  emit.push(...room.emit);
+  if (!resumed) {
+    const dropped = dropLostSession(ctx);
+    return { state: dropped.state, send: dropped.send, emit: [...emit, ...dropped.emit] };
+  }
 
+  const room = resumeRoom(ctx.room, true);
+  emit.push(...room.emit);
+  return { state: { room: room.state, call: ctx.call }, send: [...room.send], emit };
+}
+
+/**
+ * dropLostSession 收拾「服务端那侧的会话已经没了」这一件事：房间与通话都要收场。
+ *
+ * 「重连上了但 `resumed=false`」与「断得太久 `session_unrecoverable`」是同一件事的两个
+ * 到达时机，所以共用这一段。
+ *
+ * # 必须给宿主一个收场信号
+ *
+ * `resumeRoom(ctx, false)` 只是把房间清成 idle，**一个事件都不抛**。有 call 的场合
+ * 还有 `onCallEnd(network)` 兜着，可**会议是直接 joinRoom 的、压根没有 call**——
+ * 于是房间机悄悄回了 idle，而界面还显示着「会议中」、计时器还在走，用户完全不知道
+ * 自己已经掉出去了；更糟的是 `onCallEnd/onRoomLeft` 都没抛，engine 那边的
+ * `LEAVE_CALLBACKS` 不命中、`bridge.reset()` 不跑，**上一轮的 PeerConnection 会被
+ * 带进下一次进房**（正是 mediaBridge 注释里点名的黑屏成因）。
+ *
+ * 所以：有通话就抛 `onCallEnd`（唯一出口，不再补 `onRoomLeft`，否则宿主记两遍账），
+ * 没通话但在房里就补一条 `onRoomLeft`——房间的收场信号就是它。
+ * **iOS 的 `IMRoomMachine.resume` 与 Android 的 `IMRoomMachine.resume` 是同一处漏洞，
+ * 补这条要三端一起补。**
+ */
+function dropLostSession(ctx: EngineContext): MachineOutput<EngineContext> {
+  const room = resumeRoom(ctx.room, false);
+  const emit: EmittedEvent[] = [...room.emit];
   let call = ctx.call;
-  if (!resumed && ctx.call.state !== 'idle') {
+
+  if (ctx.call.state !== 'idle') {
     // 不变量 I8 的那个唯一例外：服务端的 call.ended 送不到，本地合成一条。
     const synthesized = synthesizeNetworkEnd(ctx.call, Date.now());
     call = synthesized.state;
     emit.push(...synthesized.emit);
+  } else if (ctx.room.state !== 'idle') {
+    emit.push({ cb: 'onRoomLeft', args: { room_id: ctx.room.roomId } });
   }
-  return { state: { room: room.state, call }, send, emit };
+  return { state: { room: room.state, call }, send: [...room.send], emit };
 }
 
 function handleInternal(ctx: EngineContext, name: string): MachineOutput<EngineContext> {
@@ -98,17 +130,7 @@ function handleInternal(ctx: EngineContext, name: string): MachineOutput<EngineC
 
     「什么时候算过了窗口」由连接层算（只有它知道心跳周期），见 ResumeDeadline。
   */
-  if (name === 'session_unrecoverable') {
-    const room = resumeRoom(ctx.room, false);
-    const emit: EmittedEvent[] = [...room.emit];
-    let call = ctx.call;
-    if (ctx.call.state !== 'idle') {
-      const synthesized = synthesizeNetworkEnd(ctx.call, Date.now());
-      call = synthesized.state;
-      emit.push(...synthesized.emit);
-    }
-    return { state: { room: room.state, call }, send: [...room.send], emit };
-  }
+  if (name === 'session_unrecoverable') return dropLostSession(ctx);
   if (name === 'ws_closed_4403') {
     // 被踢：什么都不留。重连没有意义——那等于跟另一台设备打架。
     return {
@@ -131,7 +153,8 @@ function handleInternal(ctx: EngineContext, name: string): MachineOutput<EngineC
     // 交给通话机回 idle；它抛的 onCallEnd 会顺带把房间也清掉（见 liftCall）。
     return liftCall(ctx, reduceCall(ctx.call, { kind: 'internal', name }));
   }
-  if (name === 'join_failed') {
+  // 房间那两条失败回滚都归房间机；不显式路由的话它们会落到通话机去，被静默丢掉。
+  if (name === 'join_failed' || name === 'leave_failed') {
     const room = reduceRoom(ctx.room, { kind: 'internal', name });
     return { state: { ...ctx, room: room.state }, send: [...room.send], emit: [...room.emit] };
   }

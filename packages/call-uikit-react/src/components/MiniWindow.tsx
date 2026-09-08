@@ -26,7 +26,21 @@ const CORNER_KEY = 'im-rtc.mini-corner';
 export function MiniWindow(): ReactNode {
   const { state, actions } = useCall();
   const seconds = useElapsed(state.beganAtMs);
-  const speaker = state.participants.find((p) => p.isSpeaking) ?? state.participants[0];
+  /*
+    小窗里画谁：**第一位成员，固定不动**。
+
+    原先是「谁在说话画谁」（`find(p => p.isSpeaking) ?? participants[0]`），而
+    `activeSpeakers` 是服务端每 300ms 推一次的全量快照——主讲人一换，这一格的 uid 就变，
+    于是**两个人的媒体元素同时被重挂**：旧主讲人从 `<video>` 挪进一个新建的 `<audio>`、
+    新主讲人从 `<audio>` 挪上 `<video>`。一个 uid 只能挂一个元素（后挂的顶掉先挂的），
+    所以这不是可以两边都留着的事；而每次重挂 `srcObject` 都会让播放从头开始，
+    群里来回对话时表现为持续的音频断续，界面上却看不出任何异常。
+
+    「跟随主讲人」在一个一百多像素宽、只有一格的小窗上换来的东西很少，
+    代价却是每 300ms 一次的重挂。1v1（小窗最常见的场合）本来就只有一个人，行为不变。
+    iOS / Android 的浮窗也不挑主讲人。
+  */
+  const speaker = state.participants[0];
   const [corner, setCorner] = useState<PipCorner>(loadCorner);
   const bounds = useViewport();
   const size = { width: callMetrics.miniWidth, height: Math.round((callMetrics.miniWidth * 9) / 16) + callMetrics.miniBar };

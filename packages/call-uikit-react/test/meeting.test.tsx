@@ -18,7 +18,12 @@ import { FakeEngine, asEngine } from './fakeEngine.js';
 function JoinButton(): ReactNode {
   const { actions } = useCall();
   return (
-    <button type="button" data-testid="join" onClick={() => void actions.joinMeeting('r-9', 'tk')}>
+    <button
+      type="button"
+      data-testid="join"
+      // 宿主的拨号面板就是这么写的（Demo 的 `guard`）：接住错误显示出来，别让它成为 unhandled。
+      onClick={() => void actions.joinMeeting('r-9', 'tk').catch(() => undefined)}
+    >
       进会议
     </button>
   );
@@ -159,5 +164,60 @@ describe('静音角标', () => {
       fireEvent.click(screen.getByTestId('toggle-mic'));
     });
     expect(screen.getByTestId('muted-self')).toBeTruthy();
+  });
+});
+
+/*
+  先摆界面再进房是对的（不然点下去几百毫秒没反应），但**进房这一步抛了就得把界面收回来**。
+
+  真 engine 的 `joinRoom` 会同步抛 1004：`checkRoomId` 拦下带空格 / 中文的房间号，
+  而「拿群名当房间号」正是宿主最常见的写法。不收的话界面永远停在「正在进入会议…」——
+  既没有 roomLeft 也没有 callEnd，红按钮走 leaveRoom 又被房间机以 2005 本地拒掉，
+  宿主拨号面板的 `busy` 还把所有按钮一起禁死，只能刷新页面。
+*/
+describe('进房抛错要把界面收回来', () => {
+  it('joinRoom 抛 1004：不留在「正在进入会议…」那一屏', async () => {
+    const engine = new FakeEngine();
+    engine.joinRoomError = new Error('bad_params(1004): room_id 只允许 [A-Za-z0-9_-]');
+    render(
+      <CallProvider engine={asEngine(engine)} endedHoldMs={0}>
+        <JoinButton />
+        <CallOverlay />
+      </CallProvider>,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('join'));
+    });
+
+    expect(engine.calls).toContain('join:r-9');
+    expect(screen.queryByTestId('active-call'), '界面必须收掉，否则退不出去').toBeNull();
+  });
+
+  /*
+    **进房成功之后的失败不能收界面**——那时人已经在房里了，收掉等于把一场还在进行的
+    会议从屏幕上抹掉。麦克风推流失败只出提示。
+  */
+  it('进房成功、麦克风推不上：留在会议里，出一条提示', async () => {
+    const engine = new FakeEngine();
+    engine.publishMicError = new Error('device_not_found(2002)');
+    render(
+      <CallProvider engine={asEngine(engine)} endedHoldMs={0}>
+        <JoinButton />
+        <CallOverlay />
+      </CallProvider>,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('join'));
+    });
+    act(() => {
+      engine.emit('roomJoined', { roomId: 'r-9' });
+    });
+
+    expect(screen.getByTestId('active-call'), '人已经在房里了，不能把界面抹掉').toBeTruthy();
+    expect(screen.getByTestId('active-call').textContent).toContain('麦克风打不开');
+    // 麦克风塌了也要接着推摄像头——只丢声音，别把画面一起丢了。
+    expect(engine.calls).toContain('publishCam');
   });
 });
