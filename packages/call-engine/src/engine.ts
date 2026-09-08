@@ -1,4 +1,6 @@
 import { EngineBus } from './engineBus.js';
+import type { EngineWiring } from './engineWiring.js';
+import { engineConnectionHandlers, engineMediaDeps } from './engineWiring.js';
 import { ErrorCode, RtcError } from './errors.js';
 import { FrameLoop } from './frameLoop.js';
 import { logger } from './logger.js';
@@ -6,9 +8,17 @@ import { checkDeviceId, checkRoomId } from './protocolId.js';
 import { CallEndReason } from './reasons.js';
 import type { EngineEventHandler, EngineEventName } from './events.js';
 import type { MediaAdapter } from './media/mediaAdapter.js';
+import type { MediaApiDeps } from './media/engineMediaApi.js';
+import {
+  probeMicrophone,
+  publishCamera,
+  publishMicrophone,
+  setMuted,
+  setRemoteLayer,
+} from './media/engineMediaApi.js';
 import { MediaBridge } from './media/mediaBridge.js';
 import type { MediaPlaneDeps } from './media/mediaPlane.js';
-import { mediaEvents, renegotiateAfterResume } from './media/mediaPlane.js';
+import { mediaEvents } from './media/mediaPlane.js';
 import type { ViewElement } from './media/viewRegistry.js';
 import type { VideoProfile } from './media/videoProfile.js';
 import { WebRTCAdapter } from './media/webrtcAdapter.js';
@@ -79,7 +89,7 @@ export class CallEngine {
       media: this.media,
       sender: this.sender,
       connection: (): Connection | null => this.connection,
-      mediaDeps: (): MediaPlaneDeps => this.mediaDeps(),
+      mediaDeps: (): MediaPlaneDeps => engineMediaDeps(this.wiring()),
     });
   }
 
@@ -109,40 +119,12 @@ export class CallEngine {
           ? {}
           : { webSocketFactory: this.options.webSocketFactory }),
       },
-      {
-        // **握手结果一律从这里进状态机**，`login()` 不再自己喂一遍。
-        // 为什么（连同那次实测症状）写在 `EngineConnectionHandlers.onConnected` 上。
-        onConnected: (hello): void => {
-          this.helloApplied = this.loop
-            .dispatch({
-              kind: 'recv',
-              type: 'sys.hello.ok',
-              data: { session_id: hello.sessionId, resumed: hello.resumed },
-            })
-            .then(async () => {
-              // 恢复之后要重新协商上行（§1.4）。**为什么触发点在这里**见 renegotiateAfterResume。
-              if (hello.resumed) await renegotiateAfterResume(this.mediaDeps());
-            });
-          void this.helloApplied.catch((err: unknown) => this.bus.emitError(err));
-        },
-        onEvent: (type, data): void => void this.loop.handleIncoming(type, data),
-        onDisconnected: (info): void => {
-          void this.loop.dispatch({ kind: 'internal', name: 'disconnected' });
-          this.bus.emit('disconnected', info);
-        },
-        onSessionUnrecoverable: (): void =>
-          void this.loop.dispatch({ kind: 'internal', name: 'session_unrecoverable' }),
-        onKickedOut: (info): void => {
-          // 状态机只认「被踢了」这一件事，原因是给宿主做处置判断的，两者分开走。
-          void this.loop.dispatch({ kind: 'internal', name: 'ws_closed_4403' });
-          this.bus.emit('kickedOut', info);
-        },
-        onTokenWillExpire: (info): void => this.bus.emit('tokenWillExpire', info),
-        onError: (error): void => this.bus.emitError(error),
-      },
+      engineConnectionHandlers(this.wiring(), (applied): void => {
+        this.helloApplied = applied;
+      }),
     );
     this.connection = connection;
-    this.bridge.open(mediaEvents(this.mediaDeps()));
+    this.bridge.open(mediaEvents(engineMediaDeps(this.wiring())));
 
     const hello = await connection.connect();
     this.myUid = hello.uid;
@@ -181,18 +163,9 @@ export class CallEngine {
     this.loop.reset();
   }
 
-  /**
-   * call 发起通话。
-   *
-   * **呼叫名单里不能有自己**——服务端会以 `1004 bad_params` 拒掉
-   * （"callee_ids 不能含主叫自己"）。这里在发出去之前就拦下来：那条链路上的失败
-   * 很难看懂，界面已经乐观地进了「正在呼叫…」，而错误只是一条没头没尾的 1004。
-   * （实测撞过：Demo 的群呼默认名单里正好有登录的那个人。）
-   */
+  /** call 发起通话。**名单里不能有自己**，见 {@link rejectsSelf}。 */
   async call(calleeIds: string[], mediaType: MediaType, isGroup = false): Promise<void> {
-    if (this.myUid !== '' && calleeIds.includes(this.myUid)) {
-      logger.warn('呼叫名单里含自己，已就地拒掉', { uid: this.myUid });
-      this.bus.emitError(new RtcError(ErrorCode.badParams));
+    if (this.rejectsSelf(calleeIds, '呼叫')) {
       /*
         **本地拒掉也要给界面一个出口。**
 
@@ -242,17 +215,14 @@ export class CallEngine {
 
   /**
    * inviteMore 往进行中的群通话里再拉人（协议 §4.1 `call.invite_more`）。
+   * 名单里同样不能有自己，见 {@link rejectsSelf}。
    *
    * **只有主叫能发**——非主叫会被服务端拒成 `1407 not_call_owner`，
    * 所以界面上那个「添加成员」入口对非主叫根本不该显示（交互稿 §05）。
    * 房间满了回 `1202 room_full`。
    */
   async inviteMore(calleeIds: string[]): Promise<void> {
-    if (this.myUid !== '' && calleeIds.includes(this.myUid)) {
-      logger.warn('加人名单里含自己，已就地拒掉', { uid: this.myUid });
-      this.bus.emitError(new RtcError(ErrorCode.badParams));
-      return;
-    }
+    if (this.rejectsSelf(calleeIds, '加人')) return;
     await this.loop.dispatch({ kind: 'act', op: 'invite_more', args: { callee_ids: calleeIds } });
   }
 
@@ -263,13 +233,7 @@ export class CallEngine {
    * 摄像头那一侧用 `startLocalPreview` 探——它本来就该在拨出时起来给人看见自己。
    */
   async probeMicrophone(): Promise<void> {
-    try {
-      await this.media.probeMicrophone();
-    } catch (err) {
-      // 也走一遍 error 事件：宿主只监听事件表也该知道「这通电话是因为没权限才没打出去」。
-      this.bus.emitError(err);
-      throw err;
-    }
+    await probeMicrophone(this.mediaApi());
   }
 
   /** joinRoom 直接进一个会议房（不走振铃）。 */
@@ -288,20 +252,9 @@ export class CallEngine {
     await this.loop.dispatch({ kind: 'act', op: 'leave' });
   }
 
-  /**
-   * publishMicrophone 发布麦克风。
-   *
-   * 顺序是**先拿轨道再拿 cid**：浏览器不允许自定义 track.id，而服务端靠
-   * msid 里的 cid 认领 m-line（协议 §3.2）。
-   */
+  /** publishMicrophone 发布麦克风，返回轨道的 cid。 */
   async publishMicrophone(): Promise<string> {
-    const info = await this.media.acquireMicrophone();
-    await this.loop.dispatch({
-      kind: 'act',
-      op: 'publish',
-      args: { cid: info.cid, kind: info.kind, source: info.source, simulcast: false },
-    });
-    return info.cid;
+    return publishMicrophone(this.mediaApi());
   }
 
   /**
@@ -319,22 +272,12 @@ export class CallEngine {
 
   /** publishCamera 发布摄像头。已经在预览的话复用那条轨道。 */
   async publishCamera(simulcast = true): Promise<string> {
-    // 这一位**同时喂给媒体面与信令**：只喂一边就是「报了三层、实际发一层」。
-    const info = await this.media.acquireCamera(simulcast);
-    await this.loop.dispatch({
-      kind: 'act',
-      op: 'publish',
-      args: { cid: info.cid, kind: info.kind, source: info.source, simulcast },
-    });
-    return info.cid;
+    return publishCamera(this.mediaApi(), simulcast);
   }
 
   /** setMuted 开关本端某条轨道。**不是 unpublish**，协商保留。 */
   async setMuted(cid: string, muted: boolean): Promise<void> {
-    this.media.setMuted(cid, muted);
-    const trackId = this.loop.state.room.publishTrackIds[cid];
-    if (trackId === undefined) return;
-    await this.loop.dispatch({ kind: 'act', op: 'mute', args: { track_id: trackId, muted } });
+    await setMuted(this.mediaApi(), cid, muted);
   }
 
   /** localTrack 取本端轨道做预览。 */
@@ -364,32 +307,46 @@ export class CallEngine {
    * 服务端要等目标层的关键帧，还会再按带宽估计压一次。
    */
   async setRemoteLayer(uid: string, layer: Layer): Promise<void> {
-    for (const [trackId, info] of Object.entries(this.loop.state.room.remoteTracks)) {
-      if (info.uid !== uid || info.kind !== 'video') continue;
-      await this.loop.dispatch({
-        kind: 'act',
-        op: 'update_layer',
-        args: { track_id: trackId, max_layer: layer },
-      });
-    }
+    await setRemoteLayer(this.mediaApi(), uid, layer);
   }
 
   // ── 内部 ──────────────────────────────────────────────
 
   /**
-   * mediaDeps 是交给媒体接线的那一小把依赖（见 media/mediaPlane.ts）。
+   * rejectsSelf 挡住「名单里有自己」，就地报错并返回 true。
    *
-   * `connection` 与 `uidOf` 都取成函数：前者会随重连换对象，
-   * 后者读的是状态机的当前快照——传值的话拿到的是构造那一刻的旧账。
+   * 服务端会以 `1004 bad_params` 拒掉（"callee_ids 不能含主叫自己"），但那条链路上的
+   * 失败很难看懂：界面已经乐观地进了「正在呼叫…」，而错误只是一条没头没尾的 1004。
+   * （实测撞过：Demo 的群呼默认名单里正好有登录的那个人。）
+   *
+   * **一份实现供 call 与 inviteMore 共用**——两处各写一遍的话，改了一处忘了另一处，
+   * 就又是一个「同一条规则在一处成立、另一处不成立」。
    */
-  private mediaDeps(): MediaPlaneDeps {
+  private rejectsSelf(calleeIds: string[], what: string): boolean {
+    if (this.myUid === '' || !calleeIds.includes(this.myUid)) return false;
+    logger.warn(`${what}名单里含自己，已就地拒掉`, { uid: this.myUid });
+    this.bus.emitError(new RtcError(ErrorCode.badParams));
+    return true;
+  }
+
+  /** mediaApi 是交给 media/engineMediaApi 那几个编排函数的一把依赖。 */
+  private mediaApi(): MediaApiDeps {
+    return { media: this.media, loop: this.loop, bus: this.bus };
+  }
+
+  /**
+   * wiring 是交给 engineWiring 那两个装配函数的一把依赖。
+   *
+   * 每次现造一个：里面的 `connection` 是闭包，读的永远是**当前**那条连接
+   * ——它会随重连换对象。
+   */
+  private wiring(): EngineWiring {
     return {
-      bridge: this.bridge,
       bus: this.bus,
+      bridge: this.bridge,
       sender: this.sender,
+      loop: this.loop,
       connection: (): Connection | null => this.connection,
-      uidOf: (trackId): string => this.loop.state.room.remoteTracks[trackId]?.uid ?? '',
-      dispatch: (input): Promise<void> => this.loop.dispatch(input),
     };
   }
 }
