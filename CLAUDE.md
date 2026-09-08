@@ -53,7 +53,8 @@ im-rtc-web/
 - **工程规范见 [CONVENTIONS.md](CONVENTIONS.md)**（分层 / 体量 / TS 严格性 / React 纪律 / 日志 / 测试）。
 - **协议契约在 `im-rtc-server/docs/RTC_PROTOCOL.md`，本仓只读引用**，不得单方面加字段。
   改协议 = 改五个仓 + 同步一致性向量。
-- **单文件体量红线**：非测试 `.ts`/`.tsx` **> 400 行**要按职责拆分。
+- **单文件体量红线**：非测试 `.ts`/`.tsx` **> 600 行**要按职责拆分（2026-09-08 由 400 上调，
+  与其余四端对齐；理由见 CONVENTIONS §2）。
   硬闸：`scripts/check-file-size.sh`（pre-commit + `test.sh` 第 1 步）。新 clone 跑 `./scripts/install-hooks.sh`。
 - 文档引用代码**不写行号**，写文件路径 + 符号名：`packages/call-engine/src/state/callMachine.ts` 的 `reduce()`。
 
