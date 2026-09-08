@@ -45,7 +45,7 @@ export function reduceCallView(state: CallViewState, action: ViewAction): CallVi
           newParticipant(action.caller, true),
           ...action.calleeIds.filter((uid) => uid !== action.caller).map((uid) => newParticipant(uid, false)),
         ],
-        self: { micOn: true, cameraOn: action.mediaType === 'video', cameraBlocked: false },
+        self: { micOn: true, cameraOn: action.mediaType === 'video', cameraBlocked: false, speaking: false, volume: 0 },
         connection: state.connection,
       };
 
@@ -61,7 +61,7 @@ export function reduceCallView(state: CallViewState, action: ViewAction): CallVi
         isGroup: action.isGroup,
         role: 'caller',
         peerUid: action.isGroup ? '' : (action.calleeIds[0] ?? ''),
-        self: { micOn: true, cameraOn: action.mediaType === 'video', cameraBlocked: false },
+        self: { micOn: true, cameraOn: action.mediaType === 'video', cameraBlocked: false, speaking: false, volume: 0 },
       };
 
     case 'callBegin':
@@ -89,7 +89,7 @@ export function reduceCallView(state: CallViewState, action: ViewAction): CallVi
         isGroup: true,
         isMeeting: true,
         beganAtMs: action.nowMs,
-        self: { micOn: true, cameraOn: true, cameraBlocked: false },
+        self: { micOn: true, cameraOn: true, cameraBlocked: false, speaking: false, volume: 0 },
         connection: state.connection,
       };
 
@@ -161,7 +161,7 @@ export function reduceCallView(state: CallViewState, action: ViewAction): CallVi
       return withParticipant(state, action.uid, (p) => ({ ...p, hasVideo: action.available }));
 
     case 'activeSpeakers':
-      return applySpeakers(state, action.speakers);
+      return applySpeakers(state, action.speakers, action.selfUid);
 
     case 'networkQuality':
       return applyNetwork(state, action.entries);

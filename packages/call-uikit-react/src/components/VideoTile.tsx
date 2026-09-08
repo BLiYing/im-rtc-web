@@ -8,9 +8,11 @@ import type { SettledOutcome } from '../state/viewTypes.js';
 import { settledText } from '../state/participants.js';
 import { useCall } from '../useCall.js';
 import { styles } from '../styles.js';
-import { Icon, NetworkBars, isNetworkPoor } from './Icon.js';
+import { NetworkBars, isNetworkPoor } from './Icon.js';
 
 /** VideoTileProps 是一个格子。 */
+import { SpeechIcon } from './SpeechIcon.js';
+
 export interface VideoTileProps {
   /** 远端成员的 uid；本端预览传空串并给 localCid。 */
   readonly uid: string;
@@ -24,6 +26,8 @@ export interface VideoTileProps {
    */
   readonly hasAudio?: boolean;
   readonly isSpeaking?: boolean;
+  /** 0~100，服务端给的音量，映射到说话图标的条高。 */
+  readonly volume?: number;
   /** 还在响铃 / 邀请中：整格 55% 不透明 + 顶部一行「呼叫中…」（规范 §06）。 */
   readonly isRinging?: boolean;
   /** 邀请中的格子拿到的终局，显示在原来「呼叫中…」的位置。 */
@@ -47,7 +51,7 @@ export interface VideoTileProps {
  */
 export function VideoTile(props: VideoTileProps): ReactNode {
   const {
-    uid, label, hasVideo, hasAudio = true, isSpeaking = false, isRinging = false, settled = '',
+    uid, label, hasVideo, hasAudio = true, isSpeaking = false, volume = 0, isRinging = false, settled = '',
     networkLevel = 0, layer, localCid, avatarSize = 44, style,
   } = props;
   const { engine } = useCall();
@@ -94,7 +98,6 @@ export function VideoTile(props: VideoTileProps): ReactNode {
 
   const tileStyle = {
     ...styles.tile,
-    ...(isSpeaking ? styles.tileSpeaking : {}),
     ...(isRinging ? styles.tileRinging : {}),
     ...style,
   };
@@ -150,15 +153,15 @@ export function VideoTile(props: VideoTileProps): ReactNode {
       )}
       {/* 名字牌 + 静音角标是左下角同一行（styles.tileBottomRow 的注释说明为什么）。 */}
       <div style={styles.tileBottomRow}>
-        <div style={{ ...styles.tileLabel, ...(isSpeaking ? styles.tileLabelSpeaking : {}) }}>
+        {/*
+          说话 / 静音都收进这一个气泡（2026-09-09 改版）：底色恒为 scrim，
+          描边与绿名牌一并删掉——留着就是三处同时表达同一件事。
+          图标**永远占位**（拍板：留位），名字不会随说话左右跳。
+        */}
+        <div style={styles.tileLabel}>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{displayName}</span>
-          {isSpeaking && <span role="img" aria-label="正在说话" data-testid={`speaking-${testUid}`}><Icon name="speaker" size={12} /></span>}
+          <SpeechIcon speaking={isSpeaking} muted={!hasAudio} volume={volume} testUid={testUid} />
         </div>
-        {!hasAudio && (
-          <div style={styles.tileBadge} role="img" aria-label="已静音" data-testid={`muted-${testUid}`}>
-            <Icon name="mic-slash" size={14} />
-          </div>
-        )}
       </div>
     </div>
   );

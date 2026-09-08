@@ -60,6 +60,10 @@ export interface SelfState {
    * 摄像头按钮变禁用态写「无权限」。
    */
   readonly cameraBlocked: boolean;
+  /** 本端在不在说话。**本端那格不是 participant，只能单独记**（2026-09-09：本端也显示）。 */
+  readonly speaking: boolean;
+  /** 本端音量 0~100，映射到说话图标的条高。 */
+  readonly volume: number;
 }
 
 /** ConnectionStatus 是信令连接的状态，驱动顶部的橙条。 */
@@ -136,7 +140,7 @@ export const initialCallView: CallViewState = {
   role: '',
   peerUid: '',
   participants: [],
-  self: { micOn: true, cameraOn: false, cameraBlocked: false },
+  self: { micOn: true, cameraOn: false, cameraBlocked: false, speaking: false, volume: 0 },
   isMinimized: false,
   isSwapped: false,
   beganAtMs: 0,
@@ -187,7 +191,12 @@ export type ViewAction =
   | { readonly type: 'userAccept'; readonly uid: string }
   | { readonly type: 'userAudio'; readonly uid: string; readonly available: boolean }
   | { readonly type: 'userVideo'; readonly uid: string; readonly available: boolean }
-  | { readonly type: 'activeSpeakers'; readonly speakers: readonly { uid: string; volume: number }[] }
+  | {
+      readonly type: 'activeSpeakers';
+      readonly speakers: readonly { uid: string; volume: number }[];
+      /** 本端 uid。本端也在这份名单里，但它没有对应的 participant。 */
+      readonly selfUid: string;
+    }
   | { readonly type: 'networkQuality'; readonly entries: readonly { uid: string; level: number }[] }
   | { readonly type: 'hint'; readonly text: string }
   /** 提示到点了自己消失。带 text 是为了**只清掉自己那条**，不误伤后来的提示。 */

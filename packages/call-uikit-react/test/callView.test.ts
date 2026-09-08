@@ -138,7 +138,7 @@ describe('本端开关', () => {
 
   it('静音与关摄像头互不影响', () => {
     const state = run([incoming, { type: 'setMic', on: false }]);
-    expect(state.self).toEqual({ micOn: false, cameraOn: true, cameraBlocked: false });
+    expect(state.self).toEqual({ micOn: false, cameraOn: true, cameraBlocked: false, speaking: false, volume: 0 });
   });
 });
 

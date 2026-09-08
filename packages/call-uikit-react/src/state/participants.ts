@@ -68,10 +68,14 @@ export function removeParticipant(state: CallViewState, uid: string): CallViewSt
 export function applySpeakers(
   state: CallViewState,
   speakers: readonly { uid: string; volume: number }[],
+  selfUid: string,
 ): CallViewState {
   const volumes = new Map(speakers.map((s) => [s.uid, s.volume]));
+  const selfVolume = selfUid === '' ? undefined : volumes.get(selfUid);
   return {
     ...state,
+    // 本端也在这份名单里（服务端不区分谁是谁），但它没有对应的 participant。
+    self: { ...state.self, speaking: selfVolume !== undefined, volume: selfVolume ?? 0 },
     participants: state.participants.map((p) => {
       const volume = volumes.get(p.uid);
       return { ...p, isSpeaking: volume !== undefined, volume: volume ?? 0 };
