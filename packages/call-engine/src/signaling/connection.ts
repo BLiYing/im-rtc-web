@@ -1,4 +1,4 @@
-import { ErrorCode, RtcError, isRtcError } from '../errors.js';
+import { ErrorCode, RtcError, rtcErrorFromWire } from '../errors.js';
 import { logger, redact } from '../logger.js';
 import type { Envelope } from './envelope.js';
 import { decodeEnvelope, encodeEnvelope, okType } from './envelope.js';
@@ -7,6 +7,7 @@ import type { FrameFields } from './fieldSpec.js';
 import { HELLO_FIELDS, HELLO_OK_FIELDS } from './frames.sys.js';
 import type { ConnectionOptions, ConnectionState, HelloOk } from './connectionTypes.js';
 import { TokenExpiryTimer } from './tokenExpiry.js';
+import { handshakeGiveUpReason } from './handshakeGiveUp.js';
 import { Heartbeat } from './heartbeat.js';
 import { PendingRequests } from './pendingRequests.js';
 import { Reconnector } from './reconnector.js';
@@ -265,29 +266,21 @@ export class Connection {
   }
 
   /**
-   * 握手被拒且**重试不可能变好**时，一次就放弃。
+   * 握手被拒且重试不可能变好时，一次就放弃，按 {@link handshakeGiveUpReason} 的分类抛给宿主。
    *
-   * 判据是错误码表里的 `retryable`，不是我在这里另立一张名单——那张表是四端共用的
-   * 一致性向量的一部分（`error_codes.json`），另立名单等于给它开了个后门。
-   *
-   * # 为什么不像 4401 那样给三次机会
-   *
-   * 4401 给三次是因为「票刚好过期」换一枚新票就能好，而重连时宿主可能已经
-   * `updateToken` 了。这里不一样：**`device_id` 里有个空格这件事，重连一万次
-   * 它还是有空格**。给三次机会只是把同一条错误在日志里刷三遍，把真正的原因埋掉。
-   *
-   * 只拦服务端应答（`sys.error`）带回来的码；超时（2004）和断线（2003）都是
-   * retryable，会照常走重连。**握手应答类型不对那条不走这里**——那是对端的实现
-   * bug，处置另说，不该借这条路悄悄改掉。
+   * **握手应答类型不对那条不走这里**——那是对端的实现 bug，处置另说，
+   * 不该借这条路悄悄改掉。
    */
   private abortIfHandshakeRejected(err: unknown): void {
-    if (!isRtcError(err) || err.retryable) return;
-    logger.error('握手参数被拒，不再重连', { code: err.code, name: err.name_ });
+    const reason = handshakeGiveUpReason(err);
+    if (reason === null) return;
+    const rtc = err as RtcError;
+    logger.error('握手被拒，不再重连', { code: rtc.code, name: rtc.name_, reason });
     // stop() 是闩不是取消：connect() 被拒那条是微任务，排在 close 事件之后，
     // 只取消定时器的话它会把重连又排回来（见 Reconnector.stop 的注释）。
     this.reconnector.stop();
     this.state = 'closed';
-    this.options.events?.onKickedOut?.({ reason: 'configRejected' });
+    this.options.events?.onKickedOut?.({ reason });
   }
 
   private handleMessage(raw: unknown): void {
@@ -311,7 +304,7 @@ export class Connection {
 
   private dispatchEvent(envelope: Envelope): void {
     if (envelope.type === FrameType.error) {
-      const error = this.toRtcError(envelope);
+      const error = rtcErrorFromWire(envelope.data);
       if (error.code === ErrorCode.kickedOut) this.options.events?.onKickedOut?.({ reason: 'takenOver' });
       this.options.events?.onError?.(error);
       return;
@@ -335,13 +328,6 @@ export class Connection {
     const fields = lookupFrame(envelope.type);
     if (fields === undefined) return { ...envelope.data };
     return encodeFields(fields, decodeFields(fields, envelope.data));
-  }
-
-  private toRtcError(envelope: Envelope): RtcError {
-    const code = envelope.data['code'];
-    return new RtcError(typeof code === 'number' ? code : ErrorCode.internal, {
-      forType: typeof envelope.data['for_type'] === 'string' ? envelope.data['for_type'] : '',
-    });
   }
 
   private handleClose(event: { code: number; reason: string }): void {

@@ -223,6 +223,77 @@ describe('握手被拒（retryable=false）一次就放弃', () => {
     expect(h.sockets.length).toBeGreaterThan(2);
   });
 
+  /**
+   * 三类分流：**不可重试 ≠ 参数不对**，三者的处置完全不同。
+   *
+   * 合成一类就是给宿主一条错的建议：1101 明明换一枚票就能好，报成 configRejected
+   * 会让宿主去翻配置；1104 是被顶下线，该回登录页而不是改参数。
+   */
+  it.each([
+    [ErrorCode.tokenInvalid, 'token_invalid', 'authExpired'],
+    [ErrorCode.kickedOut, 'kicked_out', 'takenOver'],
+    [ErrorCode.badParams, 'bad_params', 'configRejected'],
+  ] as [number, string, KickedOutReason][])(
+    '%s 该抛对应的原因，不是一律 configRejected',
+    async (code, wireName, want) => {
+      const h = setup();
+      await reconnectThenFailHello(h, code, wireName, false);
+
+      expect(h.events.reasons).toEqual([want]);
+    },
+  );
+
+  /**
+   * 本端不认识的终局码，要信帧上自带的 `retryable`。
+   *
+   * 未知码在 `RtcError` 里会被折成 internal（1501，而它 `retryable === true`），
+   * 只看折算结果的话**服务端每加一个新的终局码，客户端就多一种无限重连**——
+   * 1106 在四端漏过一次，症状正是这个。
+   */
+  it('未知的终局码：按帧上的 retryable 放弃，不许退回无限重连', async () => {
+    const h = setup();
+    await reconnectThenFailHello(h, 9999, 'brand_new_final_code', false);
+
+    expect(h.events.reasons).toEqual(['configRejected']);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await flush();
+    expect(h.sockets).toHaveLength(2);
+  });
+
+  /** 未知码而帧上说可重试：照常退避重连，别把服务端新加的临时故障当成终局。 */
+  it('未知的可重试码：照常重连，也不该把宿主踢下线', async () => {
+    const h = setup();
+    await reconnectThenFailHello(h, 9999, 'brand_new_transient_code', true);
+
+    expect(h.events.reasons).toEqual([]);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await flush();
+    expect(h.sockets.length).toBeGreaterThan(2);
+  });
+
+  /**
+   * 宿主自己 logout 不是「服务端拒了你的参数」。
+   *
+   * `close()` 会拿 `2005 invalid_state`（它 `retryable === false`）把在飞的握手结掉。
+   * 只看 `retryable` 的话，一次正常的 logout 会抛 configRejected；而静默续期正是
+   * 先 logout 再换票——那就成了「续期把人踹回登录页」。
+   */
+  it('握手在飞时宿主 logout：不该报成服务端拒绝', async () => {
+    const h = setup();
+    await connect(h);
+    h.latest().closeFromServer(CloseCode.goingAway, 'restart');
+    await flush();
+    await vi.advanceTimersByTimeAsync(1_000);
+    await flush();
+    expect(h.sockets).toHaveLength(2);
+
+    // 重连那次的握手已经发出去、还没有应答，此刻宿主按下 logout。
+    h.conn.close();
+    await flush();
+
+    expect(h.events.reasons).toEqual([]);
+  });
+
   it('首次登录被拒：错误抛给宿主，同时告诉它「去改配置」', async () => {
     const h = setup();
     const pending = h.conn.connect();

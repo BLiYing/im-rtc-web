@@ -212,17 +212,33 @@ export class RtcError extends Error {
   readonly retryable: boolean;
   /** 出错的请求 type；无对应请求时为 ''。 */
   readonly forType: string;
+  /**
+   * 本端不认识线路上那个码时，帧上自带的 `retryable`；认识就是 `undefined`。
+   *
+   * 为什么要单独留这一手：未知码在下面会被折成 `internal`（1501，而它
+   * `retryable === true`），于是**服务端新加的终局码在本端一律长成「可重试」**，
+   * 握手被拒也会退回无限重连。本端这张表只是上次同步时的快照，服务端比我们新是常态——
+   * 所以未知码一概以帧上带的那一位为准，不信折算后的码。
+   * Android 侧漏过 1106 一次，症状正是这个形状。
+   */
+  readonly unknownCodeRetryable: boolean | undefined;
 
-  constructor(code: number, options: { forType?: string; cause?: unknown } = {}) {
-    const def = byCode.get(code) ?? byCode.get(ErrorCode.internal);
-    // def 一定存在：internal 是表里的固定项，上一行的兜底保证了这一点。
-    const resolved = def as ErrorDefinition;
+  constructor(
+    code: number,
+    options: { forType?: string; cause?: unknown; wireRetryable?: boolean } = {},
+  ) {
+    const def = byCode.get(code);
+    // 兜底的 internal 一定存在：它是表里的固定项。
+    const resolved = (def ?? byCode.get(ErrorCode.internal)) as ErrorDefinition;
     super(`${resolved.name}(${resolved.code}): ${resolved.msg}`, { cause: options.cause });
     this.name = 'RtcError';
     this.code = resolved.code;
     this.name_ = resolved.name;
     this.retryable = resolved.retryable;
     this.forType = options.forType ?? '';
+    // 「只有本端不认识才留」这条规矩收在这一处：认识的码不许被线路上的一位盖掉
+    // 一致性向量里的定义。
+    this.unknownCodeRetryable = def === undefined ? options.wireRetryable : undefined;
   }
 
   /** wireShape 返回可以放进 sys.error 的 data —— 注意**不含** cause。 */
@@ -237,6 +253,28 @@ export class RtcError extends Error {
       retryable: resolved.retryable,
     };
   }
+}
+
+/**
+ * rtcErrorFromWire 把一帧 `sys.error` 的 data 翻成 `RtcError`。
+ *
+ * **同一条不变量只该有一份实现。** 过去两个调用点（在途请求的结算、无主的错误帧）
+ * 各写了一遍这段构造，于是「未知码要留住帧上的 `retryable`」这条只在其中一处成立——
+ * 而握手恰恰走的是另一处，未知的终局码照样退回无限重连。
+ *
+ * `fallbackForType` 是 `for_type` 缺失时的兜底：结算在途请求时用那个请求自己的 type，
+ * 无主错误帧则没什么可兜的。
+ */
+export function rtcErrorFromWire(data: Record<string, unknown>, fallbackForType = ''): RtcError {
+  const code = data['code'];
+  const forType = data['for_type'];
+  const retryable = data['retryable'];
+  return new RtcError(typeof code === 'number' ? code : ErrorCode.internal, {
+    forType: typeof forType === 'string' ? forType : fallbackForType,
+    // 帧上没带就整个不传这个键：本仓开着 exactOptionalPropertyTypes，
+    // 显式传 undefined 与「没有这个键」不是一回事。
+    ...(typeof retryable === 'boolean' ? { wireRetryable: retryable } : {}),
+  });
 }
 
 /** isRtcError 是 RtcError 的类型守卫。 */

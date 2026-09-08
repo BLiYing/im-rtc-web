@@ -1,4 +1,4 @@
-import { ErrorCode, RtcError } from '../errors.js';
+import { ErrorCode, RtcError, rtcErrorFromWire } from '../errors.js';
 import type { Envelope } from './envelope.js';
 
 /**
@@ -57,13 +57,7 @@ export class PendingRequests {
     clearTimeout(waiter.timer);
 
     if (envelope.type === 'sys.error') {
-      const code = envelope.data['code'];
-      const forType = envelope.data['for_type'];
-      waiter.reject(
-        new RtcError(typeof code === 'number' ? code : ErrorCode.internal, {
-          forType: typeof forType === 'string' ? forType : waiter.type,
-        }),
-      );
+      waiter.reject(rtcErrorFromWire(envelope.data, waiter.type));
       return true;
     }
     waiter.resolve({ envelope, data: decode(envelope) });

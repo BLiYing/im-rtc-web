@@ -11,6 +11,36 @@
 
 ## 当前焦点
 
+**握手被拒按「谁救得了」分流（2026-09-08）**，`./scripts/test.sh` 十三步全绿。
+
+补齐 Android `629352a` 那条五端契约。原先 `abortIfHandshakeRejected` 是
+「不可重试 → 一律 `configRejected`」一个桶，**不可重试 ≠ 参数不对**，
+合成一类等于给宿主一条错的建议。同轮修掉两条边界，三个缺陷都在这一条路上：
+
+| 缺陷 | 症状 | 改法 |
+|---|---|---|
+| 三类合成一桶 | 1101 明明换一枚票就能好，报成「去改配置」；1104 是被顶下线，该回登录页 | 1101 → `authExpired`、1104 → `takenOver`、其余 → `configRejected`。`KickedOutReason` 三个值本来就都在，只是没往那儿分 |
+| local 组没挡 | `close()` 拿 `2005 invalid_state`（`retryable === false`）结掉在飞的握手，那是**宿主自己按的 logout**。只看 `retryable` 的话一次正常 logout 就报成「服务端拒了你的参数」——而静默续期正是先 logout 再换票，等于**续期把人踹回登录页** | 判据先 `isLocalError(code)` 挡掉 |
+| 未知码兜底反了 | 未知码在 `RtcError` 里折成 internal（1501，而它 `retryable === true`）→ **服务端每加一个新的终局码，客户端就多一种无限重连**。1106 在四端漏过一次就是这个形状 | 折算前把帧上的 `retryable` 留进 `RtcError.unknownCodeRetryable`，只在本端不认识那个码时才有值；判据变成 `unknownCodeRetryable ?? retryable` |
+
+**修的时候撞到一个同源问题**：「线路错误帧 → `RtcError`」有**两份实现**
+（`pendingRequests.settle` 与 `connection.toRtcError`），第一版只改了后者，
+而握手恰恰走前者——用例当场红。已收敛成 `errors.ts` 的 `rtcErrorFromWire()` 一份。
+
+**顺手拆了 `connection.ts`**：判据加进去后它涨到 428 行、过了 400 红线，
+按仓规矩拆而不是抬阈值——判据独立成 `signaling/handshakeGiveUp.ts` 的纯函数，
+`connection.ts` 回到 375 行。纯函数也让那两条在假服务端里造不出来的分支
+（local 组里可重试的码、未知码而帧上没带 `retryable`）能被直接钉住。
+
+**新增用例：`connection.test.ts` 4 组 + `handshakeGiveUp.test.ts` 5 条，注入旧逻辑验过载重**——
+换回「不可重试 → configRejected」后四条立刻红（1101、1104、未知终局码、logout 误判）。
+
+**没做**：纯信令逻辑，**没上浏览器**；iOS 侧同一条契约已在 `im-rtc-ios` 落地（同日）。
+`CLIENT_PARITY.md` 第 180 行那格与第 124 行的历史说明目前仍不准（写着「只有 Android 有」），
+两端都齐了，可以一次改到位。
+
+---
+
 **网络一直不回来时通话再也退不出去，已修（2026-09-08）**，`./scripts/test.sh` 十三步全绿。
 **未真机复验。**
 
@@ -33,36 +63,6 @@
 
 **上行 simulcast 只是「说了没做」，已修（2026-09-08）**，`./scripts/test.sh` 13 步全绿。
 
-`publishCamera(simulcast = true)` 这一位一路传进了 `room.publish` 帧、**告诉服务端「我有三层」**，
-可媒体面走的是裸 `pub.addTrack(track, stream)` —— 那只会产生一个 encoding，
-整个 `packages/` 里搜不到一处 `sendEncodings` / `rid`。
-
-后果不是「少一层可选」而是**层选择整条链路失效**：服务端只看到空 RID 的单层，
-订阅者报 `l` 也只能拿到全速率的 h（`selectLayer` 的兜底），弱下行的那一方被自己收到的流压死。
-真机 2026-09-08 坐实：Android 老实发三层，web 只发一层，手机侧估计值一路锁在 100kbps。
-
-改成 `addTransceiver(track, { sendEncodings })`（**必须建 transceiver 时给出**，
-协商后再 `setParameters` 加不出层）。同轮修掉 `applyVideoBitrate` 把三层码率抹平成同值的问题。
-
-
-**握手被拒就一次放弃（2026-09-07）**，`./scripts/test.sh` 13 步全绿。
-
-补的是 Android 那条五端契约（`CLIENT_PARITY.md` v1.17）。原先的放弃逻辑**只认关闭码
-4401**，不认 `sys.hello` 应答里的错误码：`device_id` 不合规回的是 1004 错误帧，于是
-握手 reject → 连接断 → `handleClose` 拿到一个普通关闭码 → 无限退避重连。真机上的样子是
-界面写着「登录失败」，日志刷满同一条错误，真正的原因被埋在里面。
-
-| 改动 | 为什么 |
-|---|---|
-| `connection.ts` 的 `handshake()` 只把 **dispatchRequest 那一段**包进 try，失败走 `abortIfHandshakeRejected` | 判据是错误码表里的 `retryable`（四端共用的一致性向量），不另立名单。「握手应答类型不对」那条**刻意留在 try 外**——那是对端实现 bug，处置另说 |
-| 停手用 `reconnector.stop()` 而不是 `cancel()` | 一次失败从**两条路**走到 `schedule()`（close 事件 + `connect()` 被拒的微任务），只取消定时器的话迟到的那条会把重连排回来。注入 `cancel()` 验过：三条用例立刻红 |
-| `KickedOutReason` 加 `'configRejected'` | `takenOver` 是回登录页、`authExpired` 是换票重来，都救不了 `device_id` 里的空格 |
-| `ErrorCode` 常量表补 `appDisabled: 1106` | 之前只加进了 `ERROR_DEFINITIONS`，而一致性测试比的是那张表，所以没抓到——宿主根本引用不到这个码 |
-
-**测试里踩到一个空断言**：假服务端只回错误帧、不关连接，于是没有任何东西会去排下一次
-重连，「不再重连」那条断言**永远为真、注入 bug 也不红**。补上 `closeFromServer` 才载重。
-两个方向都验过红（完全不放弃 → 4 条红；连 1102 也停 → 3 条红）。
-
 ## 下一步
 
 - **浏览器复测**：九宫格这一批（三格是不是「第一行两个」、加号格真的没了、群呼选人能勾能拨）+ 上一轮的五条（通话中来电只出提示、群通话被叫也有占位格、两端关摄像头
@@ -70,8 +70,9 @@
   （开摄像头失败的降级、加人被拒后占位格收回、提示 3s 自撤、小窗首帧不从左上角弹出去）。
 - iOS / Android 已按同一份稿落地（见各自的 `current_task.md`），**都还没真机验**。
 - Demo 还没演示的：主动换设备、桌面独立窗口（那是 desktop 仓的事）。
-- 预警线上的三个文件：`signaling/connection.ts` 382、`engine.ts` 386、`state/roomMachine.ts` 347（上限 400）。
-  **下一次动它们时先拆。**
+- 预警线上的四个文件：`engine.ts` **400（已顶到上限）**、`signaling/connection.ts` 375、
+  `media/webrtcAdapter.ts` 359、`state/roomMachine.ts` 354（上限 400）。
+  **下一次动它们时先拆**——`engine.ts` 再加一行就是 FAIL。
 
 ## 已知坑 / 限制
 
