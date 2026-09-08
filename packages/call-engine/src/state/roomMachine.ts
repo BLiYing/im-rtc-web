@@ -55,6 +55,17 @@ export interface RoomContext {
   readonly layers: Readonly<Record<string, Layer>>;
   /** joining / reconnecting 期间缓存的用户意图（不变量 R2）。 */
   readonly buffered: readonly BufferedIntent[];
+  /**
+   * 这个房间**真的收到过 `room.join.ok`** 吗。
+   *
+   * 只有它能区分 `reconnecting` 的两种来路：从 `joined` 断的（服务端那边成员关系还在，
+   * 恢复后直接回 `joined`），还是从 `joining` 断的（`room.join` 还在飞，服务端从没受理过）。
+   * 少了它，{@link resumeRoom} 会把后者也宣布成 `joined`。
+   *
+   * **不进一致性向量**：向量只断言 `room` / `publish` / `subscribe` 那几个键，
+   * 这是本端为了分辨来路自己记的账。四端同一份（iOS / Android 的 `didJoin`）。
+   */
+  readonly didJoin: boolean;
 }
 
 /**
@@ -81,6 +92,7 @@ export const initialRoomContext: RoomContext = {
   remoteTracks: {},
   layers: {},
   buffered: [],
+  didJoin: false,
 };
 
 /** roomOut 构造一次状态转移的产物。roomRecv.ts 也用它。 */
@@ -155,7 +167,37 @@ function reduceRoomInternal(ctx: RoomContext, name: string): MachineOutput<RoomC
 export function resumeRoom(ctx: RoomContext, resumed: boolean): MachineOutput<RoomContext> {
   if (!resumed) return roomOut(clearedRoom('idle'));
   if (ctx.state !== 'reconnecting') return roomOut(ctx);
+  if (!ctx.didJoin) return rejoin(ctx);
   return replayBuffered({ ...ctx, state: 'joined' });
+}
+
+/**
+ * rejoin 把「进房还没落地就断了」的那一轮**重发一遍**。
+ *
+ * `disconnected` 会把**任何**非 idle 状态推进 `reconnecting`，`joining` 也在内。
+ * 而从 `joining` 断的那一种，`room.join` 当时还在飞：服务端从没受理过我们，
+ * 恢复的只是那条 WS 会话，**不是房间成员关系**。原先无条件宣布 `joined`，
+ * 于是本端以为自己在房里，之后每一帧都换回 1201/1203，
+ * 而重新 join 又因为「不在 idle」被本地拒成 2005——一个哑掉的死局。
+ *
+ * **本端踩得比另外两端更稳**：`handleClose` 是**同步**调 `onDisconnected` 的，
+ * 而 `dispatch` 头一行就同步 reduce；`rejectAll` 触发的 `join_failed` 只能等微任务。
+ * 所以 `disconnected` **每次都赢**，那条本该兜住它的 `join_failed` 必定变成空操作
+ * （它 guard 在 `joining` 上，而状态早被推走了）。iOS 那边是竞态，这里是稳定复现。
+ *
+ * 所以判据改成认 {@link RoomContext.didJoin} 这笔账，**不认时序**。
+ * 房号与房票都还在手上，该做的正是把那次没落地的进房重来一遍；
+ * 攒下的意图照旧留着，等进房后再重放。
+ */
+function rejoin(ctx: RoomContext): MachineOutput<RoomContext> {
+  // 连房号都没有（`join` 的帧还没产出就断了）：没得重发，干净地回 idle。
+  if (ctx.roomId === '') return roomOut(clearedRoom('idle'));
+  return roomOut({ ...ctx, state: 'joining' }, [
+    {
+      type: FrameType.roomJoin,
+      data: { room_id: ctx.roomId, room_token: ctx.roomToken, auto_subscribe: ctx.autoSubscribe },
+    },
+  ]);
 }
 
 /**

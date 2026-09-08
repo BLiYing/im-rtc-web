@@ -56,10 +56,20 @@ function toInput(step: RoomStep): MachineInput {
 
 function seed(testCase: RoomCase): EngineContext {
   const init = testCase.initial_state;
+  const roomState = (init.room ?? 'idle') as RoomState;
   return {
     room: {
       ...initialEngineContext.room,
-      state: (init.room ?? 'idle') as RoomState,
+      state: roomState,
+      /*
+        **向量里说「初始就在房里」的，`didJoin` 也要跟着置上。**
+
+        向量断言的是 `room` / `publish` / `subscribe` 那几个键，`didJoin` 是本端为了分辨
+        「reconnecting 是从 joined 断的还是从 joining 断的」自己记的账（见 resumeRoom）。
+        种子里漏掉它，`reconnect_resumed_replays_buffered_intent` 就会被当成
+        「那次进房从未落地」而去重发 room.join——**是种子不完整，不是实现错了**。
+      */
+      didJoin: roomState !== 'idle' && roomState !== 'joining',
       roomId: 'r-1',
       publish: (init.publish ?? {}) as Record<string, PublishState>,
       // 向量里的初始 publish 用 cid 作键，这里补上 cid → track_id 的映射，
