@@ -1,4 +1,5 @@
 import type { EngineBus } from '../engineBus.js';
+import { ErrorCode, RtcError } from '../errors.js';
 import { logger } from '../logger.js';
 import { parseCandidate } from '../signaling/candidate.js';
 import type { Connection } from '../signaling/connection.js';
@@ -30,12 +31,27 @@ export interface MediaPlaneDeps {
   dispatch: (input: MachineInput) => Promise<void>;
 }
 
+/**
+ * PubIceGiveUp 是 pub 侧 ICE 自愈的放弃计数（协议 §7.2）。
+ *
+ * 攥在 `mediaEvents` 的闭包里而不是模块级：一个页面可以起多个 Engine，
+ * 模块级变量会让两台引擎共用一个计数器。
+ */
+interface PubIceGiveUp {
+  restarts: number;
+  gaveUp: boolean;
+}
+
+/** 连续这么多次 ICE restart 之后仍判 failed，就认为救不回来了（协议 §7.2）。 */
+const PUB_ICE_GIVE_UP = 3;
+
 /** mediaEvents 组装交给 MediaAdapter 的那组回调。 */
 export function mediaEvents(deps: MediaPlaneDeps): MediaAdapterEvents {
+  const pubIce: PubIceGiveUp = { restarts: 0, gaveUp: false };
   return {
     onLocalCandidate: (pc, candidate): void => sendCandidate(deps, pc, candidate),
     onRemoteTrack: (trackId, track): void => onRemoteTrack(deps, trackId, track),
-    onConnectionStateChange: (pc, state): void => onPcState(deps, pc, state),
+    onConnectionStateChange: (pc, state): void => onPcState(deps, pc, state, pubIce),
   };
 }
 
@@ -111,10 +127,20 @@ function onRemoteTrack(deps: MediaPlaneDeps, trackId: string, track: MediaStream
   deps.bus.emit('remoteTrack', { trackId, track });
 }
 
-function onPcState(deps: MediaPlaneDeps, pc: PcRole, state: RTCPeerConnectionState): void {
+function onPcState(
+  deps: MediaPlaneDeps,
+  pc: PcRole,
+  state: RTCPeerConnectionState,
+  pubIce: PubIceGiveUp,
+): void {
   logger.debug('PC 状态', { pc, state });
   if (pc === 'sub' && state === 'connected') {
     void deps.dispatch({ kind: 'internal', name: 'media_ready' });
+  }
+  if (pc === 'pub' && state === 'connected') {
+    // 救回来了，下一轮重新计数。
+    pubIce.restarts = 0;
+    pubIce.gaveUp = false;
   }
   /*
     **ICE 失败不是终点，是该重连的信号。**
@@ -124,10 +150,26 @@ function onPcState(deps: MediaPlaneDeps, pc: PcRole, state: RTCPeerConnectionSta
     对端的格子从此是一块黑，而界面上一切正常、谁也不挂断。
     真机联调时抓到过两条 PC 从某一刻起五分钟一轮地失败，再没回到 connected。
     重启失败还会再进 failed，于是天然形成一个重试节奏。
+
+    **但重试节奏不能没有尽头**（协议 §7.2）：一律自愈、永不上报的话，宿主从头到尾
+    收不到任何信号——上面那段描述的现象会一直挂着，而界面上什么都不会变。
+    连续 PUB_ICE_GIVE_UP 次重启后仍判 failed，抛一次 2006；之后继续重试但不再重复抛。
   */
   if (pc === 'pub' && state === 'failed') {
     logger.info('上行通路失败，重启 ICE', {});
+    pubIce.restarts += 1;
+    if (pubIce.restarts >= PUB_ICE_GIVE_UP && !pubIce.gaveUp) {
+      pubIce.gaveUp = true;
+      logger.warn('上行通路连续重启仍失败，上报宿主', { restarts: pubIce.restarts });
+      deps.bus.emitError(new RtcError(ErrorCode.mediaNegotiationFailed));
+    }
     deps.bridge.adapter.restartPubICE();
     void deps.dispatch({ kind: 'act', op: 'restart_pub_ice' });
+    return;
+  }
+  if (pc === 'sub' && state === 'failed') {
+    // sub 那条我们救不了（offerer 是服务端，§3.3），只能立即报给宿主。
+    logger.warn('下行通路失败，等服务端重启', {});
+    deps.bus.emitError(new RtcError(ErrorCode.mediaNegotiationFailed));
   }
 }
