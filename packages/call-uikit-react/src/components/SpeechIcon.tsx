@@ -68,9 +68,17 @@ const wrap: CSSProperties = {
  */
 const mutedWrap: CSSProperties = { ...wrap, color: callColors.mutedBadge };
 
+/** 常态那枚麦克风：低对比度的白，退到背景里。见 SpeechIcon 里那段注释。 */
+const micOnWrap: CSSProperties = { ...wrap, color: callColors.fg, opacity: 0.45 };
+
 export interface SpeechIconProps {
   readonly speaking: boolean;
   readonly muted: boolean;
+  /**
+   * 这一格要不要区分「在说话」。**本端那格传 false**——自己在不在说话自己知道，
+   * 只需要表达麦克风开关（2026-09-09 拍板）。
+   */
+  readonly showsSpeaking?: boolean;
   /** 0~100，映射到峰值高度。安静时也别缩成一条线，所以有个 50% 的底。 */
   readonly volume?: number;
   readonly testUid?: string;
@@ -109,9 +117,11 @@ function useHeldSpeaking(speaking: boolean): boolean {
   return held;
 }
 
-export function SpeechIcon({ speaking, muted, volume = 0, testUid = '' }: SpeechIconProps): JSX.Element {
+export function SpeechIcon(
+  { speaking, muted, volume = 0, showsSpeaking = true, testUid = '' }: SpeechIconProps,
+): JSX.Element {
   // **Hook 必须在任何提前 return 之前调**，所以拖拍算在最前面。
-  const held = useHeldSpeaking(speaking && !muted);
+  const held = useHeldSpeaking(speaking && !muted && showsSpeaking);
 
   // **静音优先**：静音的人不可能在说话，两者互斥。
   if (muted) {
@@ -126,7 +136,24 @@ export function SpeechIcon({ speaking, muted, volume = 0, testUid = '' }: Speech
       </span>
     );
   }
-  if (!held) return <span style={wrap} aria-hidden="true" />;
+  /*
+    「麦克风开着、没在说话」——**常态，所以要退到背景里**。
+    它挂在每一个格子上、绝大多数时候都在，画得太显眼就成了新的干扰源，
+    而这次改版的出发点正是减少干扰。只有说话那枚是亮绿色。
+  */
+  if (!held) {
+    return (
+      <span style={micOnWrap} role="img" aria-label="麦克风已开启" data-testid={`micon-${testUid}`}>
+        <svg width={W} height={H} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <rect x="6" y="1.6" width="4" height="7.2" rx="2" fill="currentColor" />
+          <path d="M4.1 7.3V8a3.9 3.9 0 0 0 7.8 0v-.7" stroke="currentColor" strokeWidth="1.3"
+                strokeLinecap="round" />
+          <path d="M8 12v2.4M5.8 14.4h4.4" stroke="currentColor" strokeWidth="1.3"
+                strokeLinecap="round" />
+        </svg>
+      </span>
+    );
+  }
 
   const peak = 0.5 + 0.5 * Math.min(Math.max(volume, 0), 100) / 100;
   return (
