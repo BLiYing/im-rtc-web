@@ -81,7 +81,21 @@ export const styles = {
     position: 'absolute', left: 0, right: 0, top: 10, textAlign: 'center', fontSize: 11,
     color: callColors.fg, fontVariantNumeric: 'tabular-nums',
   } satisfies CSSProperties,
-  video: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' } satisfies CSSProperties,
+  /**
+   * 远端与本端画面：**按源的实际宽高比渲染，放不满的地方留黑边**。
+   *
+   * 规则与完整理由见 `im-rtc-server/docs/mechanism/VIDEO_RENDERING.md`（五仓统一）。
+   * 这一条**推翻了草图 §03 的「COVER」**，依据是 2026-09-10 真机实测：
+   * 手机推竖屏 720×1280、浏览器横屏，`cover` 会按宽度把竖屏源放大两倍以上再裁掉
+   * 上下——手机那一侧报的是「Web 显示手机画面一直很糊」。
+   *
+   * 排除带宽的证据：同一通电话里服务端记的下发上界是 h、丢包 0.7%，
+   * 收到的就是最高层，糊纯粹是渲染放大出来的。
+   *
+   * 代价是竖屏源进横向格子时左右两条黑边很宽。真要消掉它得**按源的方向选格子形状**，
+   * 那是三端布局算法的改动，留作后续（见那份机制文档的「没有决定的事」）。
+   */
+  video: { width: '100%', height: '100%', objectFit: 'contain', display: 'block' } satisfies CSSProperties,
   /** 本端预览水平镜像（人照镜子的习惯）；远端不镜像。 */
   videoMirrored: { transform: 'scaleX(-1)' } satisfies CSSProperties,
 
