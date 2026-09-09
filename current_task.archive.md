@@ -35,6 +35,49 @@ tokenExpiry 2 + meeting 2 + interactions 2）。第 10、11 条**注入旧实现
 `IMRoomMachine.resume` 两处都要补同样的 `onRoomLeft`；iOS 的第 2/5/6 条同理。
 `CLIENT_PARITY.md` 也没更新。
 
+
+## 2026-09-09 之前的「当前焦点」
+
+**补上跨端 review 的最后一条：`resumeRoom` 无条件推 joined（2026-09-08）**，
+`./scripts/test.sh` 十三步全绿（engine 288 / uikit 105）。
+分支 `fix/parity-recovery-0908`（worktree `../wt-web-review-fixes`）。
+
+那一轮 review 在 iOS/Android 上抓到三条「某一帧被拒之后没人收场」，本仓的
+`9ddc6d2`（13 条那一刀）已经顺手带掉了其中两条——`room.leave → leave_failed`、
+`call.accept` / `call.join → call_failed`，改法与另外两端一致。**只剩这一条。**
+
+### 症状
+
+`disconnected` 会把**任何**非 idle 状态推进 `reconnecting`，`joining` 也在内。
+而从 `joining` 断的那一种，`room.join` 当时还在飞：服务端从没受理过我们，
+恢复的只是那条 WS 会话，**不是房间成员关系**。原先 `resumeRoom` 无条件宣布 `joined`：
+
+- 本端以为自己在房里 → 之后每一帧都换回 1201/1203；
+- 重新 join 又因为「不在 idle」被本地拒成 2005；
+- 一个哑掉的死局，**日志里一条报错都没有**。
+
+### 本端踩得比另外两端更稳
+
+`handleClose` 是**同步**调 `onDisconnected` 的，而 `dispatch` 头一行就同步 reduce；
+`rejectAll` 触发的 `join_failed` 只能等微任务。所以 `disconnected` **每次都赢**，
+那条本该兜住它的 `join_failed` 必定变成空操作（它 guard 在 `joining` 上，状态早被推走了）。
+**iOS 那边是竞态、这里是稳定复现**——所以判据不能靠时序。
+
+### 改法（四端同一份）
+
+`RoomContext` 加 `didJoin`，**只由 `room.join.ok` 置位**（`roomRecv.ts` 的 `handleJoinOk`）。
+`resumeRoom` 据它分辨来路：真进过房才回 `joined`，否则走 `rejoin()`——
+**重发一次 `room.join`**（房号、房票、`auto_subscribe` 都还在手上，攒下的意图照旧留着重放）。
+连房号都没有（join 的帧还没产出就断了）就干净地回 idle，不发帧。
+
+**向量没动**：两条 reconnect 向量的初始态都是 `room: joined`，`didJoin` 影响不到它们。
+向量跑法里补了一句种子（初始就在房里的把 `didJoin` 一起置上）——
+**是种子不完整，不是实现变了**。
+
+**新增 7 条用例**（`test/roomResume.test.ts`）。把 `resumeRoom` 里那行 `didJoin` 判断
+删掉注回旧逻辑，其中 4 条立刻红（重发、意图留存、auto_subscribe、无房号回 idle），
+另外 3 条是护栏（从 joined 恢复、resumed=false、join.ok 置位），本就不该被这个注入影响。
+
 # Current Task — im-rtc-web（TS engine + React uikit + Demo）
 
 > **活快照**：只记当前状态，**就地覆盖、不追加**。历史见 `git log`。
