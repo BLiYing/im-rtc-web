@@ -35,12 +35,17 @@ const DELAYS = ['-0.42s', '-0.14s', '-0.28s'];
  * （那要 React 19 的 `precedence` 提升），三个人同时说话就会插进三个同 id 的
  * `<style>`——非法 HTML，`getElementById` 也变得有歧义。
  *
- * `transform` 那条必须 `!important`：条高是内联样式设的（要带音量），
- * 而内联样式永远压过样式表里的普通规则，不加就是一条死规则。
+ * 峰值**必须走自定义属性 `--imrtc-peak`，不能靠内联 `transform`**。
+ * 层叠里「动画产生的声明」压在普通声明之上，内联样式也算普通声明——
+ * 只要 `imrtc-talk` 在跑，内联的 `transform: scaleY(peak)` 就是一条死规则，
+ * 音量再大条高也不动（耳语与大喊画出来一模一样）。
+ * 自定义属性不受这条影响：它在 keyframes 里就地取值，于是音量重新起作用。
+ *
+ * 减弱动态效果那条仍要 `!important`——它要压过的正是上面那个动画声明。
  */
 const KEYFRAMES = `
-@keyframes imrtc-talk{0%,100%{transform:scaleY(.34)}50%{transform:scaleY(1)}}
-@media (prefers-reduced-motion:reduce){.imrtc-bar{animation:none!important;transform:scaleY(.7)!important}}
+@keyframes imrtc-talk{0%,100%{transform:scaleY(calc(var(--imrtc-peak,1)*.34))}50%{transform:scaleY(var(--imrtc-peak,1))}}
+@media (prefers-reduced-motion:reduce){.imrtc-bar{animation:none!important;transform:scaleY(calc(var(--imrtc-peak,1)*.7))!important}}
 `;
 
 const STYLE_ID = 'imrtc-talk-keyframes';
@@ -76,7 +81,7 @@ export interface SpeechIconProps {
  *
  * 服务端 300ms 一次全量快照（协议 §3.5），一句话里的换气会让人短暂掉出名单——
  * 直接跟着灭就是闪烁，而消除闪烁正是这次改版的出发点。
- * iOS 拖 400ms、Android 400ms，web 用一直没人接上的 `callMotion.speakingOffMs`。
+ * 三端同为 400ms（web 记在 `callMotion.speakingOffMs`）。
  */
 function useHeldSpeaking(speaking: boolean): boolean {
   const [held, setHeld] = useState(speaking);
@@ -133,9 +138,10 @@ export function SpeechIcon({ speaking, muted, volume = 0, testUid = '' }: Speech
           style={{
             display: 'block', width: BAR, height: H, borderRadius: BAR / 2,
             background: callColors.accept, transformOrigin: '50% 50%',
-            transform: `scaleY(${peak})`,
+            // 峰值经自定义属性喂进 keyframes，见 KEYFRAMES 上面那段。
+            '--imrtc-peak': peak,
             animation: `imrtc-talk ${callMotion.speakingPeriodMs}ms ease-in-out ${delay} infinite`,
-          }}
+          } as CSSProperties}
         />
       ))}
     </span>
