@@ -28,6 +28,8 @@ export interface VideoTileProps {
   readonly isSpeaking?: boolean;
   /** 0~100，服务端给的音量，映射到说话图标的条高。 */
   readonly volume?: number;
+  /** 这一格要不要区分「在说话」。**本端那格传 false**（2026-09-09 拍板）。 */
+  readonly showsSpeaking?: boolean;
   /** 还在响铃 / 邀请中：整格 55% 不透明 + 顶部一行「呼叫中…」（规范 §06）。 */
   readonly isRinging?: boolean;
   /** 邀请中的格子拿到的终局，显示在原来「呼叫中…」的位置。 */
@@ -51,7 +53,8 @@ export interface VideoTileProps {
  */
 export function VideoTile(props: VideoTileProps): ReactNode {
   const {
-    uid, label, hasVideo, hasAudio = true, isSpeaking = false, volume = 0, isRinging = false, settled = '',
+    uid, label, hasVideo, hasAudio = true, isSpeaking = false, volume = 0,
+    showsSpeaking = true, isRinging = false, settled = '',
     networkLevel = 0, layer, localCid, avatarSize = 44, style,
   } = props;
   const { engine } = useCall();
@@ -160,7 +163,8 @@ export function VideoTile(props: VideoTileProps): ReactNode {
         */}
         <div style={styles.tileLabel}>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{displayName}</span>
-          <SpeechIcon speaking={isSpeaking} muted={!hasAudio} volume={volume} testUid={testUid} />
+          <SpeechIcon speaking={isSpeaking} muted={!hasAudio} volume={volume}
+            showsSpeaking={showsSpeaking} testUid={testUid} />
         </div>
       </div>
     </div>
