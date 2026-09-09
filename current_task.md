@@ -78,6 +78,10 @@
   与 Android 的 `onRequestFailed` 逐条对齐。
 - **解不动的下行帧按原始 data 放行，绝不往上抛**：抛在 `PendingRequests.settle` 里会让
   `request()` 的 promise 永不落定（waiter 已摘、超时已清）。
+- **停 Demo 用 Ctrl+C，别用 Ctrl+Z**：Ctrl+Z 把整个进程组挂起（`STAT=T`），挂起的 vite
+  仍然持有 listen socket 却不响应任何请求，下次启动只报 "Port is already in use"，
+  curl 上去是连得上、然后零字节超时。这种进程收不到 SIGTERM，SIGCONT 唤醒后又会因后台读 tty
+  收到 SIGTTIN 再次挂起，只能 `kill -9 -<pgid>` 杀整组。走 `./scripts/dev.sh` 会自动回收。
 - **jsdom 25 没有 `PointerEvent`**：`test/setup.ts` 用 `MouseEvent` 垫了一个，只补手势层读到的字段。
   jsdom 里容器量出来是 0×0，拖动用例只验「拖了 → 吸角 → 不互换」这条逻辑，不验坐标。
 - **`getUserMedia` 只在 localhost / HTTPS 可用**；公网联调必须 HTTPS。
@@ -103,7 +107,10 @@
   npx vitest run --root packages/call-engine       # 只跑 engine 测试
   npx vitest run --root packages/call-uikit-react  # 只跑 uikit 测试（jsdom）
   npm test                                         # = 上面两条；根目录没有 vitest 配置，不能裸跑 vitest
-  npm run dev                                      # 自画 UI 的 Demo（:5178）
-  npm run dev:react                                # 引 uikit 的 Demo（:5179）
+  npm run dev                                      # 自画 UI 的 Demo（:5178），前台，终端能看实时输出
+  npm run dev:react                                # 引 uikit 的 Demo（:5179），同上
+  ./scripts/dev.sh [start|stop|status|logs] [demo|react]   # 后台起停，先杀后起、幂等
   ```
+  两条路线二选一：`dev.sh` 后台起、日志进 `dev-logs/`（要 `./scripts/dev.sh logs react` 才看得到
+  实时输出），换来的是**端口被残留进程占着会自动回收**，不用手动 lsof + kill。
 - 浏览器实测要点：两个标签页各登一个用户并**勾上「合成音视频源」**（Browser 面板里拿不到真麦克风）。
