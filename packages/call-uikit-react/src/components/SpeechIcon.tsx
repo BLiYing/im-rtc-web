@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 
 import { callColors, callMotion } from '../theme.js';
@@ -29,17 +30,38 @@ const DELAYS = ['-0.42s', '-0.14s', '-0.28s'];
 
 /**
  * 动画要 keyframes，内联样式写不出来，所以注入一小段 `<style>`。
- * 与 `AudioStage` 的呼吸动画同一个做法；`id` 去重，多个格子只注入一次。
+ *
+ * **在模块级注入一次，不放在组件里。** React 18 不会按 `id` 去重
+ * （那要 React 19 的 `precedence` 提升），三个人同时说话就会插进三个同 id 的
+ * `<style>`——非法 HTML，`getElementById` 也变得有歧义。
+ *
+ * `transform` 那条必须 `!important`：条高是内联样式设的（要带音量），
+ * 而内联样式永远压过样式表里的普通规则，不加就是一条死规则。
  */
 const KEYFRAMES = `
 @keyframes imrtc-talk{0%,100%{transform:scaleY(.34)}50%{transform:scaleY(1)}}
-@media (prefers-reduced-motion:reduce){.imrtc-bar{animation:none!important;transform:scaleY(.7)}}
+@media (prefers-reduced-motion:reduce){.imrtc-bar{animation:none!important;transform:scaleY(.7)!important}}
 `;
+
+const STYLE_ID = 'imrtc-talk-keyframes';
+if (typeof document !== 'undefined' && document.getElementById(STYLE_ID) === null) {
+  const el = document.createElement('style');
+  el.id = STYLE_ID;
+  el.textContent = KEYFRAMES;
+  document.head.appendChild(el);
+}
 
 const wrap: CSSProperties = {
   width: W, height: H, flex: 'none', display: 'flex', alignItems: 'center',
   justifyContent: 'space-between',
 };
+
+/**
+ * 静音图标要**自己带颜色**。它原先住在 `styles.tileBadge` 里，那儿设了
+ * `color: callColors.mutedBadge`；搬进气泡之后 `currentColor` 会继承名牌的白，
+ * 于是渲染成纯白——不再读作「警示」，也和 iOS / Android 的 `mutedBadge` 对不上。
+ */
+const mutedWrap: CSSProperties = { ...wrap, color: callColors.mutedBadge };
 
 export interface SpeechIconProps {
   readonly speaking: boolean;
@@ -49,11 +71,47 @@ export interface SpeechIconProps {
   readonly testUid?: string;
 }
 
+/**
+ * useHeldSpeaking 把「正在说话」**起时立刻亮、停时拖一拍再灭**。
+ *
+ * 服务端 300ms 一次全量快照（协议 §3.5），一句话里的换气会让人短暂掉出名单——
+ * 直接跟着灭就是闪烁，而消除闪烁正是这次改版的出发点。
+ * iOS 拖 400ms、Android 400ms，web 用一直没人接上的 `callMotion.speakingOffMs`。
+ */
+function useHeldSpeaking(speaking: boolean): boolean {
+  const [held, setHeld] = useState(speaking);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  useEffect(() => {
+    if (speaking) {
+      if (timer.current !== undefined) {
+        clearTimeout(timer.current);
+        timer.current = undefined;
+      }
+      setHeld(true);
+      return undefined;
+    }
+    timer.current = setTimeout(() => {
+      timer.current = undefined;
+      setHeld(false);
+    }, callMotion.speakingOffMs);
+    return () => {
+      if (timer.current !== undefined) clearTimeout(timer.current);
+      timer.current = undefined;
+    };
+  }, [speaking]);
+
+  return held;
+}
+
 export function SpeechIcon({ speaking, muted, volume = 0, testUid = '' }: SpeechIconProps): JSX.Element {
+  // **Hook 必须在任何提前 return 之前调**，所以拖拍算在最前面。
+  const held = useHeldSpeaking(speaking && !muted);
+
   // **静音优先**：静音的人不可能在说话，两者互斥。
   if (muted) {
     return (
-      <span style={wrap} role="img" aria-label="已静音" data-testid={`muted-${testUid}`}>
+      <span style={mutedWrap} role="img" aria-label="已静音" data-testid={`muted-${testUid}`}>
         <svg width={W} height={H} viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <path d="M8 1.6a2 2 0 0 1 2 2v3.1L6 3.9V3.6a2 2 0 0 1 2-2Z" fill="currentColor" />
           <path d="M6 6.9v1.5a2 2 0 0 0 3.1 1.67L10.2 11.2A3.9 3.9 0 0 1 4.1 8V7.3" fill="currentColor" />
@@ -63,26 +121,23 @@ export function SpeechIcon({ speaking, muted, volume = 0, testUid = '' }: Speech
       </span>
     );
   }
-  if (!speaking) return <span style={wrap} aria-hidden="true" />;
+  if (!held) return <span style={wrap} aria-hidden="true" />;
 
   const peak = 0.5 + 0.5 * Math.min(Math.max(volume, 0), 100) / 100;
   return (
-    <>
-      <style id="imrtc-talk-keyframes">{KEYFRAMES}</style>
-      <span style={wrap} role="img" aria-label="正在说话" data-testid={`speaking-${testUid}`}>
-        {DELAYS.map((delay, i) => (
-          <i
-            key={i}
-            className="imrtc-bar"
-            style={{
-              display: 'block', width: BAR, height: H, borderRadius: BAR / 2,
-              background: callColors.accept, transformOrigin: '50% 50%',
-              transform: `scaleY(${peak})`,
-              animation: `imrtc-talk ${callMotion.speakingPeriodMs}ms ease-in-out ${delay} infinite`,
-            }}
-          />
-        ))}
-      </span>
-    </>
+    <span style={wrap} role="img" aria-label="正在说话" data-testid={`speaking-${testUid}`}>
+      {DELAYS.map((delay, i) => (
+        <i
+          key={i}
+          className="imrtc-bar"
+          style={{
+            display: 'block', width: BAR, height: H, borderRadius: BAR / 2,
+            background: callColors.accept, transformOrigin: '50% 50%',
+            transform: `scaleY(${peak})`,
+            animation: `imrtc-talk ${callMotion.speakingPeriodMs}ms ease-in-out ${delay} infinite`,
+          }}
+        />
+      ))}
+    </span>
   );
 }

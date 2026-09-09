@@ -59,7 +59,6 @@ export const callMetrics = {
   avatarLarge: 96,
   tileGap: 8,
   tileRadius: 10,
-  speakingOutline: 2.5,
   /** 本端 / 对端小窗：竖屏容器 3:4，横屏容器 16:9。 */
   pipPortrait: { width: 96, height: 128 },
   pipLandscape: { width: 160, height: 90 },
