@@ -59,7 +59,6 @@ export const callMetrics = {
   avatarLarge: 96,
   tileGap: 8,
   tileRadius: 10,
-  speakingOutline: 2.5,
   /** 本端 / 对端小窗：竖屏容器 3:4，横屏容器 16:9。 */
   pipPortrait: { width: 96, height: 128 },
   pipLandscape: { width: 160, height: 90 },
@@ -88,8 +87,19 @@ export const callMotion = {
   autoHideMs: 3000,
   /** 手机上小窗要长按这么久才进拖动态（桌面鼠标直接拖）。 */
   longPressMs: 350,
-  /** 发言描边**灭**的延迟——防频闪，不是审美选择。 */
-  speakingOffMs: 600,
+  /** 说话图标的一个跳动周期。三根条相位错开，见 SpeechIcon。 */
+  speakingPeriodMs: 620,
+  /**
+   * 收声之后拖多久才灭。
+   *
+   * 服务端 300ms 一次全量快照（协议 §3.5），一句话里的换气会让人短暂掉出名单——
+   * **直接跟着灭就是闪烁**。起的时候立刻亮，停的时候拖这么久。
+   *
+   * **400 是和 iOS / Android 对齐的**（两端都是 400ms）。这个常数是用户看得见的：
+   * 三端并排一比，600 那一端的图标明显多亮小半拍。原先的 600 是从已删掉的
+   * 「发言描边灭延迟」那儿顺手接过来的，不是为这枚图标挑的。
+   */
+  speakingOffMs: 400,
   /** 邀请中的占位格「已拒绝 / 未接听」停多久再移除。 */
   settledHoldMs: 2000,
   /** 一次性提示（「通话已满员」「对方已拒接」）停多久自己撤掉。 */

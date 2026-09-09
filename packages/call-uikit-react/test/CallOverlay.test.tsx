@@ -1,9 +1,10 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { CallProvider } from '../src/CallProvider.js';
 import { CallOverlay } from '../src/components/CallOverlay.js';
 import { FakeEngine, asEngine } from './fakeEngine.js';
+import { callMotion } from '../src/theme.js';
 
 /**
  * uikit 的时序与订阅行为**必须在 jsdom 里测**（CONVENTIONS §9）。
@@ -238,10 +239,24 @@ describe('九宫格与层上界', () => {
     });
     expect(screen.queryByTestId('speaking-alice')).not.toBeNull();
 
+    /*
+      **名单空了不会立刻灭**（2026-09-09 改版）：起时立刻亮、停时拖
+      `callMotion.speakingOffMs` 再灭。服务端 300ms 一次全量快照，
+      一句话里的换气会让人短暂掉出名单——跟着灭就是闪烁。
+      所以这里要把定时器推过去才看得到它熄。
+    */
+    // 只给这一段用假时钟：前面那些步骤都是同步的，不需要它。
+    vi.useFakeTimers();
     act(() => {
       engine.emit('activeSpeakers', { speakers: [] });
     });
+    expect(screen.queryByTestId('speaking-alice'), '拖拍期间照旧亮着').not.toBeNull();
+
+    act(() => {
+      vi.advanceTimersByTime(callMotion.speakingOffMs + 50);
+    });
     expect(screen.queryByTestId('speaking-alice')).toBeNull();
+    vi.useRealTimers();
   });
 });
 

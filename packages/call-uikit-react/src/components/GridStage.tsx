@@ -55,12 +55,15 @@ export function GridStage(): ReactNode {
           gridTemplateRows: side > 0 ? `repeat(${rows}, ${side}px)` : `repeat(${rows}, 1fr)`,
         }}
       >
+        {/* 本端那格也显示说话图标（2026-09-09 拍板）。本端不是 participant，状态单独记。 */}
         <VideoTile
           uid=""
           label="我"
           hasVideo={state.self.cameraOn && state.localCameraCid !== ''}
           // 本端的静音角标读的是**本端开关**，不是回调——自己的 mute 不会绕一圈发回来。
           hasAudio={state.self.micOn}
+          isSpeaking={state.self.speaking}
+          volume={state.self.volume}
           {...(state.localCameraCid === '' ? {} : { localCid: state.localCameraCid })}
         />
         {tiles.map((p) => (
@@ -71,6 +74,7 @@ export function GridStage(): ReactNode {
             hasVideo={p.hasVideo}
             hasAudio={p.hasAudio}
             isSpeaking={p.isSpeaking}
+            volume={p.volume}
             isRinging={!p.hasAccepted}
             settled={p.settled}
             networkLevel={p.networkLevel}

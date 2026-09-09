@@ -73,11 +73,8 @@ export const styles = {
 
   tile: {
     position: 'relative', background: callColors.tile, borderRadius: callMetrics.tileRadius, overflow: 'hidden',
-    // 描边用 outline 内缩，不撑大格子（规范 §06）。
-    minHeight: 0, outlineWidth: callMetrics.speakingOutline, outlineStyle: 'solid',
-    outlineColor: 'transparent', outlineOffset: -callMetrics.speakingOutline,
+    minHeight: 0,
   } satisfies CSSProperties,
-  tileSpeaking: { outlineColor: callColors.accept } satisfies CSSProperties,
   /** 邀请中的占位格：整格 55% 不透明（规范 §06）。 */
   tileRinging: { opacity: 0.55 } satisfies CSSProperties,
   tileRingingText: {
@@ -104,19 +101,7 @@ export const styles = {
     background: callColors.scrim, fontSize: 12, display: 'flex', gap: 6, alignItems: 'center',
     whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
   } satisfies CSSProperties,
-  /** 正在说话：名字标签底变绿、字变深（规范 §06）。 */
-  tileLabelSpeaking: { background: callColors.accept, color: callColors.acceptFg, fontWeight: 600 } satisfies CSSProperties,
 
-  /**
-   * 静音角标**跟着名字牌走，在它右边**（v3.2 改，原来在右上角）。
-   *
-   * 1v1 的全屏画面铺满整屏，右上角那个位置正好压在系统状态栏的时间与电量上（手机端）。
-   */
-  tileBadge: {
-    flex: '0 0 auto', width: 20, height: 20, borderRadius: '50%',
-    background: callColors.scrim, display: 'flex', alignItems: 'center',
-    justifyContent: 'center', color: callColors.mutedBadge,
-  } satisfies CSSProperties,
   tileNetBadge: {
     position: 'absolute', right: 12, top: 12, width: 24, height: 24, borderRadius: '50%',
     background: callColors.scrim, display: 'flex', alignItems: 'center', justifyContent: 'center',

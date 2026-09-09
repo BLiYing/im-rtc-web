@@ -38,7 +38,8 @@ export function subscribeEngine(engine: CallEngine, dispatch: (action: ViewActio
       dispatch({ type: 'userAudio', uid: e.uid, available: e.available })),
     engine.on('userVideoAvailable', (e) =>
       dispatch({ type: 'userVideo', uid: e.uid, available: e.available })),
-    engine.on('activeSpeakers', (e) => dispatch({ type: 'activeSpeakers', speakers: e.speakers })),
+    engine.on('activeSpeakers', (e) =>
+      dispatch({ type: 'activeSpeakers', speakers: e.speakers, selfUid: engine.uid })),
     engine.on('networkQuality', (e) => dispatch({ type: 'networkQuality', entries: e.entries })),
     // 四个便利事件只在 1v1 抛，随后必有 callEnd——所以这里只做提示，不改阶段。
     engine.on('callRejected', (e) => dispatch({ type: 'hint', text: `${e.uid} 已拒接` })),
