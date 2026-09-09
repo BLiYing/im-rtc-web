@@ -272,8 +272,10 @@ describe('上行 ICE 断了要自己重连', () => {
     expect(offers.at(-1)?.data).toMatchObject({ pc: 'pub' });
   });
 
-  it('sub failed 不管——那条的 offerer 是服务端，客户端插手只会 glare', async () => {
-    const { media, ws } = await setup();
+  it('sub failed 不自己重启（插手只会 glare），但要立刻抛 2006 给宿主', async () => {
+    const { engine, media, ws } = await setup();
+    const errors: number[] = [];
+    engine.on('error', (e) => errors.push(e.code));
     await joinRoom(ws);
     const before = ws.frames().filter((f) => f.type === 'room.offer').length;
 
@@ -282,6 +284,73 @@ describe('上行 ICE 断了要自己重连', () => {
 
     expect(media.iceRestarts).toBe(0);
     expect(ws.frames().filter((f) => f.type === 'room.offer').length).toBe(before);
+    /*
+      本端不是 offerer，救不了——那就必须让宿主知道（协议 §7.2）。
+      原先这里什么都不做，于是下行永久失败在界面上完全无感：格子在、画面黑、计时照走。
+    */
+    expect(errors, 'sub 救不了就得立即上报').toEqual([2006]);
+  });
+
+  /*
+    **重试节奏不能没有尽头**（协议 §7.2）。
+
+    一律自愈、永不上报的话，宿主从头到尾收不到任何信号——上面那段「五分钟一轮地失败」
+    会一直挂着，而界面上什么都不会变。所以连续 3 次重启后仍 failed 抛一次 2006，
+    之后继续重试但不再重复抛；回到 connected 算新一轮，重新计数。
+  */
+  describe('pub 自愈的放弃阈值', () => {
+    it('连续 3 次仍 failed → 抛一次 2006，且仍在继续重试', async () => {
+      const { engine, media, ws } = await setup();
+      const errors: number[] = [];
+      engine.on('error', (e) => errors.push(e.code));
+      await joinRoom(ws);
+
+      for (let i = 0; i < 3; i += 1) {
+        media.pcState('pub', 'failed');
+        await flush(8);
+      }
+
+      expect(errors, '第 3 次才放弃').toEqual([2006]);
+      expect(media.iceRestarts, '放弃上报之后照样继续救').toBe(3);
+
+      // 第 4、5 次不该再刷——同一轮故障只抛一次。
+      media.pcState('pub', 'failed');
+      media.pcState('pub', 'failed');
+      await flush(8);
+      expect(errors, '同一轮只抛一次').toEqual([2006]);
+      expect(media.iceRestarts, '但重试没停').toBe(5);
+    });
+
+    it('前两次不抛——那多半只是切网抖动', async () => {
+      const { engine, media, ws } = await setup();
+      const errors: number[] = [];
+      engine.on('error', (e) => errors.push(e.code));
+      await joinRoom(ws);
+
+      media.pcState('pub', 'failed');
+      media.pcState('pub', 'failed');
+      await flush(8);
+
+      expect(errors, '抖动不该惊动宿主').toEqual([]);
+      expect(media.iceRestarts).toBe(2);
+    });
+
+    it('回到 connected 之后重新计数', async () => {
+      const { engine, media, ws } = await setup();
+      const errors: number[] = [];
+      engine.on('error', (e) => errors.push(e.code));
+      await joinRoom(ws);
+
+      media.pcState('pub', 'failed');
+      media.pcState('pub', 'failed');
+      media.pcState('pub', 'connected');
+      await flush(8);
+      media.pcState('pub', 'failed');
+      media.pcState('pub', 'failed');
+      await flush(8);
+
+      expect(errors, '救回来过就是新一轮，不该拿旧账凑够 3 次').toEqual([]);
+    });
   });
 });
 
