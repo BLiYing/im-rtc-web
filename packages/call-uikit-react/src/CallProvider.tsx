@@ -146,7 +146,26 @@ export function CallProvider({
   const publishedRoomId = useRef('');
   useEffect(() => {
     const isLive = state.phase === 'connecting' || state.phase === 'active';
-    if (!isLive || state.roomId === '' || publishedRoomId.current === state.roomId) return;
+    /*
+      **通话一结束就把这笔账清零。**
+
+      不清的话，「挂断之后又被邀请回同一通电话」这条路会永久失声：服务端复用同一个
+      room_id，而这里那道 `publishedRoomId.current === state.roomId` 的闸还留着上一次的
+      房号，于是直接 return——**不发布、不报错、什么都不留**。
+      对端看到的就是一格首字母头像，而本端界面一切正常。
+
+      真机 2026-09-09 14:43 抓到的就是这一幕：
+        14:42:14 roomJoined r-e1a0ee27… → 发布成功
+        14:43:46 callEnd（自己挂断）
+        14:43:52 roomJoined r-e1a0ee27… → 同一个房号，这道闸把发布整个吃掉
+
+      iOS 的 `IMCallController` 一直是在 `phase == .idle` 时清的，这一端漏了。
+    */
+    if (!isLive) {
+      publishedRoomId.current = '';
+      return;
+    }
+    if (state.roomId === '' || publishedRoomId.current === state.roomId) return;
     publishedRoomId.current = state.roomId;
     if (state.isMeeting) return; // 会议由 joinMeeting 自己推流
     void publishFor(state.mediaType, state.self.cameraOn);
