@@ -1,3 +1,4 @@
+import { logger } from '@im-rtc/call-engine';
 import type { CallEngine } from '@im-rtc/call-engine';
 import type { ReactNode } from 'react';
 import { createContext, useEffect, useMemo, useReducer, useRef } from 'react';
@@ -165,7 +166,21 @@ export function CallProvider({
       publishedRoomId.current = '';
       return;
     }
-    if (state.roomId === '' || publishedRoomId.current === state.roomId) return;
+    if (state.roomId === '') return; // 还没拿到房号，正常，不值得记
+    /*
+      **跳过发布要留一条**。
+
+      这条 effect 每次状态变化都会跑，绝大多数时候「跳过」是正常的（同一个房间
+      已经发过了）。但它也是上面那个 bug 的藏身处：房号没被清零时它一声不响地
+      吃掉整个发布，界面正常、日志空白、对端只看到首字母头像——三个观测面同时是瞎的。
+
+      所以只在**「已经在通话里、房号也有了，却仍然不发布」**这种真正可疑的情形下记一条。
+      正常复发时它一通电话只出现一次，噪声可以忽略；出问题时它是唯一的线索。
+    */
+    if (publishedRoomId.current === state.roomId) {
+      logger.debug('跳过发布：这个房间已经发过了', { room_id: state.roomId });
+      return;
+    }
     publishedRoomId.current = state.roomId;
     if (state.isMeeting) return; // 会议由 joinMeeting 自己推流
     void publishFor(state.mediaType, state.self.cameraOn);
