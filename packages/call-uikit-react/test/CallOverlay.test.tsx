@@ -363,3 +363,36 @@ describe('来电页上的摄像头开关', () => {
     expect(engine.calls).toContain('publishCam');
   });
 });
+
+/*
+  「挂断之后又被邀请回同一通电话」——真机 2026-09-09 14:43 抓到的静默失败。
+
+  服务端复用同一个 room_id，而 CallProvider 里那道
+  `publishedRoomId.current === state.roomId` 的闸从来没被清零过：
+  第二次进同一个房间时它直接 return——**不发布、不报错、什么都不留**。
+  对端看到的是一格首字母头像，本端界面却一切正常，日志里也没有任何线索。
+*/
+describe('挂断后重进同一个房间', () => {
+  it('要重新发布本端媒体，不能被 publishedRoomId 那道闸吃掉', async () => {
+    const engine = setup();
+    ring(engine, true);
+    connect(engine, true);
+    await act(async () => { await Promise.resolve(); });
+    expect(engine.calls.filter((c) => c === 'publishMic')).toHaveLength(1);
+
+    // 自己挂断：通话结束。
+    act(() => {
+      engine.emit('callEnd', { callId: 'c-1', reason: 'hangup', durationSec: 9, endedBy: 'bob' });
+    });
+
+    // 被重新邀请回**同一通电话、同一个房间**。
+    ring(engine, true);
+    connect(engine, true);
+    await act(async () => { await Promise.resolve(); });
+
+    expect(
+      engine.calls.filter((c) => c === 'publishMic'),
+      '第二次进同一个房间必须重新发布，否则对端只看得到首字母头像',
+    ).toHaveLength(2);
+  });
+});
