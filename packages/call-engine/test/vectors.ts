@@ -26,9 +26,21 @@ function resolveDir(): string {
   const fromEnv = process.env['RTC_CONFORMANCE_DIR'];
   if (fromEnv !== undefined && fromEnv !== '' && existsSync(fromEnv)) return fromEnv;
 
-  // packages/call-engine/test → 仓库根 → 同级的 im-rtc-server
-  const sibling = resolve(HERE, '../../..', '../im-rtc-server/docs/conformance');
-  if (existsSync(sibling)) return sibling;
+  /*
+   从本文件往上**逐级**找「同级的 im-rtc-server」。
+
+   原先是写死的 `../../..`（packages/call-engine/test → 仓库根），前提是
+   「仓库根与 im-rtc-server 同级」——**这个前提在 git worktree 里不成立**：
+   worktree 的根在 `.claude/worktrees/<分支>/`，兄弟仓要再往上两级才看得见。
+   逐级往上找就同时接住了两种布局，也不用去问 git。
+  */
+  for (let dir = HERE; ; ) {
+    const candidate = resolve(dir, '../im-rtc-server/docs/conformance');
+    if (existsSync(candidate)) return candidate;
+    const up = dirname(dir);
+    if (up === dir) break; // 到根了
+    dir = up;
+  }
 
   throw new Error(SIBLING_HINT);
 }
