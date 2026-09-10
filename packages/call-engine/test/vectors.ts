@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
@@ -22,27 +22,33 @@ const SIBLING_HINT = [
   '向量是四仓共用的单一真相源，**不要拷贝一份到本仓**。',
 ].join('\n');
 
+/**
+ * siblingDir 算出「同级的 im-rtc-server」**唯一**该在的位置，只认两种布局：
+ * 主检出（仓库根与 im-rtc-server 同级），和 `<主检出>/.claude/worktrees/<分支>/`。
+ *
+ * **不要改回「往上逐级找到根」。** 那样同级缺失时会一路爬出本仓，碰上任何一份
+ * `im-rtc-server`（比如家目录里的旧克隆）就拿去用——拿旧向量跑绿，比抛错更糟。
+ * 别的位置的 worktree 设 RTC_CONFORMANCE_DIR；走 `scripts/test.sh` 会问 git 算好再传进来。
+ */
+function siblingDir(): string {
+  const repoRoot = resolve(HERE, '../../..'); // packages/call-engine/test → 仓库根
+  const parent = dirname(repoRoot);
+  const inWorktree = basename(parent) === 'worktrees' && basename(dirname(parent)) === '.claude';
+  const checkout = inWorktree ? dirname(dirname(parent)) : repoRoot;
+  return resolve(checkout, '../im-rtc-server/docs/conformance');
+}
+
 function resolveDir(): string {
   const fromEnv = process.env['RTC_CONFORMANCE_DIR'];
-  if (fromEnv !== undefined && fromEnv !== '' && existsSync(fromEnv)) return fromEnv;
-
-  /*
-   从本文件往上**逐级**找「同级的 im-rtc-server」。
-
-   原先是写死的 `../../..`（packages/call-engine/test → 仓库根），前提是
-   「仓库根与 im-rtc-server 同级」——**这个前提在 git worktree 里不成立**：
-   worktree 的根在 `.claude/worktrees/<分支>/`，兄弟仓要再往上两级才看得见。
-   逐级往上找就同时接住了两种布局，也不用去问 git。
-  */
-  for (let dir = HERE; ; ) {
-    const candidate = resolve(dir, '../im-rtc-server/docs/conformance');
-    if (existsSync(candidate)) return candidate;
-    const up = dirname(dir);
-    if (up === dir) break; // 到根了
-    dir = up;
+  if (fromEnv !== undefined && fromEnv !== '') {
+    if (existsSync(fromEnv)) return fromEnv;
+    // 设了却不存在：**不退回去猜**，否则指错路径的人会以为自己指定的那份跑过了。
+    throw new Error(`RTC_CONFORMANCE_DIR 指向的目录不存在：${fromEnv}\n${SIBLING_HINT}`);
   }
 
-  throw new Error(SIBLING_HINT);
+  const sibling = siblingDir();
+  if (existsSync(sibling)) return sibling;
+  throw new Error(`${SIBLING_HINT}\n（找的是：${sibling}）`);
 }
 
 /** loadVector 读取并解析一份向量文件。 */

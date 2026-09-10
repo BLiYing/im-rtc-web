@@ -12,6 +12,10 @@
 
 ## 当前焦点
 
+**2026-09-10：修 code-review 抓到的「向量定位一路往上找到根」。** `test/vectors.ts` 的 `siblingDir()`
+改成只算主检出 / `.claude/worktrees/<分支>` 两种布局下兄弟仓唯一该在的位置，找不到就抛；
+`RTC_CONFORMANCE_DIR` 设了但不存在也抛，不再退回去猜。`temp_verify.py` 17 项全过（含旧版对照），`test.sh` 全绿。
+
 **2026-09-09 晚：ICE 自愈补上放弃阈值，2006 从死码变成真出口（分支 `fix/parity-leave-failed-and-2006`）。**
 
 扫四端静默失败点扫出来的：`mediaNegotiationFailed`（2006）**本仓此前只出现在 `errors.ts` 里**，
@@ -74,6 +78,8 @@ sub 判 failed **什么都不做**——下行永久失败在界面上完全无�
   libwebrtc 还没接进来，九宫格本身就是 ⬜。要等媒体面落地。
 - **`CLIENT_PARITY.md` 没更新**：真机验完再改；验之前 iOS/Android 停在 🟡，不写 ✅。
 - **web 端 `getUserMedia` 那类失败仍可能静默**：日志回传够不到浏览器 console。
+- **iOS `Vectors.swift`、Android `call-engine/build.gradle.kts` 仍是「往上逐级找到根」**，
+  和 web 修掉的是同一个问题（同级缺失时捡上层旧克隆）。要在各自仓里改。
 
 
 ## 已知坑 / 限制
@@ -87,6 +93,9 @@ sub 判 failed **什么都不做**——下行永久失败在界面上完全无�
     （Web uikit 2 个、iOS `default: break`、Android `when` 没有 `else`），2006 落地即消失。
     所以现在**回归风险≈0，价值也≈0**，要等 Kit 那几个兜底补上才通。
   - 弱网环境暂缓搭建（2026-09-09 决定），有条件再做。
+
+- **worktree 不在 `.claude/worktrees/` 下时，直接 `npx vitest` 找不到向量**（会抛错，不会读错）：
+  设 `RTC_CONFORMANCE_DIR`，或走 `./scripts/test.sh`（它问 git 算好再传进去）。
 
 - **「人先进来、轨道后到」是常态，不是异常**：格子挂载那一刻 `useRemoteTrack` 往往还是空。
   任何「挂载时顺手做一次」的 effect（层上报、尺寸、订阅）**依赖数组里都得带上 `hasVideo`**，
