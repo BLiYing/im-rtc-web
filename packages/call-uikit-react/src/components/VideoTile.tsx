@@ -18,6 +18,8 @@ export interface VideoTileProps {
   readonly uid: string;
   readonly label: string;
   readonly hasVideo: boolean;
+  /** 摄像头开了但新画面还没上屏：继续盖着头像（见 `RemoteParticipant.isVideoPending`）。 */
+  readonly isVideoPending?: boolean;
   /**
    * 麦克风是否可用。`false` 时格子上挂一个静音角标。
    *
@@ -53,7 +55,7 @@ export interface VideoTileProps {
  */
 export function VideoTile(props: VideoTileProps): ReactNode {
   const {
-    uid, label, hasVideo, hasAudio = true, isSpeaking = false, volume = 0,
+    uid, label, hasVideo, isVideoPending = false, hasAudio = true, isSpeaking = false, volume = 0,
     showsSpeaking = true, isRinging = false, settled = '',
     networkLevel = 0, layer, localCid, avatarSize = 44, style,
   } = props;
@@ -106,6 +108,12 @@ export function VideoTile(props: VideoTileProps): ReactNode {
   };
   const testUid = uid === '' ? 'self' : uid;
   const isMirrored = localCid !== undefined;
+  /*
+    等新画面时**只盖头像，`<video>` 本身照样可见**（头像层不透明，看不到底下那帧旧画面）。
+    engine 靠 `requestVideoFrameCallback` 判断新画面上屏，而 `visibility:hidden` 的元素
+    浏览器可能压根不交给合成器、回调就不来——藏起来等于自己把判据掐死。
+  */
+  const showsAvatar = !hasVideo || isVideoPending;
   return (
     <div style={tileStyle} data-testid={`tile-${testUid}`}>
       <video
@@ -120,8 +128,8 @@ export function VideoTile(props: VideoTileProps): ReactNode {
           visibility: hasVideo ? 'visible' : 'hidden',
         }}
       />
-      {!hasVideo && (
-        <div style={styles.avatar}>
+      {showsAvatar && (
+        <div style={styles.avatar} data-testid={`cover-${testUid}`}>
           {avatarUrl === '' ? (
             /*
               **底色按 uid 取，首字母按显示名取。**

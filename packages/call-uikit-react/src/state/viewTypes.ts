@@ -39,6 +39,13 @@ export interface RemoteParticipant {
   readonly hasAudio: boolean;
   /** 对方的摄像头是否可用（`userVideoAvailable`）。 */
   readonly hasVideo: boolean;
+  /**
+   * 摄像头开了，但**新画面还没上屏**（`firstVideoFrame` 还没来）。这段时间格子继续盖着头像。
+   *
+   * 不等的话，对端关了再开摄像头时 `<video>` 上先露出**关之前定格的那一帧**，
+   * 几百毫秒后才换成新画面——看上去就是「刷新了一下」。Android 同名同义：`Member.videoPending`。
+   */
+  readonly isVideoPending: boolean;
   /** 是否正在说话（`activeSpeakers`，服务端节流 300ms）。 */
   readonly isSpeaking: boolean;
   /** 0~100 的音量，用来画音量条。 */
@@ -204,6 +211,8 @@ export type ViewAction =
   | { readonly type: 'userAccept'; readonly uid: string }
   | { readonly type: 'userAudio'; readonly uid: string; readonly available: boolean }
   | { readonly type: 'userVideo'; readonly uid: string; readonly available: boolean }
+  /** 某人的新画面上屏了（`firstVideoFrame`），或等太久兜底：揭开他的格子。 */
+  | { readonly type: 'videoRevealed'; readonly uid: string }
   | {
       readonly type: 'activeSpeakers';
       readonly speakers: readonly { uid: string; volume: number }[];

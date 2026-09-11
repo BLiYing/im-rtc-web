@@ -15,6 +15,7 @@ import { useCallActions } from './useCallActions.js';
 import type { PermissionPromptView } from './usePermissionGate.js';
 import { usePermissionGate } from './usePermissionGate.js';
 import { useRingingPreview } from './useRingingPreview.js';
+import { useVideoRevealFallback } from './useVideoRevealFallback.js';
 
 export type { CallActions } from './useCallActions.js';
 
@@ -86,6 +87,7 @@ export function CallProvider({
   useRingingPreview({ engine, state, dispatch, query: permissionQuery, pageShown: showsIncomingPage(state, bannerFirst) });
 
   useEffect(() => subscribeEngine(engine, dispatch), [engine]);
+  useVideoRevealFallback(state.participants, dispatch);
 
   // 结束画面停留一会儿再收起。**计时器必须清理**，否则快速连打两通会互相收掉。
   useEffect(() => {

@@ -1,8 +1,8 @@
 import type { MediaType } from '@im-rtc/call-engine';
 
 import {
-  addInvited, applyNetwork, applySpeakers, newParticipant, removeParticipant, settleParticipant,
-  withParticipant,
+  addInvited, applyNetwork, applySpeakers, newParticipant, removeParticipant, revealVideo, setVideo,
+  settleParticipant, withParticipant,
 } from './participants.js';
 import { initialCallView } from './viewTypes.js';
 import type { CallViewState, ViewAction } from './viewTypes.js';
@@ -161,7 +161,10 @@ export function reduceCallView(state: CallViewState, action: ViewAction): CallVi
       return withParticipant(state, action.uid, (p) => ({ ...p, hasAudio: action.available }));
 
     case 'userVideo':
-      return withParticipant(state, action.uid, (p) => ({ ...p, hasVideo: action.available }));
+      return setVideo(state, action.uid, action.available);
+
+    case 'videoRevealed':
+      return revealVideo(state, action.uid);
 
     case 'activeSpeakers':
       return applySpeakers(state, action.speakers, action.selfUid);

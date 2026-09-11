@@ -38,6 +38,7 @@ export function VideoStage({ peer, controlsVisible, onStageTap }: VideoStageProp
     uid: peer.uid,
     label: peer.uid,
     hasVideo: peer.hasVideo,
+    isVideoPending: peer.isVideoPending,
     hasAudio: peer.hasAudio,
     isSpeaking: peer.isSpeaking,
     networkLevel: peer.networkLevel,

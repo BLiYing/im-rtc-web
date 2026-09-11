@@ -12,6 +12,7 @@ export function newParticipant(uid: string, hasAccepted: boolean): RemotePartici
     // 一开始就正常的人不会有事件——默认 false 的话所有人都显示成静音。
     hasAudio: true,
     hasVideo: false,
+    isVideoPending: false,
     isSpeaking: false,
     volume: 0,
     hasAccepted,
@@ -51,6 +52,28 @@ export function settleParticipant(state: CallViewState, uid: string, outcome: Se
     ...state,
     participants: state.participants.map((p) =>
       p.uid === uid && !p.hasAccepted ? { ...p, settled: outcome } : p),
+  };
+}
+
+/**
+ * setVideo 叠加「摄像头开没开」。**开的那一下记成等新画面**（见 `RemoteParticipant.isVideoPending`）；
+ * 已经在播时再报一次开不回退成等待——否则格子会无端闪回头像。
+ */
+export function setVideo(state: CallViewState, uid: string, available: boolean): CallViewState {
+  return withParticipant(state, uid, (p) => ({
+    ...p, hasVideo: available, isVideoPending: available && (p.isVideoPending || !p.hasVideo),
+  }));
+}
+
+/**
+ * revealVideo 揭开某人的格子。**不走 withParticipant**：迟到的 firstVideoFrame
+ * 不该把已经离开的人补回来；没在等的人原样返回，省一次重渲染。
+ */
+export function revealVideo(state: CallViewState, uid: string): CallViewState {
+  if (!state.participants.some((p) => p.uid === uid && p.isVideoPending)) return state;
+  return {
+    ...state,
+    participants: state.participants.map((p) => (p.uid === uid ? { ...p, isVideoPending: false } : p)),
   };
 }
 

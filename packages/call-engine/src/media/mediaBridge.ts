@@ -1,3 +1,4 @@
+import { FirstFrameGate } from './firstFrameGate.js';
 import type { MediaAdapter, MediaAdapterEvents } from './mediaAdapter.js';
 import type { ViewElement } from './viewRegistry.js';
 import { ViewRegistry } from './viewRegistry.js';
@@ -23,6 +24,8 @@ export class MediaBridge {
   private readonly views = new ViewRegistry();
   /** 已经抛过「首帧」的轨道，避免重复抛。 */
   private readonly seenVideo = new Set<string>();
+  /** 开摄像头之后等新画面上屏的那些人（见 awaitFirstVideoFrame）。 */
+  private readonly firstFrames = new FirstFrameGate();
   private events: MediaAdapterEvents | null = null;
 
   constructor(adapter: MediaAdapter) {
@@ -133,9 +136,20 @@ export class MediaBridge {
     }
   }
 
+  /**
+   * awaitFirstVideoFrame 等 uid **开摄像头之后的新画面真的上屏**，到了回调一次（带他此刻的视频轨）。
+   *
+   * 与 `addRemoteTrack` 的首帧判据是两件事：那条按轨道只抛一次，管的是「轨道开始出数据」；
+   * 这条每开一次摄像头等一次，管的是「元素上换成新画面了」。为什么要等见 `FirstFrameGate`。
+   */
+  awaitFirstVideoFrame(uid: string, onFrame: (trackId: string) => void): void {
+    this.firstFrames.arm(uid, this.views.viewOf(uid), () => onFrame(this.videoTrackOf(uid)));
+  }
+
   /** attachView 把某个 uid 的远端画面挂到元素上；传 null 卸载。 */
   attachView(uid: string, el: ViewElement | null): void {
     this.views.attach(uid, el);
+    if (el !== null) this.firstFrames.attached(uid, el);
   }
 
   /** attachLocalView 把本端某条轨道挂到元素上做预览；传 null 卸载。 */
@@ -171,6 +185,11 @@ export class MediaBridge {
   private clear(): void {
     this.views.clear();
     this.seenVideo.clear();
+    this.firstFrames.clear();
+  }
+
+  private videoTrackOf(uid: string): string {
+    return this.views.streamFor(uid)?.getTracks().find((track) => track.kind === 'video')?.id ?? '';
   }
 }
 

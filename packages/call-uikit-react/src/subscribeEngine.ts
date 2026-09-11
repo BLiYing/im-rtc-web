@@ -50,7 +50,11 @@ export function subscribeEngine(engine: CallEngine, dispatch: (action: ViewActio
     engine.on('callMissed', (e) => dispatch({ type: 'hint', text: `${e.caller} 来电，已自动回复忙线` })),
     // 他设备处理了：来电页会随后收到 callEnd 而静默消失，这里不弹提示（交互稿 §06）。
     engine.on('handledOnOtherDevice', () => undefined),
-    engine.on('firstVideoFrame', () => dispatch({ type: 'mediaReady' })),
+    engine.on('firstVideoFrame', (e) => {
+      dispatch({ type: 'mediaReady' });
+      // 对端开摄像头后新画面上屏，揭开他的格子（见 RemoteParticipant.isVideoPending）。
+      dispatch({ type: 'videoRevealed', uid: e.uid });
+    }),
     engine.on('roomJoined', () => dispatch({ type: 'mediaReady' })),
     /*
       会议的收尾。**必须订阅这两个**，否则离房成功了界面还挂在那儿——

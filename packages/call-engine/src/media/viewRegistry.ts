@@ -108,6 +108,11 @@ export class ViewRegistry {
     return [...this.owners];
   }
 
+  /** viewOf 取某人此刻挂着的元素（没挂为 undefined）。 */
+  viewOf(uid: string): ViewElement | undefined {
+    return this.views.get(uid);
+  }
+
   /** streamFor 取某人的流，宿主想自己挂载时用。 */
   streamFor(uid: string): MediaStream | undefined {
     return this.streams.get(uid);

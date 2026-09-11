@@ -71,6 +71,7 @@ export function GridStage(): ReactNode {
             uid={p.uid}
             label={p.uid}
             hasVideo={p.hasVideo}
+            isVideoPending={p.isVideoPending}
             hasAudio={p.hasAudio}
             isSpeaking={p.isSpeaking}
             volume={p.volume}

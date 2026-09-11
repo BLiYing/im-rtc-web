@@ -14,7 +14,7 @@ describe('applySpeakers', () => {
   const room = (uids: string[]): CallViewState => ({
     ...initialCallView,
     participants: uids.map((uid) => ({
-      uid, hasAudio: true, hasVideo: false, isSpeaking: false, volume: 0,
+      uid, hasAudio: true, hasVideo: false, isVideoPending: false, isSpeaking: false, volume: 0,
       hasAccepted: true, networkLevel: 0, settled: '' as const,
     })),
   });

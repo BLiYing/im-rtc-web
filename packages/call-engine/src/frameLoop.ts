@@ -129,6 +129,13 @@ export class FrameLoop {
       if (event.cb === 'onKickedOut') continue;
       bus.emitMachine(event);
     }
+    /*
+      有人开了摄像头：等他的**新画面真的上屏**再抛一次 firstVideoFrame（见 `FirstFrameGate`）。
+      放在抛事件之后——界面先收到 userVideoAvailable 记成「等画面」，再等这一帧来揭示。
+    */
+    for (const uid of videoTurnedOn(result.emit)) {
+      bridge.awaitFirstVideoFrame(uid, (trackId) => bus.emit('firstVideoFrame', { uid, trackId }));
+    }
     for (const frame of result.send) {
       await this.sendFrame(frame);
     }
@@ -232,4 +239,18 @@ export class FrameLoop {
       room_state: this.ctx.room.state,
     });
   }
+}
+
+/**
+ * videoTurnedOn 挑出这一批事件里「开了摄像头」的人。只看视频、只看开——
+ * 关摄像头与麦克风开关不用等画面（Android `videoTurnedOn` 同一条判据）。
+ */
+export function videoTurnedOn(emit: readonly EmittedEvent[]): string[] {
+  const uids: string[] = [];
+  for (const event of emit) {
+    if (event.cb !== 'onUserVideoAvailable' || event.args['available'] !== true) continue;
+    const uid = event.args['uid'];
+    if (typeof uid === 'string' && uid !== '') uids.push(uid);
+  }
+  return uids;
 }

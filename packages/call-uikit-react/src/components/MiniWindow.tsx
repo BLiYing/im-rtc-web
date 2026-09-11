@@ -79,6 +79,7 @@ export function MiniWindow(): ReactNode {
           uid={speaker.uid}
           label={speaker.uid}
           hasVideo={speaker.hasVideo}
+          isVideoPending={speaker.isVideoPending}
           layer="l"
           style={{ ...styles.miniVideo, pointerEvents: 'none' }}
         />
