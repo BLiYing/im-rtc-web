@@ -41,6 +41,8 @@
 **先重起 vite。**
 
 1. 本批（进房前 / 通话中关摄像头停采集、挂断图标消失）用户 2026-09-11 浏览器里验过。
+2. **demo-react 设置卡片**（2026-09-11 合入 `5cc89ef`，**浏览器里没点过**）：横幅开关改完来电表现立刻变；关详细日志后 debug 不再出；
+   改画质退出重登后采集分辨率跟着变；刷新页面设置还在。
 
 ### 真机验收（**这一整批一条都没验**）
 
@@ -117,6 +119,9 @@
 - **`packages/call-engine/src/` 里不能放 `*.test.ts`**（会被 `tsc -b` 算进 build）。测试一律放 `test/`。
 - **换 token 是宿主的事**（协议 §1.5）；engine 只提供 `updateToken`。
 - **画质是宿主策略**（`videoProfile`），改档位要同步服务端 `bwe.go` 的 `bitrateHigh`。
+- **SDK 版本号改 `packages/call-engine/src/version.ts`（`SDK_VERSION`）+ 两个 `package.json`**（2026-09-11 五端统一 1.0.0），握手发 `web/1.0.0`。
+  demo-react 的设置存 **localStorage**（偏好，双开共用），登录态仍是 sessionStorage；它的 vitest 已进 test.sh，
+  但**体量门禁与日志门禁都不扫 `demo-react/`**（老漏洞，未修）。
 - 发送侧一律用 `newFrameData(FIELDS)` 起手（协议 §2.4 的默认值陷阱）。
 
 ## 关联工程 / 常用命令
@@ -127,7 +132,7 @@
 - 常用命令：
   ```bash
   ./scripts/install-hooks.sh                       # 新 clone 跑一次
-  ./scripts/test.sh                                # 唯一测试入口（13 步）
+  ./scripts/test.sh                                # 唯一测试入口（14 步）
   npx vitest run --root packages/call-engine       # 只跑 engine 测试
   npx vitest run --root packages/call-uikit-react  # 只跑 uikit 测试（jsdom）
   npm test                                         # = 上面两条；根目录没有 vitest 配置，不能裸跑 vitest

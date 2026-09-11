@@ -113,13 +113,26 @@ def git(*args: str) -> str | None:
     return out.stdout
 
 
+def lock_diff_range() -> tuple[str, str] | None:
+    """在分支上比「分叉点 → 工作区」；已合进 main 时分叉点就是 HEAD，改比那次合并提交相对第一父。"""
+    base, head = git("merge-base", "HEAD", "main"), git("rev-parse", "HEAD")
+    if base is None or head is None:
+        return None
+    if base.strip() != head.strip():
+        return base.strip(), ""
+    merge = git("log", "-1", "--merges", "--format=%H", "--grep=feat/settings-sdk-1.0.0")
+    if not merge or not merge.strip():
+        return None
+    return f"{merge.strip()}^1", merge.strip()
+
+
 def check_lock_drift(rep: Report) -> None:
-    """lockfile 相对 main 的分叉点只许改三行，且改的都是版本号。"""
-    base = git("merge-base", "HEAD", "main")
-    if base is None:
-        log.warning("找不到与 main 的分叉点，跳过 lockfile 漂移检查")
+    """lockfile 这次改动只许动三行，且改的都是版本号。"""
+    rng = lock_diff_range()
+    if rng is None:
+        log.warning("找不到与 main 的分叉点或合并提交，跳过 lockfile 漂移检查")
         return
-    diff = git("diff", base.strip(), "--", "package-lock.json")
+    diff = git("diff", *[r for r in rng if r], "--", "package-lock.json")
     if diff is None:
         rep.check("lockfile 无无关漂移", False, "git diff 失败")
         return
