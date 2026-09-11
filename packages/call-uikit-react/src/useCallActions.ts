@@ -207,6 +207,9 @@ export function useCallActions({ engine, state, dispatch, cids, gate }: CallActi
         */
         try {
           cids.current.cam = await engine.publishCamera();
+          // **本端格子靠 localCameraCid 才挂得上画面**：漏了这一下是「对端看得见我、我自己看不见我」。
+          // 原先被遮住是因为权限门顺手起了预览；群通话默认关摄像头进来之后，通话中点开必走这条。
+          dispatch({ type: 'localCamera', cid: cids.current.cam });
         } catch (err) {
           logger.warn('开摄像头失败', { err: String(err) });
           dispatch({ type: 'setCamera', on: false });

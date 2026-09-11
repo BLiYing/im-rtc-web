@@ -282,6 +282,22 @@ describe('顶部横幅', () => {
   });
 });
 
+describe('通话中打开摄像头', () => {
+  it('群通话关着摄像头接通，通话中点开：本端格子要挂上本端画面（09-11 真机：对端看得见、自己看不见）', async () => {
+    const engine = setup();
+    connectAs(engine, 'caller', true); // 群视频默认关摄像头
+    expect(engine.calls).not.toContain('publishCam');
+
+    fireEvent.click(screen.getByTestId('toggle-camera'));
+    await flush();
+
+    expect(engine.calls).toContain('publishCam');
+    expect(engine.attached).toContainEqual({ uid: ':local:cam-1', hasElement: true });
+    const video = screen.getByTestId('tile-self').querySelector('video');
+    expect(video?.style.visibility).toBe('visible');
+  });
+});
+
 /*
   三条「失败路径没人收尾」的回归（都是 /code-review 抓出来的）：
   开摄像头失败、加人被服务端拒、一次性提示永久顶掉计时器。
