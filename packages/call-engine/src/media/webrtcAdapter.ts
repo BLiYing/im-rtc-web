@@ -32,10 +32,24 @@ export class WebRTCAdapter implements MediaAdapter {
 
   /** 采集画质档位。见 videoProfile.ts：**策略归宿主**，不是服务端下发的。 */
   private readonly video: VideoProfile;
-  /** 已经在预览的摄像头轨道。发布时复用它，不重开设备。 */
-  private preview: { track: MediaStreamTrack; stream: MediaStream } | null = null;
+  /** 已经在预览的摄像头。发布时复用它，不重开设备。 */
+  private preview: CameraCapture | null = null;
   /** 预览那条轨道是否已经挂到 pub 上。`addTrack` 同一条轨道两次会抛异常。 */
   private cameraPublished = false;
+  /**
+   * acquireCamera 已经认领了预览（发布中或已发布）。**进门就置位**，不等预览起完：
+   * 预览还在路上时来一句 `stopLocalPreview`，不能把马上要发布的这条停掉。
+   */
+  private cameraClaimed = false;
+  /** 摄像头挂上 pub 的 sender。通话中关了再开要靠它 `replaceTrack`，不重新协商。 */
+  private cameraSender: RTCRtpSender | null = null;
+  /**
+   * 预览意图的序号：每次 start / stop 加一。
+   * `stopLocalPreview` 等完在起的那一次之后序号变了，说明这期间又有人要了预览——听后来的。
+   */
+  private previewIntent = 0;
+  /** 通话中开关摄像头排成一队：连点时上一次的 getUserMedia 还没回来，下一次不能插队。 */
+  private cameraToggle: Promise<void> = Promise.resolve();
   /** 麦克风权限已经探过一次。见 `probeMicrophone`：探测不是免费的。 */
   private micProbed = false;
   /** 摄像头权限已经探过一次。见 `probeCamera`。 */
@@ -133,10 +147,33 @@ export class WebRTCAdapter implements MediaAdapter {
    * 不复用的话第二次 `getUserMedia` 会去抢同一个摄像头。
    */
   async startLocalPreview(): Promise<LocalTrackInfo> {
-    if (this.preview !== null) return previewInfo(this.preview.track);
+    this.previewIntent += 1;
+    if (this.preview !== null) return previewInfo(this.preview.cid);
     // 单飞：已经有一次在起就等它，见 `previewOpening`。
     if (this.previewOpening === null) this.previewOpening = this.openPreview(this.closeGeneration);
     return this.previewOpening;
+  }
+
+  /**
+   * stopLocalPreview 停掉**还没发布**的预览，摄像头指示灯随之熄灭（交互稿 §01 v3.7）。
+   *
+   * 进房前（来电页 / 拨出中）关摄像头原先只是把画面藏起来，采集一直开到通话结束。
+   * 已经发布（或正在发布）的不停：通话中关摄像头走 `setMuted`，发送器与协商要留着。
+   */
+  async stopLocalPreview(): Promise<void> {
+    this.previewIntent += 1;
+    const intent = this.previewIntent;
+    // 预览还在起：等它落地再停。直接放过的话，它回来时摄像头就亮着没人管了。
+    if (this.previewOpening !== null) await this.previewOpening.catch(() => undefined);
+    if (intent !== this.previewIntent || this.cameraClaimed) return;
+    const current = this.preview;
+    if (current === null) return;
+    this.preview = null;
+    this.locals.delete(current.cid);
+    current.track.stop();
+    // 能起过预览说明权限早就拿到了，之后的 probeCamera 不必再开一次设备。
+    this.cameraProbed = true;
+    logger.info('进房前关摄像头，预览采集已停', { cid: current.cid });
   }
 
   private async openPreview(generation: number): Promise<LocalTrackInfo> {
@@ -153,9 +190,9 @@ export class WebRTCAdapter implements MediaAdapter {
           cause: new Error('getUserMedia 没返回 video 轨道'),
         });
       }
-      this.preview = { track, stream };
+      this.preview = { cid: track.id, track, stream, paused: false };
       this.locals.set(track.id, track);
-      return previewInfo(track);
+      return previewInfo(track.id);
     } finally {
       // 只收自己这一代的：close 之后新起的那次预览不能被上一代的收尾抹掉。
       if (generation === this.closeGeneration) this.previewOpening = null;
@@ -164,10 +201,17 @@ export class WebRTCAdapter implements MediaAdapter {
 
   async acquireCamera(simulcast = true): Promise<LocalTrackInfo> {
     // **复用预览那条轨道**：拨出时已经开过摄像头了，再开一次会抢设备。
-    const info = await this.startLocalPreview();
+    this.cameraClaimed = true;
+    let info: LocalTrackInfo;
+    try {
+      info = await this.startLocalPreview();
+    } catch (err) {
+      this.cameraClaimed = this.cameraPublished;
+      throw err;
+    }
     if (this.preview === null || this.cameraPublished) return info;
     this.cameraPublished = true;
-    this.addVideoTrack(this.preview.track, this.preview.stream, simulcast);
+    this.cameraSender = this.addVideoTrack(this.preview.track, this.preview.stream, simulcast);
     return info;
   }
 
@@ -189,11 +233,12 @@ export class WebRTCAdapter implements MediaAdapter {
    * `streams: [stream]` 不能省：msid 的第二段就是 cid，服务端靠它认领 m-line
    * （协议 §3.2）。省掉它服务端永远认不回这条轨道。
    */
-  private addVideoTrack(track: MediaStreamTrack, stream: MediaStream, simulcast: boolean): void {
+  private addVideoTrack(track: MediaStreamTrack, stream: MediaStream, simulcast: boolean): RTCRtpSender {
     const pub = this.requirePub();
     if (!simulcast) {
-      this.applyVideoBitrate(pub.addTrack(track, stream));
-      return;
+      const sender = pub.addTrack(track, stream);
+      this.applyVideoBitrate(sender);
+      return sender;
     }
     const transceiver = pub.addTransceiver(track, {
       direction: 'sendonly',
@@ -205,6 +250,7 @@ export class WebRTCAdapter implements MediaAdapter {
       layers: simulcastEncodings(this.video).map((e) => e.rid).join(','),
     });
     this.applyVideoBitrate(transceiver.sender);
+    return transceiver.sender;
   }
 
   /**
@@ -352,12 +398,61 @@ export class WebRTCAdapter implements MediaAdapter {
     }
   }
 
-  setMuted(cid: string, muted: boolean): void {
+  async setMuted(cid: string, muted: boolean): Promise<void> {
     const track = this.locals.get(cid);
     if (track === undefined) return;
     // enabled=false 会让浏览器发静音帧/黑帧而不是断流——协商与 Track 都保留，
     // 这正是 mute 与 unpublish 的区别。
     track.enabled = !muted;
+    const camera = this.preview;
+    if (camera === null || camera.cid !== cid || !this.cameraPublished) return;
+    // 代数在**调用时**记下：排队期间 close() 过的话，轮到它时要认得出自己已经过期。
+    const generation = this.closeGeneration;
+    const run = this.cameraToggle.then(() => this.syncCameraCapture(camera, muted, generation));
+    this.cameraToggle = run.catch(() => undefined);
+    await run;
+  }
+
+  /**
+   * syncCameraCapture 让已发布摄像头的采集跟上开关（交互稿 §01 v3.7：通话中关摄像头也停采集）。
+   *
+   * 光 `enabled=false` 的话画面是黑了，**摄像头指示灯却一直亮着**。所以关 = `stop()` 掉轨道；
+   * 开 = 重新 getUserMedia，再用 `replaceTrack` 换到同一个 sender 上——
+   * transceiver、msid、cid 都不变，**不重新协商**，服务端只看到这条 Track 又有包了。
+   * 重新采集可能被拒（用户刚在浏览器里收回了权限），错误原样抛给调用方，轨道留在停着的状态。
+   */
+  private async syncCameraCapture(camera: CameraCapture, muted: boolean, generation: number): Promise<void> {
+    const stale = (): boolean => generation !== this.closeGeneration || this.preview !== camera;
+    if (stale()) return;
+    if (muted) {
+      if (camera.paused) return;
+      camera.paused = true;
+      camera.track.stop();
+      logger.info('通话中关摄像头，采集已停（发送器与协商保留）', { cid: camera.cid });
+      return;
+    }
+    if (!camera.paused) return;
+    const stream = await this.getStreamOrThrow({ video: videoConstraints(this.video) });
+    const track = stream.getVideoTracks()[0];
+    if (stale() || track === undefined) {
+      for (const t of stream.getTracks()) t.stop();
+      if (stale()) return;
+      throw new RtcError(ErrorCode.deviceNotFound, { cause: new Error('getUserMedia 没返回 video 轨道') });
+    }
+    try {
+      await this.cameraSender?.replaceTrack(track);
+    } catch (cause) {
+      track.stop();
+      throw new RtcError(ErrorCode.invalidState, { cause });
+    }
+    if (stale()) {
+      track.stop();
+      return;
+    }
+    camera.track = track;
+    camera.paused = false;
+    this.locals.set(camera.cid, track);
+    logger.info('通话中重新打开摄像头，已换上新采集的轨道', { cid: camera.cid });
   }
 
   localTrack(cid: string): MediaStreamTrack | undefined {
@@ -370,6 +465,10 @@ export class WebRTCAdapter implements MediaAdapter {
     this.locals.clear();
     this.preview = null;
     this.cameraPublished = false;
+    this.cameraClaimed = false;
+    this.cameraSender = null;
+    // 排着队的开关回来时认出代数不对，自己收摊（syncCameraCapture）。
+    this.cameraToggle = Promise.resolve();
     // 还在起的预览作废：它回来时认出代数不对，自己把流放掉（openPreview）。
     this.previewOpening = null;
     this.closeGeneration += 1;
@@ -397,7 +496,21 @@ function isPermissionError(cause: unknown): boolean {
   return cause instanceof Error && (cause.name === 'NotAllowedError' || cause.name === 'SecurityError');
 }
 
-/** previewInfo 把预览轨道翻成 LocalTrackInfo。cid 就是轨道的 id（协议 §3.2）。 */
-function previewInfo(track: MediaStreamTrack): LocalTrackInfo {
-  return { cid: track.id, kind: 'video', source: 'camera' };
+/**
+ * CameraCapture 是本端那一路摄像头。
+ *
+ * `cid` 单独存、不从 `track.id` 读：通话中关了再开会换上一条新采集的轨道（新的 track.id），
+ * 而 cid 早已报给服务端、写进了 msid，不能跟着变。
+ */
+interface CameraCapture {
+  readonly cid: string;
+  track: MediaStreamTrack;
+  readonly stream: MediaStream;
+  /** 通话中关了摄像头、轨道已经 stop()。再开时要重新采集。 */
+  paused: boolean;
+}
+
+/** previewInfo 把预览翻成 LocalTrackInfo。cid 是**第一条**采集轨道的 id（协议 §3.2）。 */
+function previewInfo(cid: string): LocalTrackInfo {
+  return { cid, kind: 'video', source: 'camera' };
 }

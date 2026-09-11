@@ -39,6 +39,30 @@ beforeAll(() => {
   (globalThis as { MediaStream?: unknown }).MediaStream = FakeStream;
 });
 
+describe('MediaBridge.refreshLocalViews', () => {
+  it('本端轨道换了人（通话中关了又开）就换挂新轨道；轨道没了（进房前关掉）就摘掉；没变不动', () => {
+    const locals = new Map<string, MediaStreamTrack>([['cam-1', fakeTrack('cam-1')]]);
+    const adapter = { localTrack: (cid: string) => locals.get(cid) } as unknown as MediaAdapter;
+    const bridge = new MediaBridge(adapter);
+    const el = { srcObject: null as MediaStream | null };
+    bridge.attachLocalView('cam-1', el);
+    expect(trackIds(el.srcObject ?? undefined)).toEqual(['cam-1']);
+
+    const before = el.srcObject;
+    bridge.refreshLocalViews();
+    expect(el.srcObject, '轨道没变：不该重挂，<video> 会闪').toBe(before);
+
+    locals.set('cam-1', fakeTrack('cam-2'));
+    bridge.refreshLocalViews();
+    expect(trackIds(el.srcObject ?? undefined)).toEqual(['cam-2']);
+    expect(el.srcObject, '要是一条新流，<video> 才会重新加载').not.toBe(before);
+
+    locals.delete('cam-1');
+    bridge.refreshLocalViews();
+    expect(el.srcObject).toBeNull();
+  });
+});
+
 describe('ViewRegistry 的挂载时序', () => {
   it('归属先到、轨道后到：直接挂上', () => {
     const reg = new ViewRegistry();

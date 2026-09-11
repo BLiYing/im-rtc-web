@@ -191,6 +191,85 @@ describe('来电页的本端预览', () => {
   });
 });
 
+/*
+  来电页上关摄像头 = 真的停采集（交互稿 §01 v3.7）。
+  只熄按钮的话，开过又关掉的摄像头指示灯要一直亮到通话结束。
+*/
+describe('来电页上关摄像头：真的停采集', () => {
+  function stops(engine: FakeEngine): number {
+    return engine.calls.filter((c) => c === 'stopLocalPreview').length;
+  }
+
+  it('预览起好后关掉：停采集、本端小窗收起；再打开重新起预览', async () => {
+    const engine = setup({ bannerFirst: false });
+    ring(engine);
+    await flush();
+    expect(screen.getByLabelText('本端画面')).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId('incoming-toggle-camera'));
+    await flush();
+    expect(stops(engine)).toBe(1);
+    expect(screen.queryByLabelText('本端画面')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('incoming-toggle-camera'));
+    await flush();
+    expect(previews(engine)).toBe(2);
+    expect(screen.getByLabelText('本端画面')).toBeTruthy();
+  });
+
+  it('预览还在起时关掉：起完回来不写 cid，本端小窗不出来', async () => {
+    const engine = setup({ bannerFirst: false });
+    let release: () => void = () => undefined;
+    engine.previewHold = new Promise((resolve) => { release = resolve; });
+    ring(engine);
+    await flush();
+    expect(previews(engine)).toBe(1);
+
+    fireEvent.click(screen.getByTestId('incoming-toggle-camera'));
+    await flush();
+    release();
+    await flush();
+    expect(stops(engine)).toBe(1);
+    expect(screen.queryByLabelText('本端画面')).toBeNull();
+  });
+
+  it('还在起时关掉又打开：重新起一次（让还在等的停止作罢），本端小窗照常出来', async () => {
+    const engine = setup({ bannerFirst: false });
+    let release: () => void = () => undefined;
+    engine.previewHold = new Promise((resolve) => { release = resolve; });
+    ring(engine);
+    await flush();
+
+    fireEvent.click(screen.getByTestId('incoming-toggle-camera'));
+    await flush();
+    fireEvent.click(screen.getByTestId('incoming-toggle-camera'));
+    await flush();
+    release();
+    await flush();
+    expect(previews(engine)).toBe(2);
+    expect(screen.getByLabelText('本端画面')).toBeTruthy();
+  });
+
+  it('关着摄像头接听：只问麦克风、只推麦克风，进房时再停一次预览兜底', async () => {
+    const engine = setup({ bannerFirst: false });
+    ring(engine);
+    await flush();
+    fireEvent.click(screen.getByTestId('incoming-toggle-camera'));
+    await flush();
+    fireEvent.click(screen.getByTestId('accept-call'));
+    await flush();
+    act(() => {
+      engine.emit('callBegin', { callId: 'c-1', roomId: 'r-1', mediaType: 'video', isGroup: false, role: 'callee' });
+      engine.emit('roomJoined', { roomId: 'r-1' });
+    });
+    await flush();
+    expect(engine.calls).not.toContain('probeCam');
+    expect(engine.calls).toContain('publishMic');
+    expect(engine.calls).not.toContain('publishCam');
+    expect(engine.calls.slice(engine.calls.indexOf('publishMic'))).toContain('stopLocalPreview');
+  });
+});
+
 describe('纯函数', () => {
   it('expandIncoming 只在响铃时生效', () => {
     expect(reduceCallView(initialCallView, { type: 'expandIncoming' }).isBannerExpanded).toBe(false);

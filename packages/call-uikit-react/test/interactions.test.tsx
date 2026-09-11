@@ -296,6 +296,28 @@ describe('通话中打开摄像头', () => {
     const video = screen.getByTestId('tile-self').querySelector('video');
     expect(video?.style.visibility).toBe('visible');
   });
+
+  it('通话中关了再开：开关的是同一条（不重新发布）；重新采集被拒时按钮弹回、标成无权限', async () => {
+    const engine = setup();
+    connectAs(engine, 'caller', true); // 群视频默认关摄像头，先点开发布一次
+    fireEvent.click(screen.getByTestId('toggle-camera'));
+    await flush();
+    expect(engine.calls.filter((c) => c === 'publishCam')).toHaveLength(1);
+
+    fireEvent.click(screen.getByTestId('toggle-camera')); // 关 = 停采集
+    await flush();
+    expect(engine.calls).toContain('mute:cam-1:true');
+
+    // 用户这时在浏览器里收回了摄像头权限：再打开要重新 getUserMedia，会被拒。
+    engine.unmuteError = new RtcError(ErrorCode.devicePermissionDenied);
+    fireEvent.click(screen.getByTestId('toggle-camera'));
+    await flush();
+    expect(engine.calls).toContain('mute:cam-1:false');
+    expect(engine.calls.filter((c) => c === 'publishCam')).toHaveLength(1);
+    const camera = screen.getByTestId('toggle-camera');
+    expect(camera.getAttribute('aria-disabled')).toBe('true');
+    expect(camera.textContent).toContain('无权限');
+  });
 });
 
 /*

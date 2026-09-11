@@ -65,9 +65,15 @@ export async function publishCamera(d: MediaApiDeps, simulcast: boolean): Promis
   return info.cid;
 }
 
-/** 开关本端某条轨道。还没拿到 track_id（publish.ok 没回来）时只动本端，不发帧。 */
+/**
+ * 开关本端某条轨道。还没拿到 track_id（publish.ok 没回来）时只动本端，不发帧。
+ *
+ * **先动本端、再发帧**：打开摄像头要重新采集，可能失败（权限被收回 / 设备被占）——
+ * 失败时抛出去，帧就不发，免得告诉对端「开了」却一帧画面都没有。
+ * 关的时候本端也先停：帧要等 `room.mute.ok`，不能让指示灯多亮这一个来回。
+ */
 export async function setMuted(d: MediaApiDeps, cid: string, muted: boolean): Promise<void> {
-  d.media.setMuted(cid, muted);
+  await d.media.setMuted(cid, muted);
   const trackId = d.loop.state.room.publishTrackIds[cid];
   if (trackId === undefined) return;
   await d.loop.dispatch({ kind: 'act', op: 'mute', args: { track_id: trackId, muted } });

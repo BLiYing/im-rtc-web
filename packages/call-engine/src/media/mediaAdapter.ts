@@ -86,6 +86,15 @@ export interface MediaAdapter {
    */
   startLocalPreview(): Promise<LocalTrackInfo>;
 
+  /**
+   * stopLocalPreview 进房前关摄像头：**真的停采集**（摄像头指示灯灭），设计文档 §7.5。
+   *
+   * 只停「还没发布」的预览——已经挂上 pub 的那条归 `setMuted` 管，这里碰都不碰。
+   * 最新意图为准：等在途的预览起完再判；这期间又调了 `startLocalPreview`
+   * 或 `acquireCamera` 的话就不停。没有预览时什么也不做。
+   */
+  stopLocalPreview(): Promise<void>;
+
   /** acquireCamera 拿摄像头轨道并挂到 pub PC 上，返回它的 cid。
    *  已经在预览的话**复用那条轨道**，不重开摄像头。
    *
@@ -112,8 +121,12 @@ export interface MediaAdapter {
    *
    * **这不是 unpublish**：轨道与协商都保留，只是停止发包。
    * 反复开关摄像头走 unpublish 会触发重协商风暴。
+   *
+   * 已发布的摄像头关掉时**连采集一起停**（指示灯灭），打开时重新采集并 `replaceTrack`
+   * 换到原来的 sender 上——cid 不变、协商不动。重新采集可能失败（权限被收回 / 设备被占），
+   * 所以返回 promise，失败以 RtcError 拒绝。
    */
-  setMuted(cid: string, muted: boolean): void;
+  setMuted(cid: string, muted: boolean): void | Promise<void>;
 
   /** localTrack 取一条本端轨道，供 UI 做本地预览。 */
   localTrack(cid: string): MediaStreamTrack | undefined;

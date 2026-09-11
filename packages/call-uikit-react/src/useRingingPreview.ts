@@ -52,24 +52,35 @@ export function useRingingPreview({ engine, state, dispatch, query, pageShown }:
     if (mediaType !== 'video' || !cameraOn || cameraBlocked) return;
     starting.current = true;
     const token = ringToken.current;
-    const stillRinging = (): boolean => ringToken.current === token;
+    /*
+      **依赖一变，这一轮就作废。** 典型是「预览还在起，用户关了摄像头又打开」：
+      关的那一下 `stopLocalPreview` 会等这次起完再停；若这一轮还占着 `starting`，
+      重新打开时就不会再起，而这一轮回来又把一条已经停掉的轨道的 cid 写进状态——黑屏、灯灭、按钮却亮着。
+      作废之后下一轮会重新 `startLocalPreview`，那一下会让还在等的停止作罢（最新意图为准）。
+    */
+    let superseded = false;
+    const current = (): boolean => !superseded && ringToken.current === token;
 
     void (async (): Promise<void> => {
       try {
         const status = await queryRef.current('camera');
-        if (!stillRinging()) return;
+        if (!current()) return;
         const now = latest.current;
         if (!shouldPreviewWhileRinging(now.mediaType, now.self.cameraOn, now.self.cameraBlocked, status)) {
           starting.current = false;
           return;
         }
         const cid = await engine.startLocalPreview();
-        // 铃已经不响了（拒接 / 对方取消）：别把这个 cid 写进后面的状态。
-        if (stillRinging()) dispatch({ type: 'localCamera', cid });
+        // 铃已经不响了（拒接 / 对方取消），或摄像头这期间被关掉了：别把这个 cid 写进后面的状态。
+        if (current() && latest.current.self.cameraOn) dispatch({ type: 'localCamera', cid });
       } catch (err) {
         logger.warn('来电页预览起不来，接听时再申请', { err: String(err) });
-        if (stillRinging()) starting.current = false;
+        if (current()) starting.current = false;
       }
     })();
+    return () => {
+      superseded = true;
+      starting.current = false;
+    };
   }, [phase, pageShown, localCameraCid, mediaType, cameraOn, cameraBlocked, engine, dispatch]);
 }

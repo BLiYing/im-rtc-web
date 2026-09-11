@@ -12,22 +12,17 @@
 
 ## 当前焦点
 
-**2026-09-11 晚：「来电页 + 进房前关摄像头停采集」六步里的第 2 步（Web），直接在 main 上改（未提交）。**
-设计依据是设计稿 v3.7（server 仓 `RTC_CALL_UX_SKETCH.html` §03-F / §04-I，规范「来电页」行），第 1 步已改完。
+**2026-09-11 晚：「来电页 + 进房前关摄像头停采集」第 6 步 + 延后项①（本仓），直接在 main 改，已提交，用户浏览器里验过。**
+六步总表在 `../im-rtc-server/current_task.md` 的「另一条线」；第 2 步（来电页 + `bannerFirst` + 预览单飞）已提交 `caa268f`。
 
-- **来电页**：点横幅本体展开成来电页（按钮栏 `stopPropagation`，点接听不会顺带展开）。
-  来电页复用 `ActiveCall`：1v1 是语音版式 + 本端小窗，群来电是九宫格；标题栏不给小窗键，
-  底部换成 `IncomingControls`（摄像头 / 拒绝 / 接听）。`CallProvider` 新增 `bannerFirst`（默认 true，false = 直接进来电页）。
-- **来电页预览**（`useRingingPreview`）：只在来电页上、且权限查询是 `granted` 才起（`shouldPreviewWhileRinging`，与 iOS 同判据）；
-  `prompt` / `unknown` 不探不弹。**失败只记日志、不置 cameraBlocked**——effect 不是用户手势，Safari 会拒，接听那一下再申请。
-- **adapter 单飞**：`startLocalPreview` / `acquireCamera` / `probeCamera` 共用正在起的那一次 `getUserMedia`；
-  `close()` 递增 `closeGeneration`，起到一半被关掉的流回来当场 `stop()`。
+- **进房前关摄像头停采集**：engine 新增 `stopLocalPreview()`。adapter 等在起的那次落地再停；`previewIntent` 序号——
+  等的期间又有人要预览就听后来的；`cameraClaimed`（正在发布 / 已发布）的不停。
+  uikit：进房前关摄像头先清 `localCamera` 再停；关着摄像头接通时停掉残留的预览。
+- **通话中关摄像头也停采集**（`syncCameraCapture`）：关 = `track.stop()`；开 = 重新 `getUserMedia` 再 `replaceTrack` 到同一个 sender。
+  transceiver / msid / cid 不变，**不重新协商**。开关排队串行（`cameraToggle`），`close()` 之后才回来的认出代数不对自己收摊。
+  重新采集被拒时错误原样抛给调用方，轨道留在停着的状态。
 
-`./scripts/test.sh` 全绿（13 步），uikit 136 条（新增 `incomingPage.test.tsx` 18 条），engine 新增 `localPreview.test.ts` 5 条。
-**没在浏览器里跑过**。
-
-**本批剩下的步**：3 桌面窗内横幅 → 4 Android → 5 iOS 单飞 → 6 三端 `stopLocalPreview`（进房前关摄像头停采集，本仓也要做）。
-**本批完成后才做**（已记）：通话中关摄像头也停采集（`replaceTrack(null)`，不 unpublish）。
+`./scripts/test.sh` 全绿（13 步）。
 
 ### 测之前记得
 
@@ -45,12 +40,7 @@
 
 **先重起 vite。**
 
-1. **点横幅本体进来电页**；点横幅上的接听 / 拒绝 / 摄像头不会展开。来电页上没有小窗键。
-2. **1v1 视频来电页的本端小窗**：摄像头早授过权 → 来电页上看得到自己；没授过权 → 来电页上不弹框、没小窗，
-   点接听才弹。在来电页上关掉摄像头再接 → 只要麦克风。
-3. **群视频来电页是九宫格**，摄像头默认关；在来电页上点开（已授权）→ 自己那格出画面。
-4. **来电页预览没起完就点接听**：摄像头只开一次（Chrome 地址栏摄像头图标不闪两下），接通后对端看得到。
-5. 上一刀没验的：群视频（默认关摄像头）进房后点开摄像头，自己那格立刻有画面。
+1. 本批（进房前 / 通话中关摄像头停采集、挂断图标消失）用户 2026-09-11 浏览器里验过。
 
 ### 真机验收（**这一整批一条都没验**）
 

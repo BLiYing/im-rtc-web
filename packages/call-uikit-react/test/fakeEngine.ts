@@ -106,10 +106,16 @@ export class FakeEngine {
   }
   /** 预览失败由测试控制：设 `previewError` 让它抛（= 摄像头权限被拒 / 没设备）。 */
   previewError: unknown = null;
+  /** 让预览停在「正在起」：设成一个还没 resolve 的 promise，测试 resolve 它才放行。 */
+  previewHold: Promise<void> | null = null;
   async startLocalPreview(): Promise<string> {
     this.calls.push('startLocalPreview');
+    if (this.previewHold !== null) await this.previewHold;
     if (this.previewError !== null) throw this.previewError;
     return 'cam-1';
+  }
+  async stopLocalPreview(): Promise<void> {
+    this.calls.push('stopLocalPreview');
   }
   /** 发布摄像头失败由测试控制：设 `publishCameraError` 让它抛。 */
   publishCameraError: unknown = null;
@@ -119,8 +125,11 @@ export class FakeEngine {
     this.state.room.publishTrackIds['cam-1'] = 't-cam';
     return 'cam-1';
   }
+  /** 通话中重新打开摄像头失败由测试控制：设 `unmuteError` 让「打开」那一下抛（重新采集被拒）。 */
+  unmuteError: unknown = null;
   async setMuted(cid: string, muted: boolean): Promise<void> {
     this.calls.push(`mute:${cid}:${String(muted)}`);
+    if (!muted && this.unmuteError !== null) throw this.unmuteError;
   }
 }
 

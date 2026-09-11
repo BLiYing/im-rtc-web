@@ -31,6 +31,7 @@ class NullMedia implements MediaAdapter {
   async startLocalPreview(): Promise<LocalTrackInfo> {
     return this.acquireCamera();
   }
+  async stopLocalPreview(): Promise<void> {}
 
   async acquireCamera(): Promise<LocalTrackInfo> {
     return { cid: 'cam-1', kind: 'video', source: 'camera' };

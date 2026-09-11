@@ -314,14 +314,29 @@ export class CallEngine {
     return info.cid;
   }
 
+  /**
+   * stopLocalPreview 进房前关摄像头：**真的停采集**，指示灯灭（设计文档 §7.5）。
+   *
+   * 只停还没发布的预览；已发布的摄像头走 `setMuted`。再打开时重新 `startLocalPreview`，cid 会变。
+   */
+  async stopLocalPreview(): Promise<void> {
+    await this.media.stopLocalPreview();
+    this.bridge.refreshLocalViews();
+  }
+
   /** publishCamera 发布摄像头。已经在预览的话复用那条轨道。 */
   async publishCamera(simulcast = true): Promise<string> {
     return publishCamera(this.mediaApi(), simulcast);
   }
 
-  /** setMuted 开关本端某条轨道。**不是 unpublish**，协商保留。 */
+  /**
+   * setMuted 开关本端某条轨道。**不是 unpublish**，协商保留。
+   *
+   * 摄像头关 = 停采集（指示灯灭），开 = 重新采集换上去，cid 不变；重新采集失败时抛 RtcError。
+   */
   async setMuted(cid: string, muted: boolean): Promise<void> {
     await setMuted(this.mediaApi(), cid, muted);
+    this.bridge.refreshLocalViews();
   }
 
   /** localTrack 取本端轨道做预览。 */

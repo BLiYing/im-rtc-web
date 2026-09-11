@@ -87,6 +87,25 @@ describe('决策逻辑（纯函数）', () => {
   });
 });
 
+describe('拨出中开关摄像头', () => {
+  it('1v1 视频拨出中关掉：停采集；再打开重新起预览（权限拨出前问过了，不再问）', async () => {
+    const engine = setup('granted', 'video');
+    fireEvent.click(screen.getByTestId('dial'));
+    await flush();
+    const previews = (): number => engine.calls.filter((c) => c === 'startLocalPreview').length;
+    expect(previews()).toBe(1);
+
+    fireEvent.click(screen.getByTestId('toggle-camera'));
+    await flush();
+    expect(engine.calls).toContain('stopLocalPreview');
+
+    fireEvent.click(screen.getByTestId('toggle-camera'));
+    await flush();
+    expect(previews()).toBe(2);
+    expect(engine.calls.filter((c) => c === 'probeCam')).toHaveLength(1);
+  });
+});
+
 describe('拨出前的权限门', () => {
   it('已授权：一个框都不出，直接探完就拨', async () => {
     const engine = setup('granted');

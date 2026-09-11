@@ -150,6 +150,24 @@ export class MediaBridge {
     this.views.attach(key, el);
   }
 
+  /**
+   * refreshLocalViews 让本端预览的挂载跟上适配器里的轨道。
+   *
+   * 本端轨道会在 cid 不变的情况下**换人**：通话中关了摄像头再打开，是重新采集一条、
+   * `replaceTrack` 换上去的；进房前关掉摄像头，轨道干脆就没了。`attachLocalView` 只在挂载时取一次轨道，
+   * 界面的 effect 又只看 cid——不在这里换掉的话，元素上挂着的还是那条停掉的轨道，自己看到的是定格 / 黑屏。
+   */
+  refreshLocalViews(): void {
+    for (const [trackId, key] of this.views.claimedTracks()) {
+      if (!key.startsWith(LOCAL_VIEW_PREFIX)) continue;
+      const current = this.adapter.localTrack(key.slice(LOCAL_VIEW_PREFIX.length));
+      if (current?.id === trackId) continue;
+      // 先摘后挂：流空了会被删掉，再挂时是一条新 MediaStream，<video> 会重新加载。
+      this.views.removeTrack(trackId);
+      if (current !== undefined) this.views.addTrack(current.id, current, key);
+    }
+  }
+
   private clear(): void {
     this.views.clear();
     this.seenVideo.clear();

@@ -1,7 +1,7 @@
 import type { CallEngine, MediaType } from '@im-rtc/call-engine';
 import { logger } from '@im-rtc/call-engine';
 import type { MutableRefObject } from 'react';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 
 import { defaultCameraOn } from './state/callView.js';
 import { classifyProbeError, devicesFor, devicesForAnswering } from './state/permissions.js';
@@ -57,6 +57,10 @@ export function useCallActions({ engine, state, dispatch, cids, gate }: CallActi
   readonly actions: CallActions;
   readonly publishFor: (mediaType: MediaType, withCamera: boolean) => Promise<void>;
 } {
+  /** 最新状态。异步链回来时判断摄像头**此刻**还开不开，不用闭包里那份旧的。 */
+  const latest = useRef(state);
+  latest.current = state;
+
   /**
    * publishFor 推本端媒体。
    *
@@ -83,10 +87,17 @@ export function useCallActions({ engine, state, dispatch, cids, gate }: CallActi
       }
       // **摄像头由调用方明说要不要，不在这里读 state**：这个函数在 effect 里被调用，
       // 闭包捕获的 state 未必是最新的一次提交。
-      if (mediaType !== 'video' || !withCamera) return;
+      if (mediaType !== 'video') return;
+      if (!withCamera) {
+        // 关着摄像头接通：进房前起过的预览（如果还有）这时一定要停掉，否则指示灯一直亮到挂断。
+        await engine.stopLocalPreview();
+        return;
+      }
       try {
         cids.current.cam = await engine.publishCamera();
         dispatch({ type: 'localCamera', cid: cids.current.cam });
+        // 发布是异步的，这期间用户可能已经点了关摄像头（那一下看到 cam 还是空的，什么也没做）——补一遍。
+        if (!latest.current.self.cameraOn) await engine.setMuted(cids.current.cam, true);
       } catch (err) {
         logger.warn('摄像头推流失败，本通只有声音', { err: String(err) });
         if (classifyProbeError(err) !== null) dispatch({ type: 'cameraBlocked' });
@@ -104,7 +115,8 @@ export function useCallActions({ engine, state, dispatch, cids, gate }: CallActi
   const startPreview = useCallback(async (): Promise<void> => {
     try {
       const cid = await engine.startLocalPreview();
-      dispatch({ type: 'localCamera', cid });
+      // 起的这段时间里摄像头被关掉了：不写 cid。停采集由关的那一下负责（它会等这次起完再停）。
+      if (latest.current.self.cameraOn) dispatch({ type: 'localCamera', cid });
     } catch (err) {
       logger.warn('本端预览起不来', { err: String(err) });
       if (classifyProbeError(err) !== null) dispatch({ type: 'cameraBlocked' });
@@ -190,14 +202,34 @@ export function useCallActions({ engine, state, dispatch, cids, gate }: CallActi
         dispatch({ type: 'setCamera', on });
         // **还没进房时只改界面，不去发布**：视频来电页上也有这个开关，那时房间还不存在。
         if (state.roomId === '') {
-          // 群通话拨出中打开摄像头：权限拨出前问过了，这时起预览好让人看见自己。
-          if (on && state.phase === 'outgoing' && state.localCameraCid === '') await startPreview();
+          /*
+            **进房前关摄像头 = 真的停采集**（交互稿 §01 v3.7）：只把按钮熄掉的话，
+            指示灯要一直亮到通话结束。cid 先清掉，本端小窗立刻收起，不去挂一条马上要停的轨道。
+          */
+          if (!on) {
+            if (state.mediaType !== 'video') return;
+            dispatch({ type: 'localCamera', cid: '' });
+            await engine.stopLocalPreview();
+            return;
+          }
+          // 拨出中打开摄像头：权限拨出前问过了，这时起预览好让人看见自己。
+          // 来电页上打开由 useRingingPreview 起（只在早就授过权时）。
+          if (state.phase === 'outgoing' && state.localCameraCid === '') await startPreview();
           return;
         }
         // 第一次开摄像头要真的发布；之后只是开关，**不走 unpublish**——
-        // 反复 publish/unpublish 会触发重协商风暴（协议 §3.2）。
+        // 反复 publish/unpublish 会触发重协商风暴（协议 §3.2）。关 = 停采集，开 = 重新采集换上去。
         if (cids.current.cam !== '') {
-          await engine.setMuted(cids.current.cam, !on);
+          const cam = cids.current.cam;
+          try {
+            await engine.setMuted(cam, !on);
+          } catch (err) {
+            // 重新采集被拒（权限刚被收回 / 设备被别的程序占了）：按钮弹回去，别假装出镜了。
+            logger.warn('通话中切换摄像头失败', { err: String(err), on });
+            if (!on) return;
+            dispatch({ type: 'setCamera', on: false });
+            if (classifyProbeError(err) !== null) dispatch({ type: 'cameraBlocked' });
+          }
           return;
         }
         if (!on) return;
