@@ -6,7 +6,9 @@ import { ErrorCode, RtcError } from '@im-rtc/call-engine';
 import { CallProvider } from '../src/CallProvider.js';
 import { CallOverlay } from '../src/components/CallOverlay.js';
 import type { PermissionQuery, PermissionStatus } from '../src/state/permissions.js';
-import { blockedCopy, classifyProbeError, devicesFor, needsExplanation } from '../src/state/permissions.js';
+import {
+  blockedCopy, classifyProbeError, devicesFor, devicesForAnswering, needsExplanation,
+} from '../src/state/permissions.js';
 import { useCall } from '../src/useCall.js';
 import { FakeEngine, asEngine } from './fakeEngine.js';
 
@@ -14,25 +16,26 @@ import { FakeEngine, asEngine } from './fakeEngine.js';
  * 权限申请的三段式（交互稿 §01–§02）：前置说明卡 → 系统框 → 结果分支。
  *
  * 权限状态查询是注入的（jsdom 没有 `navigator.permissions`），系统框那一步由
- * FakeEngine 的 `probeMicrophone` / `startLocalPreview` 代替——它们抛 2001 就是「用户点了不允许」。
+ * FakeEngine 的 `probeMicrophone` / `probeCamera` 代替——它们抛 2001 就是「用户点了不允许」。
  */
 
 /** Dial 是测试用的宿主拨号键。 */
-function Dial({ mediaType }: { readonly mediaType: 'audio' | 'video' }): ReactNode {
+function Dial({ mediaType, isGroup }: { readonly mediaType: 'audio' | 'video'; readonly isGroup: boolean }): ReactNode {
   const { actions } = useCall();
+  const callees = isGroup ? ['bob', 'carol'] : ['bob'];
   return (
-    <button type="button" data-testid="dial" onClick={() => void actions.placeCall(['bob'], mediaType)}>
+    <button type="button" data-testid="dial" onClick={() => void actions.placeCall(callees, mediaType, isGroup)}>
       拨
     </button>
   );
 }
 
-function setup(status: PermissionStatus, mediaType: 'audio' | 'video' = 'audio'): FakeEngine {
+function setup(status: PermissionStatus, mediaType: 'audio' | 'video' = 'audio', isGroup = false): FakeEngine {
   const engine = new FakeEngine();
   const query: PermissionQuery = async () => status;
   render(
     <CallProvider engine={asEngine(engine)} endedHoldMs={0} permissionQuery={query}>
-      <Dial mediaType={mediaType} />
+      <Dial mediaType={mediaType} isGroup={isGroup} />
       <CallOverlay />
     </CallProvider>,
   );
@@ -55,6 +58,12 @@ describe('决策逻辑（纯函数）', () => {
     expect(devicesFor('audio', true)).toEqual(['microphone']);
     expect(devicesFor('video', true)).toEqual(['microphone', 'camera']);
     expect(devicesFor('video', false)).toEqual(['microphone']);
+  });
+
+  it('接听：视频照问摄像头（群通话也是），只有来电页上关掉了摄像头才只要麦克风', () => {
+    expect(devicesForAnswering('video', false)).toEqual(['microphone', 'camera']);
+    expect(devicesForAnswering('video', true)).toEqual(['microphone']);
+    expect(devicesForAnswering('audio', false)).toEqual(['microphone']);
   });
 
   it('只有「首次」才出说明卡', () => {
@@ -126,7 +135,7 @@ describe('拨出前的权限门', () => {
 
   it('摄像头被拒：降级为语音继续，invite 照发，摄像头按钮变「无权限」', async () => {
     const engine = setup('unknown', 'video');
-    engine.previewError = new RtcError(ErrorCode.devicePermissionDenied);
+    engine.cameraProbeError = new RtcError(ErrorCode.devicePermissionDenied);
     fireEvent.click(screen.getByTestId('dial'));
     await flush();
     expect(screen.getByTestId('prompt-blocked').textContent).toContain('已用语音继续通话');
@@ -148,3 +157,25 @@ describe('拨出前的权限门', () => {
     expect(engine.calls).not.toContain('publishCam');
   });
 });
+
+/*
+  **权限门只问权限，不开摄像头**。探针原先就是 `startLocalPreview`：
+  群通话默认关着摄像头拨出去，探完摄像头却真的开着，按钮也被点亮。
+*/
+describe('探权限与开摄像头是两件事', () => {
+  it('1v1 视频：问完两样再起预览，然后拨', async () => {
+    const engine = setup('granted', 'video');
+    fireEvent.click(screen.getByTestId('dial'));
+    await flush();
+    expect(engine.calls).toEqual(['probeMic', 'probeCam', 'startLocalPreview', 'call:bob:video']);
+  });
+
+  it('群视频：摄像头权限照问，但摄像头不开、按钮不亮', async () => {
+    const engine = setup('granted', 'video', true);
+    fireEvent.click(screen.getByTestId('dial'));
+    await flush();
+    expect(engine.calls).toEqual(['probeMic', 'probeCam', 'call:bob,carol:video']);
+    expect(screen.getByTestId('toggle-camera').getAttribute('aria-pressed')).toBe('false');
+  });
+});
+

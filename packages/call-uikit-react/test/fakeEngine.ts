@@ -76,6 +76,12 @@ export class FakeEngine {
     this.calls.push('probeMic');
     if (this.probeError !== null) throw this.probeError;
   }
+  /** 摄像头权限探测由测试控制：设 `cameraProbeError` 让它抛（= 摄像头权限被拒 / 没设备）。 */
+  cameraProbeError: unknown = null;
+  async probeCamera(): Promise<void> {
+    this.calls.push('probeCam');
+    if (this.cameraProbeError !== null) throw this.cameraProbeError;
+  }
   /**
    * 进房失败由测试控制：设 `joinRoomError` 让它抛。
    *

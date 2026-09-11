@@ -41,7 +41,7 @@ export { PromptCard } from './components/PromptCard.js';
 export { TopBanner } from './components/TopBanner.js';
 
 export {
-  canShowInvite, initialCallView, inviteSlotsLeft, isCallVisible, reduceCallView,
+  canShowInvite, defaultCameraOn, initialCallView, inviteSlotsLeft, isCallVisible, reduceCallView,
 } from './state/callView.js';
 export type {
   CallPhase,
@@ -54,7 +54,8 @@ export type {
 } from './state/callView.js';
 export { settledText } from './state/participants.js';
 export {
-  blockedCopy, browserPermissionQuery, classifyProbeError, devicesFor, explanationCopy, needsExplanation,
+  blockedCopy, browserPermissionQuery, classifyProbeError, devicesFor, devicesForAnswering, explanationCopy,
+  needsExplanation,
 } from './state/permissions.js';
 export type { DeviceKind, PermissionFailure, PermissionQuery, PermissionStatus } from './state/permissions.js';
 

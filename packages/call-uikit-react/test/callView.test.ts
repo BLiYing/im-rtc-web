@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CallViewState, ViewAction } from '../src/state/callView.js';
-import { initialCallView, isCallVisible, reduceCallView } from '../src/state/callView.js';
+import { defaultCameraOn, initialCallView, isCallVisible, reduceCallView } from '../src/state/callView.js';
 
 /** run 把一串动作依次喂进去，返回终态。 */
 function run(actions: ViewAction[], from: CallViewState = initialCallView): CallViewState {
@@ -138,7 +138,33 @@ describe('本端开关', () => {
 
   it('静音与关摄像头互不影响', () => {
     const state = run([incoming, { type: 'setMic', on: false }]);
-    expect(state.self).toEqual({ micOn: false, cameraOn: true, cameraBlocked: false, speaking: false, volume: 0 });
+    expect(state.self).toEqual({
+      micOn: false, cameraOn: true, cameraBlocked: false, cameraOptedOut: false, speaking: false, volume: 0,
+    });
+  });
+
+  it('群通话默认关摄像头，1v1 视频照旧默认开，会议房仍是开', () => {
+    // 拨出与来电走同一个判据——只改一条的话，群视频来电页上那颗按钮会显示成已开启。
+    expect(defaultCameraOn('video', false)).toBe(true);
+    expect(defaultCameraOn('video', true)).toBe(false);
+    expect(defaultCameraOn('audio', false)).toBe(false);
+    const groupIn = run([{ ...incoming, isGroup: true, calleeIds: ['carol'] }]);
+    expect(groupIn.self.cameraOn).toBe(false);
+    expect(groupIn.self.cameraOptedOut, '默认关不是用户的选择').toBe(false);
+    expect(run([{ type: 'callPlaced', calleeIds: ['bob', 'carol'], mediaType: 'video', isGroup: true }]).self.cameraOn)
+      .toBe(false);
+    expect(run([{ type: 'callPlaced', calleeIds: ['bob'], mediaType: 'video', isGroup: false }]).self.cameraOn)
+      .toBe(true);
+    expect(run([{ type: 'meetingJoined', roomId: 'r-1', nowMs: 0 }]).self.cameraOn).toBe(true);
+  });
+
+  it('只有来电页上亲手关掉摄像头才算「以语音接听」', () => {
+    expect(run([incoming, { type: 'setCamera', on: false }]).self.cameraOptedOut).toBe(true);
+    // 关了又打开：不再算。
+    expect(run([incoming, { type: 'setCamera', on: false }, { type: 'setCamera', on: true }]).self.cameraOptedOut)
+      .toBe(false);
+    // 接通之后的开关与接听时要不要问权限无关。
+    expect(run([incoming, begin, { type: 'setCamera', on: false }]).self.cameraOptedOut).toBe(false);
   });
 });
 

@@ -30,6 +30,16 @@ export async function probeMicrophone(d: MediaApiDeps): Promise<void> {
   }
 }
 
+/** 探摄像头。与 probeMicrophone 同一个契约：失败先报 error 事件再抛。 */
+export async function probeCamera(d: MediaApiDeps): Promise<void> {
+  try {
+    await d.media.probeCamera();
+  } catch (err) {
+    d.bus.emitError(err);
+    throw err;
+  }
+}
+
 /**
  * 发布麦克风。顺序是**先拿轨道再拿 cid**：浏览器不允许自定义 track.id，
  * 而服务端靠 msid 里的 cid 认领 m-line（协议 §3.2）。

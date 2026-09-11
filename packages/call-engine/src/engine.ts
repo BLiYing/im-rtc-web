@@ -10,6 +10,7 @@ import type { EngineEventHandler, EngineEventName } from './events.js';
 import type { MediaAdapter } from './media/mediaAdapter.js';
 import type { MediaApiDeps } from './media/engineMediaApi.js';
 import {
+  probeCamera,
   probeMicrophone,
   publishCamera,
   publishMicrophone,
@@ -264,10 +265,19 @@ export class CallEngine {
    * probeMicrophone 在拨出 / 接听**之前**探一下麦克风权限（交互稿 §01）。
    *
    * 拿到就放掉，不占设备；被拒抛 `2001`、没设备抛 `2002`。
-   * 摄像头那一侧用 `startLocalPreview` 探——它本来就该在拨出时起来给人看见自己。
    */
   async probeMicrophone(): Promise<void> {
     await probeMicrophone(this.mediaApi());
+  }
+
+  /**
+   * probeCamera 只探摄像头权限，**不起预览**。契约同 `probeMicrophone`。
+   *
+   * 摄像头默认关着的场合（群通话、来电页上关掉了摄像头）也可能要先问权限，
+   * 拿预览去探会把摄像头真的打开。要看见自己另调 `startLocalPreview`。
+   */
+  async probeCamera(): Promise<void> {
+    await probeCamera(this.mediaApi());
   }
 
   /** joinRoom 直接进一个会议房（不走振铃）。 */

@@ -58,14 +58,14 @@ export function usePermissionGate(
   );
 
   const probe = useCallback(async (kind: DeviceKind): Promise<void> => {
-    if (kind === 'microphone') {
-      await engine.probeMicrophone();
-      return;
-    }
-    // 摄像头用预览探：它本来就该在拨出时起来给人看见自己（草图 §03-E）。
-    const cid = await engine.startLocalPreview();
-    dispatch({ type: 'localCamera', cid });
-  }, [engine, dispatch]);
+    /*
+      **只问权限，不开摄像头。** 摄像头原先拿 `startLocalPreview` 探，探完就真的开着：
+      群通话默认关摄像头进来，界面按钮却被点亮、指示灯常亮——等于替用户开了摄像头。
+      要不要起预览由调用方看 `self.cameraOn` 决定（useCallActions）。
+    */
+    if (kind === 'microphone') await engine.probeMicrophone();
+    else await engine.probeCamera();
+  }, [engine]);
 
   const ensure = useCallback(async (devices: readonly DeviceKind[]): Promise<EnsureResult> => {
     let result: EnsureResult = 'ok';

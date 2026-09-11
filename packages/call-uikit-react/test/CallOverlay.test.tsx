@@ -347,7 +347,8 @@ describe('来电页上的摄像头开关', () => {
 
     expect(engine.calls).toContain('accept');
     expect(engine.calls).toContain('publishMic');
-    // 用户表示不出镜——摄像头连开都不该开。
+    // 用户表示不出镜——摄像头连开都不该开，权限也不问（交互稿 §01 第 252 行）。
+    expect(engine.calls).not.toContain('probeCam');
     expect(engine.calls).not.toContain('startLocalPreview');
     expect(engine.calls).not.toContain('publishCam');
   });
@@ -360,6 +361,36 @@ describe('来电页上的摄像头开关', () => {
     connect(engine);
     await act(async () => { await Promise.resolve(); });
 
+    expect(engine.calls).toContain('publishCam');
+  });
+
+  it('群视频来电：按钮默认关着；接听照问摄像头权限，但不开摄像头', async () => {
+    const engine = setup();
+    ring(engine, true, 'video', ['carol']);
+    expect(screen.getByTestId('incoming-toggle-camera').getAttribute('aria-pressed')).toBe('false');
+
+    fireEvent.click(screen.getByTestId('accept-call'));
+    await act(async () => { await Promise.resolve(); });
+    connect(engine, true);
+    await act(async () => { await Promise.resolve(); });
+
+    // 接通后界面上有开摄像头的按钮，所以接听时就问（交互稿 §01 第 251 行）。
+    expect(engine.calls).toContain('probeCam');
+    expect(engine.calls).toContain('accept');
+    expect(engine.calls).not.toContain('startLocalPreview');
+    expect(engine.calls).not.toContain('publishCam');
+  });
+
+  it('群视频来电页上打开摄像头再接：起预览、接通后推摄像头', async () => {
+    const engine = setup();
+    ring(engine, true, 'video', ['carol']);
+    fireEvent.click(screen.getByTestId('incoming-toggle-camera'));
+    fireEvent.click(screen.getByTestId('accept-call'));
+    await act(async () => { await Promise.resolve(); });
+    connect(engine, true);
+    await act(async () => { await Promise.resolve(); });
+
+    expect(engine.calls).toContain('startLocalPreview');
     expect(engine.calls).toContain('publishCam');
   });
 });

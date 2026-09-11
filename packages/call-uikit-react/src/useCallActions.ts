@@ -3,7 +3,8 @@ import { logger } from '@im-rtc/call-engine';
 import type { MutableRefObject } from 'react';
 import { useCallback, useMemo } from 'react';
 
-import { classifyProbeError, devicesFor } from './state/permissions.js';
+import { defaultCameraOn } from './state/callView.js';
+import { classifyProbeError, devicesFor, devicesForAnswering } from './state/permissions.js';
 import type { CallViewState, ViewAction } from './state/viewTypes.js';
 import type { PermissionGate } from './usePermissionGate.js';
 
@@ -92,6 +93,22 @@ export function useCallActions({ engine, state, dispatch, cids, gate }: CallActi
     [engine, dispatch, cids],
   );
 
+  /**
+   * startPreview 起本端预览，让人在接通前就看得见自己（草图 §03-E）。
+   *
+   * **只在摄像头开着时调**：权限门只问权限、不开摄像头，开不开由这里按 `self.cameraOn` 决定。
+   * 权限门刚放行过，这里再失败多半是设备被别的程序抢了——按钮变禁用，通话照打。
+   */
+  const startPreview = useCallback(async (): Promise<void> => {
+    try {
+      const cid = await engine.startLocalPreview();
+      dispatch({ type: 'localCamera', cid });
+    } catch (err) {
+      logger.warn('本端预览起不来', { err: String(err) });
+      if (classifyProbeError(err) !== null) dispatch({ type: 'cameraBlocked' });
+    }
+  }, [engine, dispatch]);
+
   const actions = useMemo<CallActions>(
     () => ({
       placeCall: async (calleeIds, mediaType, isGroup = false): Promise<void> => {
@@ -102,6 +119,8 @@ export function useCallActions({ engine, state, dispatch, cids, gate }: CallActi
           dispatch({ type: 'dismiss' });
           return;
         }
+        // 群通话默认关着摄像头进来：权限照问（交互稿 §01），摄像头不开。
+        if (gateResult === 'ok' && defaultCameraOn(mediaType, isGroup)) await startPreview();
         await engine.call(calleeIds, mediaType, isGroup);
       },
       joinMeeting: async (roomId, roomToken): Promise<void> => {
@@ -128,13 +147,17 @@ export function useCallActions({ engine, state, dispatch, cids, gate }: CallActi
         dispatch({ type: 'setCamera', on: gateResult !== 'camera-blocked' });
       },
       accept: async (): Promise<void> => {
-        // 来电页上关掉了摄像头就别去开它——「以语音接听」走的就是这条。
-        const gateResult = await gate.ensure(devicesFor(state.mediaType, state.self.cameraOn));
+        /*
+          **问不问摄像头，看的是用户有没有在来电页上亲手关掉它**（拍板 §11-10），
+          不是 `cameraOn`：群通话默认关着进来，接听照样要问摄像头（交互稿 §01）。
+        */
+        const gateResult = await gate.ensure(devicesForAnswering(state.mediaType, state.self.cameraOptedOut));
         if (gateResult === 'cancelled' || gateResult === 'mic-blocked') {
           // 接不了就别让对方一直等：拒掉。
           await engine.reject();
           return;
         }
+        if (gateResult === 'ok' && state.mediaType === 'video' && state.self.cameraOn) await startPreview();
         await engine.accept();
       },
       reject: async (): Promise<void> => {
@@ -164,7 +187,11 @@ export function useCallActions({ engine, state, dispatch, cids, gate }: CallActi
         const on = !state.self.cameraOn;
         dispatch({ type: 'setCamera', on });
         // **还没进房时只改界面，不去发布**：视频来电页上也有这个开关，那时房间还不存在。
-        if (state.roomId === '') return;
+        if (state.roomId === '') {
+          // 群通话拨出中打开摄像头：权限拨出前问过了，这时起预览好让人看见自己。
+          if (on && state.phase === 'outgoing' && state.localCameraCid === '') await startPreview();
+          return;
+        }
         // 第一次开摄像头要真的发布；之后只是开关，**不走 unpublish**——
         // 反复 publish/unpublish 会触发重协商风暴（协议 §3.2）。
         if (cids.current.cam !== '') {
@@ -206,8 +233,9 @@ export function useCallActions({ engine, state, dispatch, cids, gate }: CallActi
       setSwapped: (swapped): void => dispatch({ type: 'setSwapped', swapped }),
       dismiss: (): void => dispatch({ type: 'dismiss' }),
     }),
-    [engine, dispatch, cids, gate, publishFor, state.phase, state.mediaType, state.isMeeting, state.roomId,
-     state.self.micOn, state.self.cameraOn, state.self.cameraBlocked],
+    [engine, dispatch, cids, gate, publishFor, startPreview, state.phase, state.mediaType, state.isMeeting,
+     state.roomId, state.localCameraCid, state.self.micOn, state.self.cameraOn, state.self.cameraBlocked,
+     state.self.cameraOptedOut],
   );
 
   return { actions, publishFor };

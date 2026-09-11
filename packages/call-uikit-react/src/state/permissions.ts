@@ -44,6 +44,17 @@ export function devicesFor(mediaType: MediaType, withCamera: boolean): readonly 
   return mediaType === 'video' && withCamera ? ['microphone', 'camera'] : ['microphone'];
 }
 
+/**
+ * devicesForAnswering 是接听时要申请的设备（交互稿 §01 第 250–252 行）。
+ *
+ * 1v1 视频、群通话接听都是麦克风 + 摄像头——**群通话默认关着摄像头也照样问**，
+ * 因为接通后界面上就有开摄像头的按钮。只有用户在来电页上亲手关掉摄像头
+ * （`cameraOptedOut`，拍板 §11-10）才只要麦克风。三端同名同义。
+ */
+export function devicesForAnswering(mediaType: MediaType, cameraOptedOut: boolean): readonly DeviceKind[] {
+  return devicesFor(mediaType, !cameraOptedOut);
+}
+
 /** needsExplanation 决定要不要先出我们自己的说明卡。 */
 export function needsExplanation(status: PermissionStatus): boolean {
   return status === 'prompt';
