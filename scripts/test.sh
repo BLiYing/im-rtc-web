@@ -89,6 +89,8 @@ run_step "vitest（engine）" npx vitest run --root packages/call-engine
 # uikit 单独一步：它跑在 jsdom 上，而 engine **必须**能在无 DOM 的 node 里跑通
 # （CONVENTIONS §1）。合成一步就等于把 engine 也放进 jsdom，那条约束就没人守了。
 run_step "vitest（uikit）" npx vitest run --root packages/call-uikit-react
+# demo-react 只测抽出来的纯逻辑（设置读写、UA 缩写），跑在 node 上；界面仍靠浏览器里点。
+run_step "vitest（demo-react）" npx vitest run --root demo-react
 
 # 打包体检。**发布前的最后一道**：包里到底有什么，只有 npm pack 说了算。
 # 漏写 files 字段会把源码、测试、tsconfig 全发出去，而那件事在本地跑测试是看不出来的。

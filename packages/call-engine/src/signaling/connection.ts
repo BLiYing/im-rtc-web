@@ -1,5 +1,6 @@
 import { ErrorCode, RtcError, rtcErrorFromWire } from '../errors.js';
 import { logger, redact } from '../logger.js';
+import { SDK_VERSION } from '../version.js';
 import type { Envelope } from './envelope.js';
 import { decodeEnvelope, encodeEnvelope, okType } from './envelope.js';
 import { decodeFields, encodeFields } from './fieldSpec.js';
@@ -34,6 +35,8 @@ export type {
 } from './connectionTypes.js';
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
+/** 宿主不传 sdk 时 `sys.hello` 带的标识。版本号取 SDK_VERSION，别在这里另写一份。 */
+const DEFAULT_SDK = `web/${SDK_VERSION}`;
 
 /**
  * MAX_AUTH_FAILURES 是连续几次 4401 之后彻底放弃（协议 §1.5 关闭码表）。
@@ -91,7 +94,7 @@ export class Connection {
       url: options.url,
       token: options.token,
       deviceId: options.deviceId,
-      sdk: options.sdk ?? 'web/0.0.1',
+      sdk: options.sdk ?? DEFAULT_SDK,
       events: options.events ?? {},
       webSocketFactory: options.webSocketFactory ?? browserWebSocketFactory,
       requestTimeoutMs: options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
@@ -233,7 +236,7 @@ export class Connection {
     hello.token = this.token;
     hello.deviceId = this.options.deviceId;
     hello.sessionId = this.sessionId;
-    hello.sdk = this.options.sdk ?? 'web/0.0.1';
+    hello.sdk = this.options.sdk ?? DEFAULT_SDK;
 
     logger.debug('发送 sys.hello', {
       deviceId: hello.deviceId,
