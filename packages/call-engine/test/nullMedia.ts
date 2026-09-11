@@ -19,6 +19,8 @@ export class NullMedia implements MediaAdapter {
 
   async probeMicrophone(): Promise<void> {}
 
+  async probeCamera(): Promise<void> {}
+
   async startLocalPreview(): Promise<LocalTrackInfo> {
     return this.acquireCamera();
   }

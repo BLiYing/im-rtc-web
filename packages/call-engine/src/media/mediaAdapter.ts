@@ -66,6 +66,15 @@ export interface MediaAdapter {
   probeMicrophone(): Promise<void>;
 
   /**
+   * probeCamera **只探一下摄像头权限**，拿到就放掉——不起预览、不留轨道。
+   *
+   * 群通话默认关着摄像头进来，可接听前照样要问摄像头权限（交互稿 §01）。
+   * 原先拿 `startLocalPreview` 当探针，探完摄像头就真的开着，指示灯亮、
+   * 按钮也跟着被点亮——等于替用户开了摄像头。错误码同 `probeMicrophone`。
+   */
+  probeCamera(): Promise<void>;
+
+  /**
    * startLocalPreview 只**起采集**，不发布（设计文档 §7.5 的 `startLocalPreview`）。
    *
    * 拨出中还没有房间，推流无从谈起，但界面这时就该让人看见自己（草图 §03-E）。

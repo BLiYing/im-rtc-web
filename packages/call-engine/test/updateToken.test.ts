@@ -27,6 +27,7 @@ class NullMedia implements MediaAdapter {
     return { cid: 'mic-1', kind: 'audio', source: 'microphone' };
   }
   async probeMicrophone(): Promise<void> {}
+  async probeCamera(): Promise<void> {}
   async startLocalPreview(): Promise<LocalTrackInfo> {
     return this.acquireCamera();
   }

@@ -60,6 +60,13 @@ export interface SelfState {
    * 摄像头按钮变禁用态写「无权限」。
    */
   readonly cameraBlocked: boolean;
+  /**
+   * 用户在**来电页上亲手关掉了**摄像头（拍板 §11-10：关掉摄像头再接听 = 以语音接听）。
+   *
+   * 不能拿 `cameraOn === false` 代替：群通话默认就是关着进来的，那不是用户的选择，
+   * 接听时照样要问摄像头权限（交互稿 §01）。
+   */
+  readonly cameraOptedOut: boolean;
   /** 本端在不在说话。**本端那格不是 participant，只能单独记**（2026-09-09：本端也显示）。 */
   readonly speaking: boolean;
   /** 本端音量 0~100，映射到说话图标的条高。 */
@@ -140,7 +147,7 @@ export const initialCallView: CallViewState = {
   role: '',
   peerUid: '',
   participants: [],
-  self: { micOn: true, cameraOn: false, cameraBlocked: false, speaking: false, volume: 0 },
+  self: { micOn: true, cameraOn: false, cameraBlocked: false, cameraOptedOut: false, speaking: false, volume: 0 },
   isMinimized: false,
   isSwapped: false,
   beganAtMs: 0,

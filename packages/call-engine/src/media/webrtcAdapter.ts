@@ -38,6 +38,8 @@ export class WebRTCAdapter implements MediaAdapter {
   private cameraPublished = false;
   /** 麦克风权限已经探过一次。见 `probeMicrophone`：探测不是免费的。 */
   private micProbed = false;
+  /** 摄像头权限已经探过一次。见 `probeCamera`。 */
+  private cameraProbed = false;
 
   /** source 缺省时用 navigator.mediaDevices；端到端测试可以传合成源。 */
   constructor(source?: MediaSource, videoProfile?: VideoProfile) {
@@ -98,6 +100,15 @@ export class WebRTCAdapter implements MediaAdapter {
     // 探完就放：这条轨道只是为了让权限框弹出来，留着会让麦克风指示灯一直亮。
     for (const track of stream.getTracks()) track.stop();
     this.micProbed = true;
+  }
+
+  async probeCamera(): Promise<void> {
+    // 与 probeMicrophone 同一个缓存理由；已经在预览说明权限早就拿到了。
+    if (this.cameraProbed || this.preview !== null) return;
+    const stream = await this.getStreamOrThrow({ video: videoConstraints(this.video) });
+    // 探完就放：只为让权限框弹出来，留着摄像头指示灯会一直亮——而用户可能根本没开摄像头。
+    for (const track of stream.getTracks()) track.stop();
+    this.cameraProbed = true;
   }
 
   /**

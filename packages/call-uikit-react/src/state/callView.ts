@@ -1,3 +1,5 @@
+import type { MediaType } from '@im-rtc/call-engine';
+
 import {
   addInvited, applyNetwork, applySpeakers, newParticipant, removeParticipant, settleParticipant,
   withParticipant,
@@ -45,7 +47,7 @@ export function reduceCallView(state: CallViewState, action: ViewAction): CallVi
           newParticipant(action.caller, true),
           ...action.calleeIds.filter((uid) => uid !== action.caller).map((uid) => newParticipant(uid, false)),
         ],
-        self: { micOn: true, cameraOn: action.mediaType === 'video', cameraBlocked: false, speaking: false, volume: 0 },
+        self: { ...initialCallView.self, cameraOn: defaultCameraOn(action.mediaType, action.isGroup) },
         connection: state.connection,
       };
 
@@ -61,7 +63,7 @@ export function reduceCallView(state: CallViewState, action: ViewAction): CallVi
         isGroup: action.isGroup,
         role: 'caller',
         peerUid: action.isGroup ? '' : (action.calleeIds[0] ?? ''),
-        self: { micOn: true, cameraOn: action.mediaType === 'video', cameraBlocked: false, speaking: false, volume: 0 },
+        self: { ...initialCallView.self, cameraOn: defaultCameraOn(action.mediaType, action.isGroup) },
       };
 
     case 'callBegin':
@@ -89,7 +91,8 @@ export function reduceCallView(state: CallViewState, action: ViewAction): CallVi
         isGroup: true,
         isMeeting: true,
         beganAtMs: action.nowMs,
-        self: { micOn: true, cameraOn: true, cameraBlocked: false, speaking: false, volume: 0 },
+        // **会议房仍默认开摄像头**：与 iOS / Android 一致，改它要重验真机。
+        self: { ...initialCallView.self, cameraOn: true },
         connection: state.connection,
       };
 
@@ -185,9 +188,16 @@ export function reduceCallView(state: CallViewState, action: ViewAction): CallVi
 
     case 'setCamera':
       // 权限被拒时开不了：按钮本来就是禁用态，这里再挡一道免得状态漂移。
-      return state.self.cameraBlocked && action.on
-        ? state
-        : { ...state, self: { ...state.self, cameraOn: action.on } };
+      if (state.self.cameraBlocked && action.on) return state;
+      return {
+        ...state,
+        self: {
+          ...state.self,
+          cameraOn: action.on,
+          // 只有来电页上的这一下算「以语音接听」；接通后的开关与它无关。
+          cameraOptedOut: state.phase === 'incoming' ? !action.on : state.self.cameraOptedOut,
+        },
+      };
 
     case 'setMinimized':
       return { ...state, isMinimized: action.minimized };
@@ -198,6 +208,16 @@ export function reduceCallView(state: CallViewState, action: ViewAction): CallVi
     default:
       return state;
   }
+}
+
+/**
+ * defaultCameraOn 是振铃通话进来时摄像头的默认态：**1v1 视频开、群通话关**（设计稿 v3.5）。
+ *
+ * 拨出与来电必须走同一个判据——只改一条的话，群视频来电页上那颗按钮会显示成已开启。
+ * 三端同名同义：iOS `imDefaultCameraOn`、Android `IMCallViewReducer.defaultCameraOn`。
+ */
+export function defaultCameraOn(mediaType: MediaType, isGroup: boolean): boolean {
+  return mediaType === 'video' && !isGroup;
 }
 
 /** isCallVisible 判断此刻界面上该不该有通话 UI。 */
