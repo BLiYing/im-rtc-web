@@ -40,6 +40,15 @@ export class WebRTCAdapter implements MediaAdapter {
   private micProbed = false;
   /** 摄像头权限已经探过一次。见 `probeCamera`。 */
   private cameraProbed = false;
+  /**
+   * 正在起的那次预览。**并发的 startLocalPreview / acquireCamera / probeCamera 共用这一次 getUserMedia**。
+   *
+   * 来电页的预览还没起完、用户就点了接听：接听路径要探权限、要起预览、进房后还要发布，
+   * 三处各自去 `getUserMedia` 就是把摄像头开两三次——多出来的那条流没人收，指示灯灭不掉。
+   */
+  private previewOpening: Promise<LocalTrackInfo> | null = null;
+  /** close() 一次加一。起到一半被 close 掉的预览靠它认出自己已经作废。 */
+  private closeGeneration = 0;
 
   /** source 缺省时用 navigator.mediaDevices；端到端测试可以传合成源。 */
   constructor(source?: MediaSource, videoProfile?: VideoProfile) {
@@ -105,6 +114,11 @@ export class WebRTCAdapter implements MediaAdapter {
   async probeCamera(): Promise<void> {
     // 与 probeMicrophone 同一个缓存理由；已经在预览说明权限早就拿到了。
     if (this.cameraProbed || this.preview !== null) return;
+    // 预览正在起：它的结果就是探测结果（失败时抛的是同一个错误），再开一次会抢同一个摄像头。
+    if (this.previewOpening !== null) {
+      await this.previewOpening;
+      return;
+    }
     const stream = await this.getStreamOrThrow({ video: videoConstraints(this.video) });
     // 探完就放：只为让权限框弹出来，留着摄像头指示灯会一直亮——而用户可能根本没开摄像头。
     for (const track of stream.getTracks()) track.stop();
@@ -120,16 +134,32 @@ export class WebRTCAdapter implements MediaAdapter {
    */
   async startLocalPreview(): Promise<LocalTrackInfo> {
     if (this.preview !== null) return previewInfo(this.preview.track);
-    const stream = await this.getStreamOrThrow({ video: videoConstraints(this.video) });
-    const track = stream.getVideoTracks()[0];
-    if (track === undefined) {
-      throw new RtcError(ErrorCode.deviceNotFound, {
-        cause: new Error('getUserMedia 没返回 video 轨道'),
-      });
+    // 单飞：已经有一次在起就等它，见 `previewOpening`。
+    if (this.previewOpening === null) this.previewOpening = this.openPreview(this.closeGeneration);
+    return this.previewOpening;
+  }
+
+  private async openPreview(generation: number): Promise<LocalTrackInfo> {
+    try {
+      const stream = await this.getStreamOrThrow({ video: videoConstraints(this.video) });
+      if (generation !== this.closeGeneration) {
+        // 起到一半通话结束了（close 已经跑过）：这条流再没人会收，当场放掉，指示灯才会灭。
+        for (const track of stream.getTracks()) track.stop();
+        throw new RtcError(ErrorCode.invalidState, { cause: new Error('预览起到一半媒体层已关闭') });
+      }
+      const track = stream.getVideoTracks()[0];
+      if (track === undefined) {
+        throw new RtcError(ErrorCode.deviceNotFound, {
+          cause: new Error('getUserMedia 没返回 video 轨道'),
+        });
+      }
+      this.preview = { track, stream };
+      this.locals.set(track.id, track);
+      return previewInfo(track);
+    } finally {
+      // 只收自己这一代的：close 之后新起的那次预览不能被上一代的收尾抹掉。
+      if (generation === this.closeGeneration) this.previewOpening = null;
     }
-    this.preview = { track, stream };
-    this.locals.set(track.id, track);
-    return previewInfo(track);
   }
 
   async acquireCamera(simulcast = true): Promise<LocalTrackInfo> {
@@ -340,6 +370,9 @@ export class WebRTCAdapter implements MediaAdapter {
     this.locals.clear();
     this.preview = null;
     this.cameraPublished = false;
+    // 还在起的预览作废：它回来时认出代数不对，自己把流放掉（openPreview）。
+    this.previewOpening = null;
+    this.closeGeneration += 1;
     this.pendingCandidates.pub = [];
     this.pendingCandidates.sub = [];
     this.pub?.close();

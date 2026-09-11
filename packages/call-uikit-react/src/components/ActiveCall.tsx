@@ -14,6 +14,7 @@ import { AudioStage } from './AudioStage.js';
 import { CallHeader } from './CallHeader.js';
 import { ControlBar } from './ControlBar.js';
 import { GridStage } from './GridStage.js';
+import { IncomingControls, incomingInviteText } from './IncomingControls.js';
 import { InvitePicker } from './InvitePicker.js';
 import { PipView } from './PipView.js';
 import { TopBanner } from './TopBanner.js';
@@ -27,6 +28,9 @@ import { VideoStage } from './VideoStage.js';
  *
  * 三种版式共用头部、控制条与静音 / 发言等状态，分成三个组件的话这些要维护三遍。
  * 版式由 `pickLayout` 决定，它是纯函数，好测。
+ *
+ * **来电页也是它**（草图 §03-F，横幅点开之后那一屏）：版式同样由 `pickLayout` 定——1v1 是语音版式
+ * + 本端小窗，群来电是九宫格；只把底部控制条换成「摄像头 / 拒绝 / 接听」，标题栏不给小窗键。
  */
 export type CallLayout = 'audio' | 'video' | 'grid';
 
@@ -55,14 +59,16 @@ export function ActiveCall(): ReactNode {
   const peer = state.participants[0];
   // 只有视频版式藏控制条：语音页、拨出中、九宫格上没有画面需要让出来。
   const hide = useAutoHide(layout === 'video' && state.phase === 'active');
-  const bare = state.phase === 'incoming' || state.phase === 'outgoing';
+  const incoming = state.phase === 'incoming';
+  const bare = incoming || state.phase === 'outgoing';
   const chrome = { opacity: hide.visible ? 1 : 0, transition: `opacity ${callMotion.fadeMs}ms ease`, pointerEvents: hide.visible ? 'auto' as const : 'none' as const };
 
   return (
     <div
       style={{ ...styles.overlay, ...(layout === 'audio' ? styles.overlayAudio : {}) }}
-      data-testid="active-call"
+      data-testid={incoming ? 'incoming-page' : 'active-call'}
       data-layout={layout}
+      {...(incoming ? { role: 'dialog', 'aria-label': '来电' } : {})}
       onPointerMove={hide.poke}
     >
       <TopBanner />
@@ -77,6 +83,7 @@ export function ActiveCall(): ReactNode {
           subtitle={bare ? '' : statusLine(state, seconds)}
           networkLevel={state.isGroup ? 0 : (peer?.networkLevel ?? 0)}
           onInvite={() => setPicker(true)}
+          showsMinimize={!incoming}
         />
       </div>
 
@@ -87,7 +94,7 @@ export function ActiveCall(): ReactNode {
       {layout === 'audio' && <AudioWithPreview state={state} seconds={seconds} />}
 
       <div style={layout === 'video' ? {} : { flex: 'none' }}>
-        <ControlBar onVideo={layout === 'video'} visible={hide.visible} />
+        {incoming ? <IncomingControls /> : <ControlBar onVideo={layout === 'video'} visible={hide.visible} />}
       </div>
       {picker && <InvitePicker onClose={() => setPicker(false)} />}
     </div>
@@ -137,6 +144,7 @@ function title(state: CallViewState, others: number): string {
 function statusLine(state: CallViewState, seconds: number): string {
   if (state.hint !== '') return state.hint;
   if (state.phase === 'outgoing') return '正在呼叫…';
+  if (state.phase === 'incoming') return incomingInviteText(state.mediaType, state.isGroup);
   if (state.phase === 'connecting') return state.isMeeting ? '正在进入会议…' : '接通中…';
   if (state.phase === 'ended') return state.isMeeting ? '已离开会议' : '通话结束';
   return formatDuration(seconds);

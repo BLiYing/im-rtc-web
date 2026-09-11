@@ -103,6 +103,11 @@ export interface CallViewState {
    * **纯本端行为**，不发任何帧；但层上界要跟着换。
    */
   readonly isSwapped: boolean;
+  /**
+   * 来电横幅被点开成了来电页（草图 §04-I：点横幅本体进全屏）。
+   * 只在 incoming 阶段有意义；下一通来电从 `initialCallView` 起步，自然归零。
+   */
+  readonly isBannerExpanded: boolean;
   /** 接通时刻（`Date.now()`），0 = 还没接通。计时器从它开始走。 */
   readonly beganAtMs: number;
   readonly endReason: CallEndReasonValue | '';
@@ -150,6 +155,7 @@ export const initialCallView: CallViewState = {
   self: { micOn: true, cameraOn: false, cameraBlocked: false, cameraOptedOut: false, speaking: false, volume: 0 },
   isMinimized: false,
   isSwapped: false,
+  isBannerExpanded: false,
   beganAtMs: 0,
   endReason: '',
   endedDurationSec: 0,
@@ -212,4 +218,6 @@ export type ViewAction =
   | { readonly type: 'setCamera'; readonly on: boolean }
   | { readonly type: 'setMinimized'; readonly minimized: boolean }
   | { readonly type: 'setSwapped'; readonly swapped: boolean }
+  /** 点了来电横幅本体：展开成来电页。 */
+  | { readonly type: 'expandIncoming' }
   | { readonly type: 'dismiss' };

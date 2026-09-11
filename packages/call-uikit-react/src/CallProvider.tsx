@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { createContext, useEffect, useMemo, useReducer, useRef } from 'react';
 
 import { endedHoldMs as holdMsFor } from './format/endReason.js';
-import { initialCallView, reduceCallView } from './state/callView.js';
+import { initialCallView, reduceCallView, showsIncomingPage } from './state/callView.js';
 import type { CallViewState } from './state/callView.js';
 import type { PermissionQuery } from './state/permissions.js';
 import { browserPermissionQuery } from './state/permissions.js';
@@ -14,6 +14,7 @@ import type { CallActions, PublishedCids } from './useCallActions.js';
 import { useCallActions } from './useCallActions.js';
 import type { PermissionPromptView } from './usePermissionGate.js';
 import { usePermissionGate } from './usePermissionGate.js';
+import { useRingingPreview } from './useRingingPreview.js';
 
 export type { CallActions } from './useCallActions.js';
 
@@ -47,6 +48,8 @@ export interface CallContextValue {
   readonly prompt: PermissionPromptView | null;
   /** 「添加成员」的候选名单。 */
   readonly candidates: readonly InviteCandidate[];
+  /** 来电先出横幅（true）还是直接进来电页（false）。见 `CallProviderProps.bannerFirst`。 */
+  readonly bannerFirst: boolean;
 }
 
 export const CallContext = createContext<CallContextValue | null>(null);
@@ -61,6 +64,11 @@ export interface CallProviderProps {
   readonly inviteCandidates?: readonly InviteCandidate[];
   /** 权限状态查询。默认走浏览器 `navigator.permissions`；测试可注入。 */
   readonly permissionQuery?: PermissionQuery;
+  /**
+   * 来电先出顶部横幅、点开才进来电页（默认 true）；false = 来电直接进来电页。
+   * 与 iOS / Android Kit 配置里的 `bannerFirst` 同名同义。
+   */
+  readonly bannerFirst?: boolean;
 }
 
 /** 结束画面的默认停留时长。见 `format/endReason.ts`：实际时长按原因分档。 */
@@ -69,12 +77,13 @@ const NO_CANDIDATES: readonly InviteCandidate[] = [];
 
 export function CallProvider({
   engine, children, endedHoldMs = DEFAULT_ENDED_HOLD_MS,
-  inviteCandidates = NO_CANDIDATES, permissionQuery = browserPermissionQuery,
+  inviteCandidates = NO_CANDIDATES, permissionQuery = browserPermissionQuery, bannerFirst = true,
 }: CallProviderProps): ReactNode {
   const [state, dispatch] = useReducer(reduceCallView, initialCallView);
   const cids = useRef<PublishedCids>({ mic: '', cam: '' });
   const gate = usePermissionGate(engine, dispatch, permissionQuery);
   const { actions, publishFor } = useCallActions({ engine, state, dispatch, cids, gate });
+  useRingingPreview({ engine, state, dispatch, query: permissionQuery, pageShown: showsIncomingPage(state, bannerFirst) });
 
   useEffect(() => subscribeEngine(engine, dispatch), [engine]);
 
@@ -207,8 +216,8 @@ export function CallProvider({
   }, [isLive]);
 
   const value = useMemo<CallContextValue>(
-    () => ({ state, engine, actions, prompt: gate.prompt, candidates: inviteCandidates }),
-    [state, engine, actions, gate.prompt, inviteCandidates],
+    () => ({ state, engine, actions, prompt: gate.prompt, candidates: inviteCandidates, bannerFirst }),
+    [state, engine, actions, gate.prompt, inviteCandidates, bannerFirst],
   );
   return <CallContext.Provider value={value}>{children}</CallContext.Provider>;
 }

@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
 
+import { showsIncomingPage } from '../state/callView.js';
+import type { CallViewState } from '../state/callView.js';
 import { useCall } from '../useCall.js';
 import { ActiveCall } from './ActiveCall.js';
 import { CallEnded } from './CallEnded.js';
@@ -16,7 +18,7 @@ import { PromptCard } from './PromptCard.js';
  * 权限说明卡 / 被拒提示卡叠在最上面，**不受阶段限制**：它们出现在拨出之前、接听之前。
  */
 export function CallOverlay(): ReactNode {
-  const { state, prompt } = useCall();
+  const { state, prompt, bannerFirst } = useCall();
   const card = prompt === null ? null : (
     <PromptCard
       title={prompt.title}
@@ -29,21 +31,22 @@ export function CallOverlay(): ReactNode {
 
   return (
     <>
-      {body(state.phase, state.isMinimized)}
+      {body(state, bannerFirst)}
       {card}
     </>
   );
 }
 
-function body(phase: string, isMinimized: boolean): ReactNode {
-  if (phase === 'idle') return null;
-  if (phase === 'incoming') return <IncomingCall />;
+function body(state: CallViewState, bannerFirst: boolean): ReactNode {
+  if (state.phase === 'idle') return null;
+  // 来电先出横幅，点开（或宿主关掉了 bannerFirst）才进来电页——来电页与通话页同一个容器。
+  if (state.phase === 'incoming') return showsIncomingPage(state, bannerFirst) ? <ActiveCall /> : <IncomingCall />;
   /*
     **结束态有自己的一屏**，不能落到 ActiveCall 上——那会把「静音 / 关摄像头 /
     小窗 / 挂断」这排接通后才有的按钮连同九宫格一起显示出来。
     （还在响铃的来电根本不会进结束态，直接回 idle，见 callView.ts。）
   */
-  if (phase === 'ended') return <CallEnded />;
-  if (isMinimized) return <MiniWindow />;
+  if (state.phase === 'ended') return <CallEnded />;
+  if (state.isMinimized) return <MiniWindow />;
   return <ActiveCall />;
 }

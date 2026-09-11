@@ -26,6 +26,7 @@ export { CallOverlay } from './components/CallOverlay.js';
 export { ActiveCall, pickLayout } from './components/ActiveCall.js';
 export type { CallLayout } from './components/ActiveCall.js';
 export { IncomingCall } from './components/IncomingCall.js';
+export { IncomingControls, incomingInviteText } from './components/IncomingControls.js';
 export { CallEnded } from './components/CallEnded.js';
 export { MiniWindow } from './components/MiniWindow.js';
 export { ControlBar, showsCameraButton } from './components/ControlBar.js';
@@ -42,6 +43,7 @@ export { TopBanner } from './components/TopBanner.js';
 
 export {
   canShowInvite, defaultCameraOn, initialCallView, inviteSlotsLeft, isCallVisible, reduceCallView,
+  showsIncomingPage,
 } from './state/callView.js';
 export type {
   CallPhase,
@@ -55,7 +57,7 @@ export type {
 export { settledText } from './state/participants.js';
 export {
   blockedCopy, browserPermissionQuery, classifyProbeError, devicesFor, devicesForAnswering, explanationCopy,
-  needsExplanation,
+  needsExplanation, shouldPreviewWhileRinging,
 } from './state/permissions.js';
 export type { DeviceKind, PermissionFailure, PermissionQuery, PermissionStatus } from './state/permissions.js';
 

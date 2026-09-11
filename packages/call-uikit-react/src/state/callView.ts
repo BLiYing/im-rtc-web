@@ -205,6 +205,10 @@ export function reduceCallView(state: CallViewState, action: ViewAction): CallVi
     case 'setSwapped':
       return { ...state, isSwapped: action.swapped };
 
+    case 'expandIncoming':
+      // 只有还在响铃时点得开：接通 / 结束之后迟到的点击不该留一个标志给下一通。
+      return state.phase === 'incoming' ? { ...state, isBannerExpanded: true } : state;
+
     default:
       return state;
   }
@@ -218,6 +222,16 @@ export function reduceCallView(state: CallViewState, action: ViewAction): CallVi
  */
 export function defaultCameraOn(mediaType: MediaType, isGroup: boolean): boolean {
   return mediaType === 'video' && !isGroup;
+}
+
+/**
+ * showsIncomingPage 决定来电时显示来电页还是横幅。
+ *
+ * `bannerFirst`（默认 true）= 先出横幅、点开才进来电页；false = 来电直接进来电页。
+ * 与 iOS `IMCallWindow.desiredMode` 同一条判据。
+ */
+export function showsIncomingPage(state: CallViewState, bannerFirst: boolean): boolean {
+  return state.phase === 'incoming' && (!bannerFirst || state.isBannerExpanded);
 }
 
 /** isCallVisible 判断此刻界面上该不该有通话 UI。 */

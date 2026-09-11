@@ -31,6 +31,8 @@ export interface CallActions {
   setMinimized: (minimized: boolean) => void;
   /** setSwapped 互换 1v1 的两块画面。纯本端行为。 */
   setSwapped: (swapped: boolean) => void;
+  /** expandIncoming 把来电横幅展开成来电页（点横幅本体）。 */
+  expandIncoming: () => void;
   dismiss: () => void;
 }
 
@@ -234,6 +236,7 @@ export function useCallActions({ engine, state, dispatch, cids, gate }: CallActi
       },
       setMinimized: (minimized): void => dispatch({ type: 'setMinimized', minimized }),
       setSwapped: (swapped): void => dispatch({ type: 'setSwapped', swapped }),
+      expandIncoming: (): void => dispatch({ type: 'expandIncoming' }),
       dismiss: (): void => dispatch({ type: 'dismiss' }),
     }),
     [engine, dispatch, cids, gate, publishFor, startPreview, state.phase, state.mediaType, state.isMeeting,

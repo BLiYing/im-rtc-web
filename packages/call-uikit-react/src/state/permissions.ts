@@ -55,6 +55,22 @@ export function devicesForAnswering(mediaType: MediaType, cameraOptedOut: boolea
   return devicesFor(mediaType, !cameraOptedOut);
 }
 
+/**
+ * shouldPreviewWhileRinging 决定来电页（还在响铃）上要不要起本端预览（设计稿 v3.7 · 规范「来电页」行）。
+ *
+ * **响铃时一个权限框都不弹**：用户还没决定接不接，这时弹系统框等于替他做了决定。
+ * 所以只有**早就授过权**（`granted`）才起；`prompt` / `unknown` 一律等到接听那一下再申请——
+ * `unknown`（Safari 查不到）也不去探，探就是弹框。与 iOS `imShouldPreviewWhileRinging` 同一条判据。
+ */
+export function shouldPreviewWhileRinging(
+  mediaType: MediaType,
+  cameraOn: boolean,
+  cameraBlocked: boolean,
+  status: PermissionStatus,
+): boolean {
+  return mediaType === 'video' && cameraOn && !cameraBlocked && status === 'granted';
+}
+
 /** needsExplanation 决定要不要先出我们自己的说明卡。 */
 export function needsExplanation(status: PermissionStatus): boolean {
   return status === 'prompt';

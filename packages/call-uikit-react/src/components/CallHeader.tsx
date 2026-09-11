@@ -18,16 +18,20 @@ export interface CallHeaderProps {
   /** 1v1 对端的网络质量，画在副标题旁边；0 不画。 */
   readonly networkLevel: number;
   readonly onInvite: () => void;
+  /** 给不给「收进小窗」。**来电页不给**：小窗上没有接听键，收进去就接不了（与 iOS 一致）。 */
+  readonly showsMinimize?: boolean;
 }
 
-export function CallHeader({ title, subtitle, networkLevel, onInvite }: CallHeaderProps): ReactNode {
+export function CallHeader({ title, subtitle, networkLevel, onInvite, showsMinimize = true }: CallHeaderProps): ReactNode {
   const { state, actions } = useCall();
   return (
     <div style={styles.header}>
-      <button type="button" style={styles.headerButton} aria-label="收进小窗" data-testid="minimize"
-        onClick={() => actions.setMinimized(true)}>
-        <Icon name="pip" size={18} />
-      </button>
+      {showsMinimize ? (
+        <button type="button" style={styles.headerButton} aria-label="收进小窗" data-testid="minimize"
+          onClick={() => actions.setMinimized(true)}>
+          <Icon name="pip" size={18} />
+        </button>
+      ) : <span />}
       <div style={styles.headerCenter}>
         <div style={styles.title}>{title}</div>
         <div style={styles.subtitle}>
