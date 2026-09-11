@@ -1,5 +1,5 @@
 import type { CallEngine } from '@im-rtc/call-engine';
-import { CallEngine as Engine, WebRTCAdapter, setLogLevel, setLogSink } from '@im-rtc/call-engine';
+import { CallEngine as Engine, VideoProfiles, WebRTCAdapter, setLogLevel, setLogSink } from '@im-rtc/call-engine';
 import { CallOverlay, CallProvider } from '@im-rtc/call-uikit-react';
 import { SyntheticMediaSource, browserMediaSource } from '@demo/synthetic';
 import type { ReactNode } from 'react';
@@ -15,8 +15,13 @@ import { EngineLog } from './EngineLog.js';
 import { DEMO_CONTACTS } from './contacts.js';
 import { Dialer } from './Dialer.js';
 import { LoginPanel } from './LoginPanel.js';
+import { Settings } from './Settings.js';
+import type { VideoProfileKey } from './settingsStore.js';
+import { browserStore, loadSettings } from './settingsStore.js';
+import { useDemoSettings } from './useDemoSettings.js';
 
-setLogLevel('debug');
+// 启动时按存下的档位设（默认 debug）。**要早于任何 engine 创建**，所以放在模块顶部而不是 effect 里。
+setLogLevel(loadSettings(browserStore()).logLevel);
 
 const CONN_LABEL: Readonly<Record<ConnPhase, string>> = {
   connected: '● 已连接',
@@ -31,6 +36,8 @@ interface Session {
   readonly token: string;
   readonly uid: string;
   readonly deviceId: string;
+  /** 这次登录建采集时用的档位。设置卡片里改了档位要重登才生效，拿它来提示。 */
+  readonly videoProfile: VideoProfileKey;
 }
 
 /**
@@ -100,6 +107,7 @@ export function App(): ReactNode {
     phase: 'connected', detail: '',
   });
   const [notice, setNotice] = useState('');
+  const { settings, settingsRef, update: updateSetting } = useDemoSettings();
 
   const login = useCallback(
     async (server: string, username: string, synthetic: boolean): Promise<void> => {
@@ -119,10 +127,12 @@ export function App(): ReactNode {
         remote.push(toEntry(level, message, fields as Record<string, unknown>));
       });
       const source = synthetic ? new SyntheticMediaSource(username) : browserMediaSource;
+      // 采集档位在 adapter 构造时定下，所以设置卡片里改了要重登才生效。
+      const videoProfile = settingsRef.current.videoProfile;
       const engine = new Engine({
         url: `${server.replace(/^http/, 'ws')}/v1/ws`,
         deviceId,
-        media: new WebRTCAdapter(source),
+        media: new WebRTCAdapter(source, VideoProfiles[videoProfile]),
       });
       /*
         换票与「被踢就回登录页」这套处置**是宿主的活**，所以写在 Demo 里而不是 SDK 里
@@ -152,9 +162,9 @@ export function App(): ReactNode {
       remember({ server, username, synthetic });
       setNotice('');
       setConn({ phase: 'connected', detail: '新会话' });
-      setSession({ engine, server, token, uid: username, deviceId });
+      setSession({ engine, server, token, uid: username, deviceId, videoProfile });
     },
-    [],
+    [settingsRef],
   );
 
   /*
@@ -208,7 +218,7 @@ export function App(): ReactNode {
       {session === null ? (
         restoring ? <div className="card">正在恢复登录…</div> : <LoginPanel onLogin={login} />
       ) : (
-        <CallProvider engine={session.engine} inviteCandidates={DEMO_CONTACTS}>
+        <CallProvider engine={session.engine} inviteCandidates={DEMO_CONTACTS} bannerFirst={settings.bannerFirst}>
           <div className="card">
             <h2>已登录</h2>
             <div>
@@ -229,6 +239,8 @@ export function App(): ReactNode {
           </div>
           <Dialer server={session.server} token={session.token} deviceId={session.deviceId} uid={session.uid} />
           <CallHistory server={session.server} token={session.token} uid={session.uid} />
+          <Settings settings={settings} onChange={updateSetting}
+                    activeProfile={session.videoProfile} deviceId={session.deviceId} />
           <EngineLog />
           <CallOverlay />
         </CallProvider>

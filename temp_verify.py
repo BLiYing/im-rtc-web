@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""校验 packages/call-engine/test/vectors.ts 的一致性向量定位（2026-09-10 code-review 修复）。
+"""静态校验：Web 端 SDK 统一到 1.0.0 + demo-react 设置卡片（2026-09-11，分支 feat/settings-sdk-1.0.0）。
 
 要成立的：
-  ① 主检出、`.claude/worktrees/<分支>` 两种布局都找得到同级的 im-rtc-server；
-  ② 同级没有时**抛错**——哪怕更上层碰巧有一份 im-rtc-server（旧版会静默拿去用）；
-  ③ RTC_CONFORMANCE_DIR 设了就只认它：存在就用、不存在就抛；空串等于没设。
-
-做法：把 vectors.ts 拷进临时目录搭出的各种布局，用 node（≥23.6 自带去类型）直接 import 调用。
-同一组用例再对修复前的版本（830f2f2）跑一遍，确认用例真的抓得住那个 bug。
+  ① 两个包的 package.json 与 package-lock.json 都是 1.0.0，uikit 对 engine 的依赖也是 1.0.0；
+     lockfile 相对 main 只动了这三行（没有无关依赖漂移）；
+  ② engine 的 sys.hello 默认 sdk 由 SDK_VERSION 拼出 web/1.0.0，常量从 index.ts 导出；
+  ③ 源码与清单里没有残留的 0.0.1 版本号（127.0.0.1 这种 IP 不算，.claude/launch.json 是配置 schema 版本，不算）；
+  ④ demo-react 的设置卡片接上了 bannerFirst / setLogLevel / WebRTCAdapter 档位，放在 CallHistory 与 EngineLog 之间；
+  ⑤ 设置持久化走 im-rtc-demo.settings.* 且每次读写都包了 try/catch；test.sh 跑 demo-react 的 vitest。
 
 跑法：python3 temp_verify.py          （在 im-rtc-web 或它的 worktree 下）
      python3 temp_verify.py --fast   不跑真实的 vitest
@@ -18,11 +18,9 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import os
-import shutil
+import re
 import subprocess
 import sys
-import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Final
@@ -31,48 +29,14 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)-7s %(message)s")
 log: Final = logging.getLogger("verify")
 
 ROOT: Final[Path] = Path(__file__).resolve().parent
-SRC: Final[Path] = ROOT / "packages" / "call-engine" / "test" / "vectors.ts"
-OLD_REV: Final[str] = "830f2f2"
-CONF: Final[str] = "im-rtc-server/docs/conformance"
-TEST_DIR: Final[str] = "packages/call-engine/test"
-
-# 结果打成一行 JSON。import 本身失败（语法错、node 太老）不会走到 catch，由调用方按驱动故障处理。
-PROBE_JS: Final[str] = (
-    "const { loadVector } = await import(process.env.VECTORS_URL);"
-    "try { console.log(JSON.stringify({ ok: true, from: loadVector('probe.json').from })); }"
-    "catch (e) { console.log(JSON.stringify({ ok: false, error: String(e.message) })); }"
-)
-
-
-@dataclass(frozen=True)
-class Case:
-    """一种目录布局。路径都相对临时目录；want=None 表示期望抛错。"""
-
-    name: str
-    repo: str
-    vector_dirs: tuple[str, ...]
-    env: str | None = None  # 以 "@" 开头 = 相对临时目录
-    want: str | None = None
-    want_error: str = ""
-    old_fails: bool = False  # 修复前的版本应当在这条上挂
-
-
-CASES: Final[tuple[Case, ...]] = (
-    Case("主检出 + 同级", "ws/im-rtc-web", (f"ws/{CONF}",), want=f"ws/{CONF}"),
-    Case("worktree + 同级", "ws/im-rtc-web/.claude/worktrees/b", (f"ws/{CONF}",), want=f"ws/{CONF}"),
-    Case("主检出、同级缺、上层有旧克隆 → 抛错", "ws/im-rtc-web", (CONF,),
-         want_error="im-rtc-server", old_fails=True),
-    Case("worktree、同级缺、worktrees 目录与上层各有一份 → 抛错",
-         "ws/im-rtc-web/.claude/worktrees/b", (CONF, f"ws/im-rtc-web/.claude/worktrees/{CONF}"),
-         want_error="im-rtc-server", old_fails=True),
-    Case("父目录叫 worktrees 但不在 .claude 下 → 按主检出算", "ws/worktrees/im-rtc-web",
-         (f"ws/worktrees/{CONF}",), want=f"ws/worktrees/{CONF}"),
-    Case("env 存在 → 优先于同级", "ws/im-rtc-web", (f"ws/{CONF}", "elsewhere/vec"),
-         env="@elsewhere/vec", want="elsewhere/vec"),
-    Case("env 设了但不存在 → 抛错、不退回同级", "ws/im-rtc-web", (f"ws/{CONF}",),
-         env="@nope", want_error="RTC_CONFORMANCE_DIR", old_fails=True),
-    Case("env 空串 = 没设", "ws/im-rtc-web", (f"ws/{CONF}",), env="", want=f"ws/{CONF}"),
-)
+VERSION: Final[str] = "1.0.0"
+ENGINE: Final[Path] = ROOT / "packages" / "call-engine"
+UIKIT: Final[Path] = ROOT / "packages" / "call-uikit-react"
+DEMO: Final[Path] = ROOT / "demo-react" / "src"
+# 前后都不能挨着数字或点：127.0.0.1 里的 0.0.1 前面是点，不算。
+OLD_VERSION: Final[re.Pattern[str]] = re.compile(r"(?<![\d.])0\.0\.1(?![\d.])")
+SCAN_DIRS: Final[tuple[str, ...]] = ("packages", "demo", "demo-react", "scripts")
+SCAN_SUFFIXES: Final[frozenset[str]] = frozenset({".ts", ".tsx", ".json", ".sh", ".html"})
 
 
 @dataclass
@@ -92,112 +56,171 @@ class Report:
         return ok
 
 
-def build_layout(base: Path, source: Path, case: Case) -> Path:
-    """搭目录、放向量、拷源码，返回拷过去的 vectors 文件。.mts 让 node 按 ESM 解析。"""
-    for rel in case.vector_dirs:
-        (base / rel).mkdir(parents=True, exist_ok=True)
-        (base / rel / "probe.json").write_text(json.dumps({"from": rel}), encoding="utf-8")
-    target = base / case.repo / TEST_DIR / "vectors.mts"
-    target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(source, target)
-    return target
-
-
-def probe(target: Path, conformance_env: str | None) -> dict[str, object]:
-    """在干净环境里 import 并调一次 loadVector。驱动本身出问题时返回带 driver_error 的结果。"""
-    env = {k: v for k, v in os.environ.items() if k != "RTC_CONFORMANCE_DIR"}
-    env["VECTORS_URL"] = target.as_uri()
-    if conformance_env is not None:
-        env["RTC_CONFORMANCE_DIR"] = conformance_env
+def read_text(path: Path) -> str:
+    """读文件；读不到返回空串并记一条错误，让后续断言照常失败而不是整个脚本崩掉。"""
     try:
-        out = subprocess.run(
-            ["node", "--no-warnings", "--input-type=module", "-e", PROBE_JS],
-            env=env, capture_output=True, text=True, timeout=30,
-        )
+        return path.read_text(encoding="utf-8")
+    except OSError as exc:
+        log.error("读不到 %s：%s", path.relative_to(ROOT), exc)
+        return ""
+
+
+def read_json(path: Path) -> dict[str, object]:
+    """读 JSON；坏了返回空字典。"""
+    raw = read_text(path)
+    try:
+        value = json.loads(raw) if raw else {}
+    except json.JSONDecodeError as exc:
+        log.error("%s 不是合法 JSON：%s", path.relative_to(ROOT), exc)
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def dig(obj: object, *keys: str) -> object:
+    """按键一路往下取，中途不是字典就返回 None。"""
+    for key in keys:
+        if not isinstance(obj, dict):
+            return None
+        obj = obj.get(key)
+    return obj
+
+
+def check_manifests(rep: Report) -> None:
+    engine = read_json(ENGINE / "package.json")
+    uikit = read_json(UIKIT / "package.json")
+    lock = read_json(ROOT / "package-lock.json")
+    rep.check("engine package.json = 1.0.0", engine.get("version") == VERSION, str(engine.get("version")))
+    rep.check("uikit package.json = 1.0.0", uikit.get("version") == VERSION, str(uikit.get("version")))
+    dep = dig(uikit, "dependencies", "@im-rtc/call-engine")
+    rep.check("uikit 依赖 engine 1.0.0", dep == VERSION, str(dep))
+    pkgs = dig(lock, "packages")
+    rep.check("lockfile engine = 1.0.0", dig(pkgs, "packages/call-engine", "version") == VERSION)
+    rep.check("lockfile uikit = 1.0.0", dig(pkgs, "packages/call-uikit-react", "version") == VERSION)
+    lock_dep = dig(pkgs, "packages/call-uikit-react", "dependencies", "@im-rtc/call-engine")
+    rep.check("lockfile uikit 依赖 engine 1.0.0", lock_dep == VERSION, str(lock_dep))
+
+
+def git(*args: str) -> str | None:
+    """跑一条 git；失败返回 None，调用方决定跳过还是记失败。"""
+    try:
+        out = subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, timeout=20)
     except (subprocess.TimeoutExpired, OSError) as exc:
-        return {"driver_error": f"node 起不来：{exc}"}
-    lines = out.stdout.strip().splitlines()
-    try:
-        return json.loads(lines[-1]) if lines else {"driver_error": out.stderr.strip()[-300:]}
-    except json.JSONDecodeError:
-        return {"driver_error": f"输出不是 JSON：{lines[-1][:200]}"}
-
-
-def run_case(source: Path, case: Case) -> tuple[bool, str]:
-    """跑一条布局，返回（是否符合期望，细节）。驱动故障一律算不符合，免得「期望抛错」的用例空过。"""
-    with tempfile.TemporaryDirectory(prefix="vectors-") as tmp:
-        base = Path(tmp).resolve()
-        target = build_layout(base, source, case)
-        env_value = case.env
-        if env_value is not None and env_value.startswith("@"):
-            env_value = str(base / env_value[1:])
-        result = probe(target, env_value)
-    if "driver_error" in result:
-        return False, f"驱动故障：{result['driver_error']}"
-    if case.want is not None:
-        return result.get("from") == case.want, json.dumps(result, ensure_ascii=False)
-    error = str(result.get("error", ""))
-    return (not result.get("ok")) and case.want_error in error, json.dumps(result, ensure_ascii=False)
-
-
-def old_source(dest: Path) -> Path | None:
-    """取修复前的 vectors.ts。不在 git 仓里或版本不存在时返回 None，调用方跳过对照。"""
-    try:
-        out = subprocess.run(
-            ["git", "show", f"{OLD_REV}:{TEST_DIR}/vectors.ts"],
-            cwd=ROOT, capture_output=True, text=True, timeout=20,
-        )
-    except (subprocess.TimeoutExpired, OSError) as exc:
-        log.warning("git show 失败，跳过旧版对照：%s", exc)
+        log.warning("git %s 起不来：%s", " ".join(args), exc)
         return None
     if out.returncode != 0:
-        log.warning("取不到 %s 的旧版，跳过对照：%s", OLD_REV, out.stderr.strip())
+        log.warning("git %s 失败：%s", " ".join(args), out.stderr.strip())
         return None
-    dest.write_text(out.stdout, encoding="utf-8")
-    return dest
+    return out.stdout
 
 
-def check_new(rep: Report) -> None:
-    for case in CASES:
-        ok, detail = run_case(SRC, case)
-        rep.check(f"新版：{case.name}", ok, detail)
+def check_lock_drift(rep: Report) -> None:
+    """lockfile 相对 main 的分叉点只许改三行，且改的都是版本号。"""
+    base = git("merge-base", "HEAD", "main")
+    if base is None:
+        log.warning("找不到与 main 的分叉点，跳过 lockfile 漂移检查")
+        return
+    diff = git("diff", base.strip(), "--", "package-lock.json")
+    if diff is None:
+        rep.check("lockfile 无无关漂移", False, "git diff 失败")
+        return
+    changed = [ln for ln in diff.splitlines() if ln[:1] in "+-" and not ln.startswith(("+++", "---"))]
+    removed = [ln for ln in changed if ln.startswith("-")]
+    added = [ln for ln in changed if ln.startswith("+")]
+    is_versions_only = all("0.0.1" in ln for ln in removed) and all(VERSION in ln for ln in added)
+    rep.check("lockfile 只动 3 处版本号", len(removed) == 3 and len(added) == 3 and is_versions_only,
+              f"-{len(removed)} +{len(added)}")
 
 
-def check_old(rep: Report) -> None:
-    """对照组：旧版应当恰好挂在 old_fails 的那几条上——证明用例不是摆设。"""
-    with tempfile.TemporaryDirectory(prefix="vectors-old-") as tmp:
-        source = old_source(Path(tmp) / "vectors.ts")
-        if source is None:
-            return
-        for case in CASES:
-            ok, detail = run_case(source, case)
-            expect = "挂" if case.old_fails else "过"
-            rep.check(f"旧版应当{expect}：{case.name}", ok != case.old_fails, detail)
+def check_sdk_constant(rep: Report) -> None:
+    version_ts = read_text(ENGINE / "src" / "version.ts")
+    connection = read_text(ENGINE / "src" / "signaling" / "connection.ts")
+    index = read_text(ENGINE / "src" / "index.ts")
+    rep.check("SDK_VERSION = '1.0.0'", f"export const SDK_VERSION = '{VERSION}';" in version_ts)
+    rep.check("index.ts 导出 SDK_VERSION", "export { SDK_VERSION } from './version.js';" in index)
+    rep.check("connection.ts 默认 sdk 由常量拼出", "const DEFAULT_SDK = `web/${SDK_VERSION}`;" in connection)
+    rep.check("connection.ts 两处都用 DEFAULT_SDK", connection.count("?? DEFAULT_SDK") == 2)
+    rep.check("connection.ts 不再写死 web/x.y.z", re.search(r"'web/\d", connection) is None)
+
+
+def iter_scan_files() -> list[Path]:
+    """要查残留版本号的文件：几个源码目录 + 根清单。跳过 node_modules / dist。"""
+    files = [ROOT / "package.json", ROOT / "package-lock.json"]
+    for name in SCAN_DIRS:
+        base = ROOT / name
+        if not base.is_dir():
+            continue
+        for path in base.rglob("*"):
+            parts = set(path.relative_to(ROOT).parts)
+            if path.is_file() and path.suffix in SCAN_SUFFIXES and not parts & {"node_modules", "dist"}:
+                files.append(path)
+    return files
+
+
+def check_no_old_version(rep: Report) -> None:
+    hits: list[str] = []
+    for path in iter_scan_files():
+        for number, line in enumerate(read_text(path).splitlines(), start=1):
+            if OLD_VERSION.search(line):
+                hits.append(f"{path.relative_to(ROOT)}:{number}")
+    rep.check("无残留 0.0.1 版本号", not hits, ", ".join(hits[:5]))
+
+
+def check_demo_wiring(rep: Report) -> None:
+    app = read_text(DEMO / "App.tsx")
+    card = read_text(DEMO / "Settings.tsx")
+    hook = read_text(DEMO / "useDemoSettings.ts")
+    rep.check("App 不再写死 setLogLevel('debug')", "setLogLevel('debug')" not in app)
+    rep.check("App 启动按存储设日志档位", "setLogLevel(loadSettings(browserStore()).logLevel)" in app)
+    rep.check("CallProvider 接 bannerFirst", "bannerFirst={settings.bannerFirst}" in app)
+    rep.check("登录时按档位建 WebRTCAdapter", "new WebRTCAdapter(source, VideoProfiles[videoProfile])" in app)
+    rep.check("档位读 ref 不读 state", "settingsRef.current.videoProfile" in app)
+    order = [app.find(tag) for tag in ("<CallHistory", "<Settings", "<EngineLog")]
+    rep.check("卡片在 CallHistory 之后、EngineLog 之前", -1 not in order and order == sorted(order), str(order))
+    rep.check("卡片开关：横幅", "onChange('bannerFirst'" in card)
+    rep.check("卡片开关：详细日志 debug/info", "onChange('logLevel', e.target.checked ? 'debug' : 'info')" in card)
+    rep.check("卡片档位用 engine 的 VideoProfiles", "VideoProfiles[key].name" in card and "VIDEO_PROFILE_KEYS.map" in card)
+    rep.check("卡片写明重登才生效", "重登" in card)
+    rep.check("关于：SDK 取常量", "im-rtc-web {SDK_VERSION}" in card)
+    rep.check("关于：WebRTC 跟随浏览器", "浏览器内置，版本跟随浏览器" in card and "describeBrowser(" in card)
+    rep.check("关于：设备 ID", "{deviceId}" in card)
+    rep.check("改日志档位立即 setLogLevel", "if (key === 'logLevel') setLogLevel(next.logLevel);" in hook)
+
+
+def check_store(rep: Report) -> None:
+    store = read_text(DEMO / "settingsStore.ts")
+    rep.check("存储键前缀 im-rtc-demo.settings.", "SETTINGS_KEY_PREFIX = 'im-rtc-demo.settings.'" in store)
+    rep.check("默认值：横幅 / debug / 720p",
+              all(s in store for s in ("bannerFirst: true,", "logLevel: 'debug',", "videoProfile: 'p720',")))
+    rep.check("三处存储访问都有 try/catch（取 localStorage、读、写）", store.count("try {") >= 3 and store.count("} catch {") >= 3)
+    test_sh = read_text(ROOT / "scripts" / "test.sh")
+    rep.check("test.sh 跑 demo-react vitest", "npx vitest run --root demo-react" in test_sh)
 
 
 def check_vitest(rep: Report) -> None:
-    """真跑一次 engine 的 vitest，**不带** RTC_CONFORMANCE_DIR，走的就是 siblingDir 那条路。"""
-    env = {k: v for k, v in os.environ.items() if k != "RTC_CONFORMANCE_DIR"}
-    try:
-        out = subprocess.run(
-            ["npx", "vitest", "run", "--root", "packages/call-engine"],
-            cwd=ROOT, env=env, capture_output=True, text=True, timeout=600,
-        )
-    except (subprocess.TimeoutExpired, OSError) as exc:
-        rep.check("不设 env 直接跑 engine vitest", False, str(exc))
-        return
-    tail = "\n".join((out.stdout + out.stderr).strip().splitlines()[-6:])
-    rep.check("不设 env 直接跑 engine vitest", out.returncode == 0, tail)
+    """真跑一次 demo-react 与 engine 的 vitest。"""
+    for root in ("demo-react", "packages/call-engine"):
+        try:
+            out = subprocess.run(["npx", "vitest", "run", "--root", root],
+                                 cwd=ROOT, capture_output=True, text=True, timeout=600)
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            rep.check(f"vitest {root}", False, str(exc))
+            continue
+        tail = "\n".join((out.stdout + out.stderr).strip().splitlines()[-4:])
+        rep.check(f"vitest {root}", out.returncode == 0, tail)
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="校验 vectors.ts 的向量定位")
+    parser = argparse.ArgumentParser(description="校验 Web SDK 1.0.0 与 demo-react 设置卡片")
     parser.add_argument("--fast", action="store_true", help="不跑真实的 vitest")
     args = parser.parse_args()
 
     rep = Report()
-    check_new(rep)
-    check_old(rep)
+    check_manifests(rep)
+    check_lock_drift(rep)
+    check_sdk_constant(rep)
+    check_no_old_version(rep)
+    check_demo_wiring(rep)
+    check_store(rep)
     if not args.fast:
         check_vitest(rep)
 

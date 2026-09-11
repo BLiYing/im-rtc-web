@@ -1,6 +1,6 @@
 {
   "name": "@im-rtc/call-engine",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "description": "im-rtc 的无 UI 核心：信令、状态机、媒体、设备。框架无关，禁止依赖任何 UI 库。",
   "type": "module",
   "main": "./dist/index.js",

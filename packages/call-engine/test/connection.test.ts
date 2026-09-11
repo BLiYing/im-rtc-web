@@ -7,6 +7,7 @@ import { CALL_ID_FIELDS } from '../src/signaling/frames.call.js';
 import { SDP_FIELDS } from '../src/signaling/frames.room.js';
 import { EMPTY_FIELDS } from '../src/signaling/frames.sys.js';
 import { CloseCode } from '../src/signaling/webSocket.js';
+import { SDK_VERSION } from '../src/version.js';
 import { FakeWebSocket, flush } from './fakeWebSocket.js';
 
 /** 这些是**时序测试**：握手、心跳、重连全靠假连接 + 假计时器看清楚。 */
@@ -108,6 +109,9 @@ describe('握手', () => {
     expect(hello?.data['device_id']).toBe('d1');
     expect(hello?.data['protocol_version']).toBe(1);
     expect(hello?.data['session_id']).toBe(''); // 首次连接没有会话可恢复
+    // 宿主没传 sdk 时，版本号取 SDK_VERSION——不许在 connection.ts 里另写一份再漂掉。
+    expect(hello?.data['sdk']).toBe(`web/${SDK_VERSION}`);
+    expect(SDK_VERSION).toBe('1.0.0');
 
     h.latest().receive(
       JSON.stringify({ type: 'sys.hello.ok', req_id: hello?.req_id, ts: 1, data: HELLO_OK_DATA }),

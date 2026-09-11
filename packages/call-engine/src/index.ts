@@ -11,6 +11,8 @@
  * 状态机、WS 客户端、媒体适配器随后落地。
  */
 
+export { SDK_VERSION } from './version.js';
+
 export {
   ERROR_DEFINITIONS,
   ErrorCode,
