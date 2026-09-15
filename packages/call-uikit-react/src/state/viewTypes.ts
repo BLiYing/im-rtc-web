@@ -101,6 +101,8 @@ export interface CallViewState {
   readonly role: CallRoleName;
   /** 1v1 的对端 uid；群通话为空串。 */
   readonly peerUid: string;
+  /** 发起人 uid，只在被叫侧有值（主叫侧就是自己）。选人页靠它不列发起人：他离场后服务端拉不回来。 */
+  readonly callerUid: string;
   readonly participants: readonly RemoteParticipant[];
   readonly self: SelfState;
   /** 是否收进小窗。 */
@@ -142,8 +144,8 @@ export interface CallViewState {
   readonly isMediaReady: boolean;
   readonly connection: ConnectionStatus;
   /**
-   * 还能不能加人。主叫默认能；收到 `1407 not_call_owner` 后关掉——
-   * 正常情况下非主叫根本看不到按钮，这条是兜底。
+   * 还能不能加人。默认能；收到 `1407 not_call_owner`（本端已不在通话里）后关掉——
+   * 正常情况下那时根本看不到按钮，这条是兜底。
    */
   readonly canInvite: boolean;
 }
@@ -158,6 +160,7 @@ export const initialCallView: CallViewState = {
   isMeeting: false,
   role: '',
   peerUid: '',
+  callerUid: '',
   participants: [],
   self: { micOn: true, cameraOn: false, cameraBlocked: false, cameraOptedOut: false, speaking: false, volume: 0 },
   isMinimized: false,
@@ -194,13 +197,13 @@ export type ViewAction =
   | { readonly type: 'localCamera'; readonly cid: string }
   /** 摄像头拿不到（权限被拒 / 没设备）：通话继续，按钮禁用。 */
   | { readonly type: 'cameraBlocked' }
-  /** 主叫往群通话里又拉了一批人，先摆上占位格。 */
+  /** 本端往群通话里又拉了一批人，先摆上占位格。 */
   | { readonly type: 'invited'; readonly uids: readonly string[] }
   /** 某人给出了终局裁决（拒接 / 无应答 / 不在线），格子先标上终局、稍后再收。 */
   | { readonly type: 'userSettled'; readonly uid: string; readonly outcome: SettledOutcome }
   /** 终局停够了，把格子收掉。 */
   | { readonly type: 'userRemove'; readonly uid: string }
-  /** 服务端说不是主叫（1407）：藏掉加人入口。 */
+  /** 服务端说本端不在通话里（1407）：藏掉加人入口。 */
   | { readonly type: 'inviteDenied' }
   | { readonly type: 'meetingJoined'; readonly roomId: string; readonly nowMs: number }
   | { readonly type: 'roomLeft' }

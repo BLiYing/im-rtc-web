@@ -159,7 +159,7 @@ describe('页内小窗', () => {
 });
 
 describe('九宫格加人', () => {
-  it('入口只有右上角那一颗：网格里没有加号格，被叫连按钮也没有', () => {
+  it('入口只有右上角那一颗：网格里没有加号格；被叫接通后同样有（通话里的人都能加）', () => {
     const engine = setup();
     connectAs(engine, 'caller', true);
     expect(screen.getByTestId('invite-button')).toBeTruthy();
@@ -171,7 +171,7 @@ describe('九宫格加人', () => {
       engine.emit('callEnd', { callId: 'c-1', reason: 'hangup', durationSec: 1, endedBy: 'me' });
     });
     connectAs(engine, 'callee', true);
-    expect(screen.queryByTestId('invite-button')).toBeNull();
+    expect(screen.getByTestId('invite-button')).toBeTruthy();
   });
 
   it('选人 → 邀请：占位格立刻出现，帧随后发；已在通话中的人置灰不可选', async () => {
@@ -226,7 +226,7 @@ describe('九宫格加人', () => {
     }
   });
 
-  it('服务端说不是主叫（1407）→ 入口藏掉；满员（1202）→ 提示', () => {
+  it('服务端说本端不在通话里（1407）→ 入口藏掉；满员（1202）→ 提示', () => {
     const engine = setup();
     connectAs(engine, 'caller', true);
     act(() => {
@@ -238,6 +238,24 @@ describe('九宫格加人', () => {
       engine.emit('error', { code: ErrorCode.notCallOwner, name: 'not_call_owner', message: '' });
     });
     expect(screen.queryByTestId('invite-button')).toBeNull();
+  });
+
+  it('被叫也能加人；选人页不列发起人——他离场后服务端拉不回来', async () => {
+    const engine = setup([{ uid: 'alice' }, { uid: 'dave' }]);
+    act(() => {
+      engine.emit('callReceived', { callId: 'c-1', caller: 'alice', calleeIds: ['me'], mediaType: 'video', isGroup: true });
+      engine.emit('callBegin', { callId: 'c-1', roomId: 'r-1', mediaType: 'video', isGroup: true, role: 'callee' });
+      engine.emit('roomJoined', { roomId: 'r-1' });
+      engine.emit('userEnter', { uid: 'bob' });
+      engine.emit('userLeave', { uid: 'alice' });
+    });
+
+    fireEvent.click(screen.getByTestId('invite-button'));
+    expect(screen.queryByTestId('invite-row-alice')).toBeNull();
+    fireEvent.click(screen.getByTestId('invite-row-dave'));
+    fireEvent.click(screen.getByTestId('invite-go'));
+    await flush();
+    expect(engine.calls).toContain('inviteMore:dave');
   });
 
   it('群通话的红按钮写「离开」', () => {

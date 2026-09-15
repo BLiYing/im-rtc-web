@@ -54,7 +54,7 @@ export const CALL_ID_FIELDS = {
   callId: { kind: 'string', wire: 'call_id' },
 } as const satisfies FrameFields;
 
-/** INVITE_MORE_FIELDS：群通话中途加邀（P4）。仅主叫可发。 */
+/** INVITE_MORE_FIELDS：群通话中途加邀（P4）。通话里的任何人都能发。 */
 export const INVITE_MORE_FIELDS = {
   callId: { kind: 'string', wire: 'call_id' },
   calleeIds: { kind: 'stringArray', wire: 'callee_ids' },

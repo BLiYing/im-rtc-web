@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CallViewState, ViewAction } from '../src/state/callView.js';
-import { defaultCameraOn, initialCallView, isCallVisible, reduceCallView } from '../src/state/callView.js';
+import { canShowInvite, defaultCameraOn, initialCallView, isCallVisible, reduceCallView } from '../src/state/callView.js';
 
 /** run 把一串动作依次喂进去，返回终态。 */
 function run(actions: ViewAction[], from: CallViewState = initialCallView): CallViewState {
@@ -15,6 +15,26 @@ const begin: ViewAction = {
   type: 'callBegin', callId: 'c-1', roomId: 'r-1', mediaType: 'video',
   isGroup: false, role: 'callee', nowMs: 1_000,
 };
+
+describe('加人入口', () => {
+  it('被叫侧记下发起人；响铃中没有入口，接通后才有（通话里的人都能加）', () => {
+    let state = run([{
+      type: 'callReceived', callId: 'c-1', caller: 'alice', calleeIds: ['carol'], mediaType: 'video', isGroup: true,
+    }]);
+    expect(state.callerUid).toBe('alice');
+    expect(canShowInvite(state)).toBe(false);
+
+    state = reduceCallView(state, {
+      type: 'callBegin', callId: 'c-1', roomId: 'r-1', mediaType: 'video', isGroup: true, role: 'callee', nowMs: 1_000,
+    });
+    expect(state.callerUid).toBe('alice');
+    expect(canShowInvite(state)).toBe(true);
+
+    // 自己拨出的下一通不带上一通的发起人。
+    expect(reduceCallView(state, { type: 'callPlaced', calleeIds: ['bob'], mediaType: 'audio', isGroup: true }).callerUid)
+      .toBe('');
+  });
+});
 
 describe('通话界面的阶段', () => {
   it('来电 → 接通中 → 通话中 → 结束 → 收起', () => {

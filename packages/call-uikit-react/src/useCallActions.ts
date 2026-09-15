@@ -307,7 +307,7 @@ export function useCallActions({ engine, state, dispatch, cids, gate, endWatchdo
           await engine.inviteMore([...uids]);
         } catch (err) {
           /*
-            **邀请没发出去就要把占位格收回来。** 服务端拒掉（1407 非主叫 / 1202 满员）时
+            **邀请没发出去就要把占位格收回来。** 服务端拒掉（1407 本端不在通话里 / 1202 满员）时
             不会有 `userReject` / `userNoResponse` ——那两条是给「真的响了铃的人」的。
             不收的话，那几格会一直挂着「呼叫中…」到通话结束，而且还占着人数，
             让「还能加 N 人」和九宫格的行列都算错一格。

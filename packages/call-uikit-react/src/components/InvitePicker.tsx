@@ -28,11 +28,13 @@ export function InvitePicker({ onClose }: InvitePickerProps): ReactNode {
   const slots = inviteSlotsLeft(state) - picked.length;
 
   // 宿主的名单里多半含自己（Demo 实测就是）；自己不能邀请自己，直接不列。
+  // 发起人也不列：他不在服务端成员表里，离场后拉不回来（回 bad_params），列出来只会留下一个转不停的占位格。
   const shown = candidates.filter((c) =>
-    c.uid !== engine.uid
+    c.uid !== engine.uid && c.uid !== state.callerUid
     && (query.trim() === '' || c.uid.includes(query.trim()) || (c.name ?? '').includes(query.trim())));
   const typedUid = query.trim();
-  const canTypeIn = candidates.length === 0 && typedUid !== '' && !inCall.has(typedUid) && !picked.includes(typedUid);
+  const canTypeIn = candidates.length === 0 && typedUid !== '' && typedUid !== state.callerUid
+    && !inCall.has(typedUid) && !picked.includes(typedUid);
 
   const toggle = (uid: string): void => {
     setPicked((list) => (list.includes(uid) ? list.filter((u) => u !== uid) : slots > 0 ? [...list, uid] : list));

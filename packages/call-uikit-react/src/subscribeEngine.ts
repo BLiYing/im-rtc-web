@@ -68,7 +68,7 @@ export function subscribeEngine(engine: CallEngine, dispatch: (action: ViewActio
       dispatch({ type: 'connection', status: e.willReconnect ? 'reconnecting' : 'lost' })),
     engine.on('kickedOut', () => dispatch({ type: 'connection', status: 'lost' })),
     /*
-      加人的两条失败分支（交互稿 §05）：满员出 Toast；非主叫把入口藏掉。
+      加人的两条失败分支（交互稿 §05）：满员出 Toast；本端已不在通话里（1407）把入口藏掉。
       别的错误码这里不接——它们由宿主的日志 / 错误面板处理，界面上没有对应的态。
     */
     engine.on('error', (e) => {

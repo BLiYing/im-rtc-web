@@ -7,6 +7,9 @@
 
 ## 当前焦点
 
+**2026-09-15：群通话里的任何人都能加人（服务端同日放开）。未提交；单测已跑，浏览器未验（测之前重起 vite）。**
+`canShowInvite` 去掉 `role === 'caller'`；`CallViewState.callerUid`（被叫侧记发起人）→ `InvitePicker` 不列发起人（离场后服务端拉不回来）；1407 提示改「你已不在通话中，无法添加成员」。
+
 **2026-09-15：红键等不到结束事件时引擎也收场（`forceEnd`）+ uikit 补红键看门狗（Web 原先没有）。已提交 `dd5e4c0`，09-15 与 iOS frank、Android alice 联测验过（见下一步）。两个小账随后单独一笔提交（单测覆盖，真机未验），`./scripts/test.sh` 全绿（14 步，engine 345 / uikit 156 / demo-react 17）。**
 - 小账已修：① 强制收场时长从本端 `onCallBegin` 那一刻算（`EngineContext.callStartedAtMs`，`reduceEngine` 入口统一打点、通话回 idle 清零），不再用整通 `connected_at_ms`；
   ② 拨出中没 call_id 时按取消不发帧、记 `CallContext.cancelPending`，`call.invite.ok` 一回来立刻补发 `call.cancel`（不再换回 1401）。

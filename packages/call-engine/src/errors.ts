@@ -79,7 +79,7 @@ export const ErrorCode = {
   invalidCallState: 1405,
   /** callee_ids 超上限 */
   tooManyCallees: 1406,
-  /** 非主叫发 call.cancel / call.invite_more */
+  /** 非主叫发 call.cancel；不在通话里的人发 call.invite_more */
   notCallOwner: 1407,
   /** 自己已在别的通话中 */
   alreadyInCall: 1408,
