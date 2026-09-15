@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { createContext, useEffect, useMemo, useReducer, useRef } from 'react';
 
 import { endedHoldMs as holdMsFor } from './format/endReason.js';
-import type { CanInvite, InviteCandidate, InviteProvider, OnInviteRequest } from './invite/types.js';
+import type { CanInvite, InviteCandidate, InviteMemberProvider, PresentInvitePicker } from './invite/types.js';
 import { END_WATCHDOG_MS } from './redButtonWatchdog.js';
 import { initialCallView, reduceCallView, showsIncomingPage } from './state/callView.js';
 import type { CallViewState } from './state/callView.js';
@@ -21,7 +21,7 @@ import { useVideoRevealFallback } from './useVideoRevealFallback.js';
 
 export type { CallActions } from './useCallActions.js';
 export type {
-  CanInvite, InviteCandidate, InviteContext, InvitePage, InviteProvider, OnInviteRequest,
+  CanInvite, InviteCandidate, InviteContext, InvitePage, InviteMemberProvider, PresentInvitePicker,
 } from './invite/types.js';
 
 /**
@@ -46,9 +46,9 @@ export type {
  */
 export interface InviteConfig {
   /** `(ctx, query, cursor) → 一页候选人`。取名单优先级：宿主接管 > provider > 静态名单 > 空态。 */
-  readonly provider?: InviteProvider;
+  readonly provider?: InviteMemberProvider;
   /** 整页换成宿主自己的选人页；返回 `null` 表示这次不接管。 */
-  readonly onRequest?: OnInviteRequest;
+  readonly onRequest?: PresentInvitePicker;
   /** 宿主的权限规则（例：群禁言时仅管理员可加人）。不给按 true 处理。 */
   readonly canInvite?: CanInvite;
   /** uid 输入框默认关（false）；打开后只出现在候选名单为空的空态里，只给 Demo 用。 */
@@ -84,7 +84,7 @@ export interface CallProviderProps {
   readonly endedHoldMs?: number;
   /**
    * 群通话里「添加成员」的**静态**候选名单（旧接口，保留兼容）。
-   * 新代码请用 `inviteProvider`——取名单优先级：`onInviteRequest` 接管 > `inviteProvider` >
+   * 新代码请用 `inviteMemberProvider`——取名单优先级：`presentInvitePicker` 接管 > `inviteMemberProvider` >
    * 这个静态数组 > 都没给时的空态「没有可邀请的成员」（HOST_INTEGRATION_DESIGN §3.4）。
    */
   readonly inviteCandidates?: readonly InviteCandidate[];
@@ -93,16 +93,16 @@ export interface CallProviderProps {
    * `query` 为空串 = 默认列表；小群一次返回全部，超级群走宿主自己的服务端搜索、
    * 分页由 `nextCursor` 驱动。
    */
-  readonly inviteProvider?: InviteProvider;
+  readonly inviteMemberProvider?: InviteMemberProvider;
   /**
    * 整页换成宿主自己的选人页：返回选中的 uid 数组（空数组 = 用户取消）交回 uikit，
-   * 由 uikit 调 `inviteMore`；返回 `null` 表示这次不接管，退回 `inviteProvider` / 静态名单。
+   * 由 uikit 调 `inviteMore`；返回 `null` 表示这次不接管，退回 `inviteMemberProvider` / 静态名单。
    */
-  readonly onInviteRequest?: OnInviteRequest;
+  readonly presentInvitePicker?: PresentInvitePicker;
   /** 宿主的权限规则（例：群禁言时仅管理员可加人）。不给按 true 处理。 */
   readonly canInvite?: CanInvite;
   /**
-   * uid 输入框默认关（HOST_INTEGRATION_DESIGN §3.4）：`inviteProvider` /
+   * uid 输入框默认关（HOST_INTEGRATION_DESIGN §3.4）：`inviteMemberProvider` /
    * `inviteCandidates` 都没有候选人时，空态里才会出现，**只给 Demo 用**。
    */
   readonly allowManualUidInput?: boolean;
@@ -126,7 +126,7 @@ const NO_CANDIDATES: readonly InviteCandidate[] = [];
 
 export function CallProvider({
   engine, children, endedHoldMs = DEFAULT_ENDED_HOLD_MS,
-  inviteCandidates = NO_CANDIDATES, inviteProvider, onInviteRequest, canInvite,
+  inviteCandidates = NO_CANDIDATES, inviteMemberProvider, presentInvitePicker, canInvite,
   allowManualUidInput = false,
   permissionQuery = browserPermissionQuery, bannerFirst = true,
   endWatchdogMs = END_WATCHDOG_MS,
@@ -270,12 +270,12 @@ export function CallProvider({
 
   const invite = useMemo<CallContextValue['invite']>(
     () => ({
-      ...(inviteProvider === undefined ? {} : { provider: inviteProvider }),
-      ...(onInviteRequest === undefined ? {} : { onRequest: onInviteRequest }),
+      ...(inviteMemberProvider === undefined ? {} : { provider: inviteMemberProvider }),
+      ...(presentInvitePicker === undefined ? {} : { onRequest: presentInvitePicker }),
       ...(canInvite === undefined ? {} : { canInvite }),
       allowManualUidInput,
     }),
-    [inviteProvider, onInviteRequest, canInvite, allowManualUidInput],
+    [inviteMemberProvider, presentInvitePicker, canInvite, allowManualUidInput],
   );
   const value = useMemo<CallContextValue>(
     () => ({ state, engine, actions, joinCall, prompt: gate.prompt, candidates: inviteCandidates, invite, bannerFirst }),

@@ -1,103 +1,98 @@
 # Current Task — im-rtc-web（TS engine + React uikit + Demo）
 
-> **活快照**：就地覆盖、不追加。历史见 `git log` 与 [current_task.archive.md](current_task.archive.md)（末节「2026-09-15 09:xx 精简前：强制收场与红键看门狗」）。
+> **活快照**：就地覆盖、不追加。历史见 `git log` 与 [current_task.archive.md](current_task.archive.md)（末节「2026-09-15 API 命名对齐前：宿主对接 M1→M2→M8 + 1409 缺口修复」）。
 > 规范 [CONVENTIONS.md](CONVENTIONS.md) · 分期 server `docs/design/RTC_CALL_DESIGN.md` §10 ·
 > 界面以设计稿 **v3.1** 为准：`../im-rtc-server/docs/design/sketches/RTC_CALL_UI_SPEC.html` / `RTC_CALL_UX_FLOWS.html`。
 > ✅ 状态只写在 `../im-rtc-server/docs/CLIENT_PARITY.md`。
 
 ## 当前焦点
 
-**2026-09-15：宿主对接 M1 → M2 → M8 做完之后，补了一个 Kit 缺口——邀请鉴权回调 1409 在 Web
-上原先有两个洞（见下一条）。`./scripts/test.sh` 全绿（14 步，engine 366 / uikit 180 / demo-react 17）。未提交。**
+**2026-09-15：四端 API 命名核对——本仓只改 im-rtc-web（协议文档 / CLIENT_PARITY / 另外三端由别的会话并行改）。
+直接在 main 上改，未 commit / push。`./scripts/test.sh` 全绿（14 步；engine 385 / uikit 180 / demo-react 17）。**
 
-- **1409 缺口修复**：查实 `useCallActions.inviteMore` 头上那段 `try/catch` 是**死代码**——
-  `FrameLoop.sendFrame` 从不把服务端拒绝转成异常，`inviteMore()` 也没有任何本地校验会
-  `throw`，所以那段 catch（含「对方暂时无法被邀请」的提示与占位格回收）从来没被真正触发过；
-  1202 / 1407 同理，`subscribeEngine.ts` 原先接的 `error` 事件只出提示、**没有**收占位格
-  （同一处死代码留下的假象）。改法：`subscribeEngine.ts` 新增 `inviteRevoked`（1202/1407/1409
-  共用，调 `participants.ts` 的 `revokeLastInvited`）与 `inviteRejectedByHost`（1409 专用，
-  按 `state.phase==='connecting'&&roomId===''` 识别「主动加入还没成」并跳过，避免跟
-  `joinCallFailed` 的「无法加入该通话」撞在一起冒两条提示）；`viewTypes.ts` 新增
-  `lastInvited`（每次 `inviteMore` 整批替换，只收最近这一批，不误伤上一轮还在响铃的人）与
-  `endHint`（初始 `call()` 被拒时 `phase` 还是 `outgoing`，`callEnd` 紧跟着到，`CallOverlay`
-  换成 `CallEnded` 之后 `hint` 没人读了，单独记一份挂在 `CallEnded.tsx`，做法同 `joinDeniedText`）；
-  `useCallActions.inviteMore` 的 catch 精简成纯防御性日志。
-  **已知限制（本次没修，不在任务范围内）**：`call.join` 本身也可能被 1202/1407 拒（见
-  `joinDeniedTextFor` 的注释），那种情况下 `subscribeEngine` 的全局 `error` 监听器与
-  `useCallActions.joinCall` 的临时监听器会同时收到同一条，可能双出「无法加入该通话」+
-  「通话已满员」——这是 1409 之外的同类问题，没有被这次改动引入，也没有一并修。
-
-- **M1（engine）**：`call.invite` / `call.incoming` / `call.connected` 加 `chat_group_id`（三处）与
-  `call.connected` 加 `caller` / `user_data`（`signaling/frames.call.ts`）；`call()` 签名改成
-  `call(calleeIds, mediaType, options?: boolean | CallOptions)`（`CallOptions = {isGroup?, chatGroupId?,
-  userData?, timeoutSec?}`，传布尔等同旧 `isGroup`）；新增 `joinCall(callId)`（状态机那半——
-  `callMachine.ts` 的 `join_call` / `joinOngoingCall`、`engineMachine.ts` 的 `CALL_ACTS`、
-  `frameLoop.ts` 的 rollback 表——**M1 开工前就已经在，这次只是把门面方法补上**）；`ErrorCode.inviteDenied
-  = 1409`；本地校验 `chatGroupId`（>64 字节或含空白）/ `userData`（>4096 字节），与「名单里有自己」同一个
-  出口（`engine.ts` 的 `rejectsBadCallOptions`，纯校验挪进新模块 `callOptions.ts` 的
-  `violatesCallOptionLimits`——engine.ts 是体量红线卡得最紧的文件，能抽出去的纯函数不留在里面）。
-  `CallContext` 新增 `chatGroupId` / `userData` 两个字段，
-  只当 `call.connected` 没带值时的回落（`callRecv.ts` 的 `handleConnected`）。
-- **M2（uikit）**：新模块 `src/invite/`（`types.ts` 的 `InviteContext` / `InviteCandidate`（扩
-  `avatarUrl`/`subtitle`/`selectable`/`unselectableReason`）/ `InviteProvider` / `OnInviteRequest` /
-  `CanInvite`，`inviteContext.ts` 的 `buildInviteContext`）；`CallProvider` 新 props `inviteProvider` /
-  `onInviteRequest` / `canInvite` / `allowManualUidInput`（默认 `false`），经 `useCall().invite` 暴露；
-  `InvitePicker.tsx` 整个重写：300ms 防抖 + 请求序号作废旧结果、滚到底翻页、加载中/失败(重试)/
-  超时(10s) 三态、已在通话中不可选、`selectable:false` 置灰带 `unselectableReason`、按 `slotsLeft`
-  限选；`ActiveCall.tsx` 的 `handleInvite` 做取名单优先级（`onInviteRequest` 接管 > 弹
-  `InvitePicker`）；`CallHeader.tsx` 的按钮显隐叠加 `invite.canInvite(ctx)`（不叠加 chatGroupId 判断）。
-  `useCall().joinCall(callId)`：`joinCallRequested` 直接把 `CallViewState.phase` 打成 `connecting`
-  （复用既有的「接通中…」文案，不经来电页）；失败时 `joinCallFailed` **自己**把阶段收到 `ended`
-  并把 `CallEnded` 要显示的文案换成「无法加入该通话」（`state/callView.ts` 的 `joinDeniedTextFor`）——
-  不依赖真 engine 是否会紧跟着抛一条 `callEnd`，两条路径都收得住（`useCallActions.joinCall` 的注释里
-  记着为什么不能用 `try/catch` 拿失败：`FrameLoop.sendFrame` 从不把服务端拒绝转成异常）。
-  初始 `call()` / 通话中 `inviteMore` 被 1409 拒时提示「对方暂时无法被邀请」（经 `subscribeEngine`
-  的 `error` 事件，不经 `inviteMore` 的 catch——那条路死代码，见上一条「1409 缺口修复」）。
-  静态 `inviteCandidates` 保持兼容（取名单优先级最低档）。
-- **Demo**：`demo-react/src/fakeInviteProvider.ts`——真实 `DEMO_CONTACTS` 排前面 + 40 个假成员凑分页
-  （一页 12 条），搜索词 `fail` 立即 reject、`slow` 永远不 resolve（验证 uikit 的 10 秒超时）；`App.tsx`
-  把 `inviteCandidates={DEMO_CONTACTS}` 换成 `inviteProvider={fakeInviteProvider}`；`Dialer.tsx` 群呼带
-  `chatGroupId: 'demo-group'`，新增「按 call_id 加入」一行（`useCall().joinCall`）。`demo/`（自画 UI）
-  没碰通话 API，`tsc --noEmit -p demo` 照样过。
-- 新增测试：engine `test/callOptions.test.ts`（`call()` 的 options 校验、`joinCall` 正常与被拒两条路径）+
-  `test/callMachine.test.ts` 补的回落用例（`call.connected` 不带群号时回落到 `call()` 选项 / `call.incoming`
-  记的那份）；uikit `test/hostIntegration.test.tsx`（`joinCall` 三条、`inviteProvider` 六条含防抖/
-  分页/失败/超时、`onInviteRequest` 三条、`canInvite` 两条，加了一条 1409 时不重复冒「对方暂时无法被邀请」
-  的断言）；`interactions.test.tsx` 改了一条（`allowManualUidInput` 默认关，原「宿主没给名单：输入 uid
-  也能邀请」拆成两条）；1409 缺口修复新增（uikit 173 → 180）：`宿主邀请鉴权回调拒绝（1409）` 整个
-  describe 块三条（初始呼叫被拒、通话中加人被拒、跨批次不误伤）+ 改写「加人被拒：占位格要收回来」
-  （原来靠 `FakeEngine.inviteMoreError` 抛异常，现改走真实的 `engine.emit('error', …)`）+ 新增
-  「inviteMore 抛出意料之外的异常：不崩溃」（防御性 catch 的兜底测试）。
+- **`callCancelled` 事件载荷 `{by}` → `{uid}`**：只改公开事件表这一层——线路字段与一致性向量
+  （`call_fsm.json`）钉的仍是 `by`，`callRecv.ts` 内部回调参数不能跟着改。翻译点在
+  `engineBus.ts` 的 `emitMachine`（新增一条 `callCancelled` 专属的 `by→uid` 改名，其余事件走
+  照常的 snake→camel）。下游改了 `events.ts` 的类型与 `subscribeEngine.ts` 的 `e.by`→`e.uid`。
+- **新增 `CallEngine.destroy(): void`**：终态销毁 = `logout()` + `EngineBus.clear()`（新增）。
+  **可重复调用**（幂等，不重复 logout）。之后再调「发起动作」的方法统一**抛 `2005 invalid_state`**
+  （不是静默空操作——事件订阅已清空，静默的话宿主的 `hangup()` 之类调用会石沉大海，没有任何
+  信号说明原因）；新增私有 `act()`（`call/joinCall/accept/reject/cancel/hangup/inviteMore/joinRoom/
+  leaveRoom` 共用的 dispatch 外壳，顺带把销毁检查收在一处）与 `mediaApi()` 里的检查（覆盖
+  `probeMicrophone/probeCamera/publishMicrophone/publishCamera/setMuted/setRemoteLayer` 及新增的
+  四个 open/close 方法）；`login()` / `startLocalPreview()` 单独各挂一行检查。**例外**：`logout()` /
+  `forceEnd()` / `on()` / `uid` / `state` / 读或清理类方法（`attachView` 传 `null`、`localTrack`、
+  `stopLocalPreview`、`updateToken`）**不受影响**，销毁后调用仍安全——它们本来就该在任意时刻可
+  无脑调用（尤其 `forceEnd()`，红键看门狗与 `logout()` 都靠它"绝不抛"这条契约）。
+- **新增按类型的媒体开关**（`openMicrophone` / `closeMicrophone` / `openCamera` / `closeCamera`，
+  与腾讯 TUICallEngine 同名）：open = 该类型还没发布就发布（摄像头复用预览，走 `publishCamera`
+  现有逻辑），已发布就 `setMuted(cid, false)`；close = 对已发布的那条 `setMuted(cid, true)`
+  （不 unpublish），没发布过是空操作。**「发没发布过」问的是媒体适配器自己的账**
+  （`MediaAdapter.publishedMicrophoneCid()` / `publishedCameraCid()`，新增到接口，`WebRTCAdapter`
+  实现——麦克风新增 `micCid` 字段跟 `acquire()` 一起记账，摄像头复用已有的 `preview`/
+  `cameraPublished`），**不在门面 `engine.ts` 另开一份影子记账**：协调会话中途指出 iOS 在等价
+  实现上踩过这个坑——门面自己记账的话，宿主先直接调 `publishMicrophone()` 发布过、再调
+  `openMicrophone()` 会被误判成"没发布"而重复发布（pub PC 上多挂一条 sender）。`micCid` 的清账
+  跟着 `WebRTCAdapter.close()` 走（`bridge.reset()`/`bridge.close()` 已经在通话结束/离房/logout
+  时调它，不需要另外接线）。`publishMicrophone`/`publishCamera`/`setMuted(cid)` 保留作高级接口；
+  uikit 内部未改用新方法（未扩大改动范围，符合任务边界）。
+- **uikit 改名对齐 iOS/Android**：`CallProvider` 的 prop `inviteProvider` → `inviteMemberProvider`，
+  `onInviteRequest` → `presentInvitePicker`；类型 `InviteProvider` → `InviteMemberProvider`，
+  `OnInviteRequest` → `PresentInvitePicker`（`invite/types.ts` + `index.ts` 导出同步）。
+  `InviteConfig`（`CallProvider.tsx` 内部 context 形状）的字段名 `provider`/`onRequest` **未改**
+  ——那是内部实现细节，不是公开 prop。`ProfileProvider` 按规格**不改名**。Demo 侧
+  `fakeInviteProvider.ts` → `fakeInviteMemberProvider.ts`（连带改了 `App.tsx` 的 import 与
+  prop 名）——这处改名不在规格明文要求里，是 sed 全局替换 `InviteProvider`→`InviteMemberProvider`
+  时把文件内的同名标识符一起带过去了，顺手把文件也重命名以保持一致，未额外核实是否有隐藏用户
+  依赖这个内部命名（Demo 站点范围内应该没有）。
+  **不留兼容别名**：宿主暂无人用这些 API，四个改名点全仓找不到旧名残留。
+- **`CallEndReason` / `CallEndReasonValue`**：确认已经从 `@im-rtc/call-engine` 包入口
+  （`src/index.ts`）导出，不用补。
+- 新增测试：engine `test/mediaToggle.test.ts`（13 条，含"先 publishMicrophone/publishCamera
+  再 open*"两条专门钉住"不能另开影子账"的回归用例）、`test/publishedCid.test.ts`（3 条，
+  `WebRTCAdapter.publishedMicrophoneCid/publishedCameraCid` 的直接单测）、`test/engineBus.test.ts`
+  （3 条，`callCancelled` 字段翻译 + `clear()`）；四个既有的 `MediaAdapter` 测试假实现
+  （`test/nullMedia.ts` 改成真状态、`engineEvents.test.ts`/`updateToken.test.ts`/`engineIce.test.ts`
+  的本地假类）补了新接口方法的桩，否则类型上不再满足 `MediaAdapter`（这几个测试文件不在
+  `tsc -b` 的 `include` 里，不补也不会被门禁挡住，但会是隐藏的类型错误，顺手修了）。
 
 ## 下一步
 
 - **没做 / 已知限制**：
-  - `joinDeniedTextFor` 不按错误码细分文案——设计稿只钦定了「无法加入该通话」一句通用话，1401/1402/
-    1405/1408/1202/1409 走 `call.join` 失败都共用它。以后要分档看 `state/callView.ts` 那个函数。
-  - `InvitePicker` 的 uid 输入框（`canTypeIn`）判的是 `items.length === 0`，不是过滤后 `shown.length
-    === 0`——候选人全被过滤掉（比如只剩自己/发起人）时不会退化出输入框。旧代码就是这条限制，未修。
-  - Provider 失败/超时只有 uikit 侧的表现；没有验证真机上宿主 provider 抛出的非 `Error` 值（字符串、
-    `undefined`）会不会被 `String(err)` 弄丢原因——现在只有一条 `logger.warn`。
-  - **浏览器没有手动验**：`joinCall` 双开标签页互测、`fail`/`slow` 搜索词在真实 5179 demo-react 上没有
-    点过一遍，只在 jsdom 里过了。下次起 `./scripts/dev.sh start react` 顺手点一遍。
-  - server 端 `call.join` 与邀请鉴权回调是另一个人同时改的，本仓没有跟着联调（协议文档已定稿，
-    向量已跑绿，但没有对着真服务端发过一次真实 `call.join`）。
-- **协议 / 文档侧发现的问题（需要跟服务端那位或文档作者对一下，本仓没有改它们）**：
-  - `RTC_PROTOCOL.md` §4.1 `call.invite_more` / `call.join` 的错误分支表没提 1409（只在 §3.5 与 §7.1
-    提过），读的人容易漏掉「宿主开了邀请鉴权回调也会在这两条帧上收到 1409」。
-  - `HOST_INTEGRATION_DESIGN.md` §3.4 没写清楚 provider 超时之后、宿主的回调如果**迟到才真的 resolve**
-    要怎么处理——本仓按「迟到的结果一律按 `seq` 作废，不回填」处理（同「新请求作废旧结果」一个机制），
-    这条约定值得回写进设计文档，否则其余三端可能各自选了不同的处理方式。
-- `CLIENT_PARITY.md` 真机验完再改（本仓不改该文件）。
-- 里程碑完成后按惯例应同步 server `docs/design/RTC_CALL_DESIGN.md` §10 的状态——**本次没有改**（任务
-  范围明确只改 im-rtc-web 仓），麻烦碰 server 仓的人补一下 M1/M2/M8 web 列的日期。
+  - `demo-react/src/fakeInviteMemberProvider.ts` 的改名是 sed 连带出来的，不是规格明文要求；
+    功能未变，但如果协调会话认为 Demo 内部命名不该跟着动，可以单独 revert 这一个文件名。
+  - `engine.ts`（582 行）与 `media/webrtcAdapter.ts`（529 行）体量门禁给了 WARN（阈值 480，
+    硬顶 600）——都还没超标，但这次分别加了 ~100 行和 ~20 行，下次再往这两个文件加东西前
+    应该先看一眼要不要拆，别等触顶才拆。
+  - `destroy()` 之后哪些方法"抛 2005"、哪些"始终安全"是我按本仓既有风格自己权衡的（规格给的
+    是"选一种，写进注释"），没有和 iOS/Android 的等价实现逐条对表——如果协调会话已经定了
+    另外三端的选择，这条可能要跟着改成一致的策略。
+  - open/close 媒体开关目前只在 `call-engine` 层加了测试；uikit 按规格没有改用新方法，所以
+    uikit 侧没有新增覆盖这四个方法的测试（符合"避免扩大改动"的要求，但也意味着 uikit 集成路径
+    上这四个方法目前只有 engine 层的保证）。
+  - 浏览器没有手动验证：全部通过 `./scripts/test.sh`（jsdom + node）过的，没有起 `dev.sh` 在真实
+    浏览器里点一遍 `openMicrophone`/`openCamera` 或验证销毁后的 UI 表现。
+- 本仓不改 `../im-rtc-server` 的 `/guide` 文档、`CLIENT_PARITY.md`、`RTC_PROTOCOL.md`——按任务边界
+  留给主会话处理；协议字段（`callCancelled` 的线路字段名）本身没有变化，只是 SDK 公开事件层的
+  命名，理论上不需要协议文档跟着改，但如果协议文档里也写了 `EngineEvents` 层的示例代码，可能要
+  一并核对。
 
 ## 已知坑 / 限制
 
+- **`callCancelled` 的公开事件字段是 `uid`，但线路帧 / 状态机内部回调参数仍是 `by`**（一致性向量
+  钉死，四端共用）：新加 callMachine 相关代码或读 `call_fsm.json` 时**不要**假设两边字段名一致，
+  翻译只发生在 `engineBus.ts` 的 `emitMachine` 里那一条特例分支。
+- **`destroy()` 之后各方法的行为不是完全统一的一刀切**：多数方法抛 `2005`，但 `logout()` /
+  `forceEnd()` / `on()` / 读或清理类方法始终安全——写新的公开方法时想清楚它属于哪一类，别默认
+  抄别的方法的 `assertNotDestroyed()` 用法。
+- **"发布过没有"必须问 `MediaAdapter`，不能在 `engine.ts` 自己记账**：`WebRTCAdapter` 的
+  `publishedMicrophoneCid()`/`publishedCameraCid()` 是唯一真相源，`micCid` 字段与 `acquire()`
+  同步维护、`close()` 里清零——任何新增的"按类型查询发布状态"的需求都应该复用这两个方法，
+  而不是新开一份字段。
 - **`FrameLoop.sendFrame` 从不把服务端拒绝转成异常**：`call()` / `joinCall()` / `inviteMore()` 这类
   「发一帧、等应答」的门面方法在被服务端拒绝时永远 `resolve`，不会 `reject`——失败只经由 `error` 事件
   + 随后的状态机收场（`call_failed` → `onCallEnd`）体现。**写宿主代码或测试时不要用 `try/catch` 猜失败**，
-  订阅 `error` 事件或看状态机的落地状态。`useCallActions.joinCall` 与 `inviteMore` 的注释里各记了一次。
+  订阅 `error` 事件或看状态机的落地状态。
 - **2006 阈值「3」未校准、uikit 只认 2 个错误码**：见 server「已知坑」。
 - **关摄像头停采集**：通话中关 = `track.stop()`，开 = 重新 `getUserMedia` 再 `replaceTrack` 到同一个 sender（transceiver / msid / cid 不变、不重协商）；开关串行（`cameraToggle`），`close()` 后才回来的按代数自己收摊；
   重新采集被拒时错误原样抛给调用方。`stopLocalPreview()` 不停 `cameraClaimed`（正在发布 / 已发布）的；等在起的那次落地再停，期间又有人要预览就听后来的（`previewIntent`）。
@@ -120,8 +115,11 @@
 - `getUserMedia` 只在 localhost / HTTPS 可用，公网联调必须 HTTPS。
 - 便利事件只在 1v1 抛，群通话只抛 `onUser*`；加人失败靠 `error` 事件的 1202 / 1407 / 1409。
 - effect 依赖看内容签名不看 length（`settledUids`）；回调型 prop 走 `useRef`。
-- 状态机 `args` 一律 snake_case（与向量、另外三端同名），转 camelCase 是 `engineBus` 的活。
+- 状态机 `args` 一律 snake_case（与向量、另外三端同名），转 camelCase 是 `engineBus` 的活（但见上面
+  `callCancelled` 那条例外）。
 - `packages/call-engine/src/` 里不能放 `*.test.ts`（会被 `tsc -b` 算进 build），测试放 `test/`。
+  **`test/` 目录本身不在任何 `tsconfig` 的 `include` 里**，`tsc -b` 不会类型检查测试代码——
+  写测试假实现（`implements MediaAdapter` 之类）时接口改了要自己记得同步，门禁不会提醒你。
 - 换 token 是宿主的事（协议 §1.5），engine 只提供 `updateToken`；发送侧一律 `newFrameData(FIELDS)` 起手（§2.4 默认值陷阱）。
 - 画质是宿主策略（`videoProfile`），改档位同步服务端 `bwe.go` 的 `bitrateHigh`。
 - SDK 版本号改 `packages/call-engine/src/version.ts`（`SDK_VERSION`）+ 两个 `package.json`（五端统一 1.0.0，握手 `web/1.0.0`）。
@@ -130,7 +128,7 @@
 ## 关联工程 / 常用命令
 
 - 协议契约与一致性向量：`../im-rtc-server/docs/RTC_PROTOCOL.md` 与 `../im-rtc-server/docs/conformance/`，只读引用。
-- 宿主对接设计：`../im-rtc-server/docs/design/HOST_INTEGRATION_DESIGN.md`（本轮 M1/M2/M8 的依据，§3）。
+- 宿主对接设计：`../im-rtc-server/docs/design/HOST_INTEGRATION_DESIGN.md`（M1/M2/M8 的依据，§3）。
 - 起服务端联调：`cd ../im-rtc-server && ./scripts/dev.sh`（控制面 :8787，媒体面 UDP 7881）。
 - 浏览器实测：两个标签页各登一个用户并**勾上「合成音视频源」**（Browser 面板里拿不到真麦克风）。
   ```bash

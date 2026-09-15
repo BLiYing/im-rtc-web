@@ -50,6 +50,8 @@ export class WebRTCAdapter implements MediaAdapter {
   private previewIntent = 0;
   /** 通话中开关摄像头排成一队：连点时上一次的 getUserMedia 还没回来，下一次不能插队。 */
   private cameraToggle: Promise<void> = Promise.resolve();
+  /** 已经拿到并挂在 pub 上的麦克风轨道 cid；没有是 null。见 {@link publishedMicrophoneCid}。 */
+  private micCid: string | null = null;
   /** 麦克风权限已经探过一次。见 `probeMicrophone`：探测不是免费的。 */
   private micProbed = false;
   /** 摄像头权限已经探过一次。见 `probeCamera`。 */
@@ -277,9 +279,19 @@ export class WebRTCAdapter implements MediaAdapter {
       this.addVideoTrack(track, stream, true);
     } else {
       pub.addTrack(track, stream);
+      this.micCid = track.id;
     }
     this.locals.set(track.id, track);
     return { cid: track.id, kind, source };
+  }
+
+  publishedMicrophoneCid(): string | null {
+    return this.micCid;
+  }
+
+  /** 摄像头「已发布」= 预览那条轨道真的挂上了 pub（`cameraPublished`），只在预览不算。 */
+  publishedCameraCid(): string | null {
+    return this.cameraPublished && this.preview !== null ? this.preview.cid : null;
   }
 
   /** getStreamOrThrow 取流，并把浏览器的异常收敛成结构化错误。 */
@@ -466,6 +478,7 @@ export class WebRTCAdapter implements MediaAdapter {
     this.preview = null;
     this.cameraPublished = false;
     this.cameraClaimed = false;
+    this.micCid = null;
     this.cameraSender = null;
     // 排着队的开关回来时认出代数不对，自己收摊（syncCameraCapture）。
     this.cameraToggle = Promise.resolve();

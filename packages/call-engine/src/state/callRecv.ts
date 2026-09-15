@@ -56,6 +56,8 @@ export function reduceRecv(
         ? out(ctx)
         : out(ctx, [], [{ cb: 'onCallBusy', args: { uid: str(data, 'uid') } }]);
     case FrameType.callCancelled:
+      // 内部回调参数按一致性向量钉的线路字段名 by（四端共用，见 call_fsm.json）；
+      // 公开事件字段改叫 uid 是 engineBus.ts 的 emitMachine 在进公开事件表那一步做的翻译。
       return out(ctx, [], [{ cb: 'onCallCancelled', args: { by: str(data, 'by') } }]);
     case FrameType.callHandledElsewhere:
       return out(ctx, [], [

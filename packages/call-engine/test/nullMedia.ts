@@ -11,9 +11,14 @@ import type {
  * `RTCPeerConnection`，而 Node 下没有这个全局，测试直接崩在与被测行为无关的地方。
  */
 export class NullMedia implements MediaAdapter {
+  /** 记着「发布过没有」，供 publishedMicrophoneCid/publishedCameraCid 用——跟真适配器同一套语义。 */
+  private micCid: string | null = null;
+  private cameraCid: string | null = null;
+
   open(_events: MediaAdapterEvents): void {}
 
   async acquireMicrophone(): Promise<LocalTrackInfo> {
+    this.micCid = 'mic-1';
     return { cid: 'mic-1', kind: 'audio', source: 'microphone' };
   }
 
@@ -28,7 +33,16 @@ export class NullMedia implements MediaAdapter {
   async stopLocalPreview(): Promise<void> {}
 
   async acquireCamera(): Promise<LocalTrackInfo> {
+    this.cameraCid = 'cam-1';
     return { cid: 'cam-1', kind: 'video', source: 'camera' };
+  }
+
+  publishedMicrophoneCid(): string | null {
+    return this.micCid;
+  }
+
+  publishedCameraCid(): string | null {
+    return this.cameraCid;
   }
 
   async createPubOffer(): Promise<string> {
@@ -51,5 +65,8 @@ export class NullMedia implements MediaAdapter {
     return undefined;
   }
 
-  close(): void {}
+  close(): void {
+    this.micCid = null;
+    this.cameraCid = null;
+  }
 }

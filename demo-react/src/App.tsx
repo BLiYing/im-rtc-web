@@ -12,7 +12,7 @@ import { toEntry } from './logTypes.js';
 import { RemoteLogSink } from './remoteLog.js';
 import { CallHistory } from './CallHistory.js';
 import { EngineLog } from './EngineLog.js';
-import { fakeInviteProvider } from './fakeInviteProvider.js';
+import { fakeInviteMemberProvider } from './fakeInviteMemberProvider.js';
 import { Dialer } from './Dialer.js';
 import { LoginPanel } from './LoginPanel.js';
 import { Settings } from './Settings.js';
@@ -218,7 +218,7 @@ export function App(): ReactNode {
       {session === null ? (
         restoring ? <div className="card">正在恢复登录…</div> : <LoginPanel onLogin={login} />
       ) : (
-        <CallProvider engine={session.engine} inviteProvider={fakeInviteProvider} bannerFirst={settings.bannerFirst}>
+        <CallProvider engine={session.engine} inviteMemberProvider={fakeInviteMemberProvider} bannerFirst={settings.bannerFirst}>
           <div className="card">
             <h2>已登录</h2>
             <div>

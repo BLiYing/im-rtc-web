@@ -13,9 +13,9 @@ import { Icon } from './Icon.js';
  * InvitePicker 是「添加成员」的选人半屏（交互稿 §05 G2，HOST_INTEGRATION_DESIGN §3.4）。
  *
  * **候选名单永远是宿主给的**（uikit 不内置联系人系统，CONVENTIONS §11）。取名单优先级：
- * 1. `onInviteRequest` 整页接管——**这一层根本不会挂载 InvitePicker**，接管与否在打开
+ * 1. `presentInvitePicker` 整页接管——**这一层根本不会挂载 InvitePicker**，接管与否在打开
  *    「添加成员」的那一下就决定了（见 `ActiveCall.tsx` 的 `handleInvite`）；
- * 2. `inviteProvider`：按 `(ctx, query, cursor)` 分页要一页，300ms 防抖、10 秒超时、
+ * 2. `inviteMemberProvider`：按 `(ctx, query, cursor)` 分页要一页，300ms 防抖、10 秒超时、
  *    失败带重试、滚到底翻页；
  * 3. 静态 `inviteCandidates`（旧接口）：一次性给全部，本地按输入过滤，不发请求；
  * 4. 都没有：空态「没有可邀请的成员」，`allowManualUidInput` 开着才出现 uid 输入框。
@@ -81,7 +81,7 @@ export function InvitePicker({ onClose }: InvitePickerProps): ReactNode {
       } catch (err) {
         clearTimeout(timer);
         if (seqRef.current !== seq || timedOut) return;
-        logger.warn('inviteProvider 失败', { err: String(err), query: q, append });
+        logger.warn('inviteMemberProvider 失败', { err: String(err), query: q, append });
         if (!append) setListState('error');
       } finally {
         if (append) setLoadingMore(false);

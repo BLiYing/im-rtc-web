@@ -47,6 +47,12 @@ class RecordingMedia implements MediaAdapter {
   async acquireCamera(): Promise<LocalTrackInfo> {
     return { cid: 'cam-1', kind: 'video', source: 'camera' };
   }
+  publishedMicrophoneCid(): string | null {
+    return null;
+  }
+  publishedCameraCid(): string | null {
+    return null;
+  }
   async createPubOffer(): Promise<string> {
     return 'offer-sdp';
   }

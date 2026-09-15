@@ -81,6 +81,8 @@ export class CallEngine {
   private readonly loop: FrameLoop;
   /** 最近一次 hello.ok 喂进状态机的那个 promise，`login()` 要等它。 */
   private helloApplied: Promise<void> = Promise.resolve();
+  /** 终态销毁标记。见 {@link destroy}。 */
+  private destroyed = false;
 
   constructor(options: EngineOptions) {
     // 与 Android 的 `Config.init` 对齐：构造时就拦，不等宿主取完票走到 login()。
@@ -136,6 +138,7 @@ export class CallEngine {
    * 也一起挡掉，用户从此再也登不上——比原来的毛病还糟。
    */
   async login(token: string): Promise<HelloOk> {
+    this.assertNotDestroyed();
     if (this.connection !== null) {
       throw new RtcError(ErrorCode.invalidState, {
         cause: new Error('已经登录了：换账号或换票请先 logout()'),
@@ -204,6 +207,49 @@ export class CallEngine {
   }
 
   /**
+   * destroy 终态销毁：`logout()` + 清空全部事件订阅。**不可逆**，给宿主整个放手音视频能力时用
+   * （账号注销、SDK 卸载）。**可重复调用**——已经销毁过再调什么都不做，不会重复 logout。
+   *
+   * # 之后再调别的方法
+   *
+   * 会发起动作的方法（`login` / `call` / `accept` / … / `publishMicrophone` / `openCamera` 等，
+   * 经 {@link act} 或 {@link mediaApi} 转发的那一批）一律**抛 `2005 invalid_state`**，
+   * 不是静默空操作：事件订阅已经清空，静默的话宿主的 `hangup()` 之类调用会石沉大海——
+   * 不抛错也不会有任何事件把原因告诉它，界面只会永远停在转圈。与 `login()` 拦
+   * 「已经登录了」同一个理由：让宿主一调就知道错在哪，不用猜。
+   *
+   * `logout()` / `forceEnd()` / `on()` / `uid` / `state`，以及读或清理类的方法
+   * （`attachView` 传 `null`、`attachLocalView` 传 `null`、`localTrack`、`stopLocalPreview`、
+   * `updateToken`）**不受影响**，销毁后调用仍然安全——宿主卸载时经常无脑清理这几个，
+   * 不该因为清理顺序先后而报错。
+   */
+  destroy(): void {
+    if (this.destroyed) return;
+    this.logout();
+    this.bus.clear();
+    this.destroyed = true;
+  }
+
+  /**
+   * assertNotDestroyed 挡住 {@link destroy} 之后的调用。见 destroy 的文档注释。
+   */
+  private assertNotDestroyed(): void {
+    if (this.destroyed) {
+      throw new RtcError(ErrorCode.invalidState, { cause: new Error('engine 已销毁（destroy 之后不可再用）') });
+    }
+  }
+
+  /**
+   * act 是「发一个业务动作、等状态机处理完」的公共外壳：`call` / `accept` / `reject` / `cancel` /
+   * `hangup` / `inviteMore` / `joinCall` / `joinRoom` / `leaveRoom` 共用，唯一的区别只是
+   * op 名与参数。抽出来顺带把 {@link assertNotDestroyed} 的检查收在一处。
+   */
+  private async act(op: string, args?: Record<string, unknown>): Promise<void> {
+    this.assertNotDestroyed();
+    await this.loop.dispatch(args === undefined ? { kind: 'act', op } : { kind: 'act', op, args });
+  }
+
+  /**
    * call 发起通话。**名单里不能有自己**，见 {@link rejectsSelf}。
    *
    * `options` 传布尔值等同旧的 `isGroup` 参数（三参数签名保持兼容）；传 {@link CallOptions}
@@ -214,6 +260,7 @@ export class CallEngine {
     mediaType: MediaType,
     options?: boolean | CallOptions,
   ): Promise<void> {
+    this.assertNotDestroyed();
     const opts: CallOptions = typeof options === 'boolean' ? { isGroup: options } : (options ?? {});
     const isGroup = opts.isGroup ?? false;
     const chatGroupId = opts.chatGroupId ?? '';
@@ -246,7 +293,7 @@ export class CallEngine {
     if (chatGroupId !== '') args['chat_group_id'] = chatGroupId;
     if (userData !== '') args['user_data'] = userData;
     if (opts.timeoutSec !== undefined) args['timeout_sec'] = opts.timeoutSec;
-    await this.loop.dispatch({ kind: 'act', op: 'call', args });
+    await this.act('call', args);
   }
 
   /**
@@ -258,27 +305,27 @@ export class CallEngine {
    * 时与 `call()` 被拒同一个出口：`onError` + `onCallEnd(error)`。
    */
   async joinCall(callId: string): Promise<void> {
-    await this.loop.dispatch({ kind: 'act', op: 'join_call', args: { call_id: callId } });
+    await this.act('join_call', { call_id: callId });
   }
 
   /** accept 接听。 */
   async accept(): Promise<void> {
-    await this.loop.dispatch({ kind: 'act', op: 'accept' });
+    await this.act('accept');
   }
 
   /** reject 拒接。 */
   async reject(): Promise<void> {
-    await this.loop.dispatch({ kind: 'act', op: 'reject' });
+    await this.act('reject');
   }
 
   /** cancel 取消呼出（**仅接通前**；接通后用 hangup）。 */
   async cancel(): Promise<void> {
-    await this.loop.dispatch({ kind: 'act', op: 'cancel' });
+    await this.act('cancel');
   }
 
   /** hangup 挂断（接通后，主被叫都用它）。 */
   async hangup(): Promise<void> {
-    await this.loop.dispatch({ kind: 'act', op: 'hangup' });
+    await this.act('hangup');
   }
 
   /**
@@ -311,8 +358,9 @@ export class CallEngine {
    * `1407 not_call_owner`（交互稿 §05）。房间满了回 `1202 room_full`；名单里含发起人回 `bad_params`（离场后拉不回来）。
    */
   async inviteMore(calleeIds: string[]): Promise<void> {
+    this.assertNotDestroyed();
     if (this.rejectsSelf(calleeIds, '加人')) return;
-    await this.loop.dispatch({ kind: 'act', op: 'invite_more', args: { callee_ids: calleeIds } });
+    await this.act('invite_more', { callee_ids: calleeIds });
   }
 
   /**
@@ -336,23 +384,49 @@ export class CallEngine {
 
   /** joinRoom 直接进一个会议房（不走振铃）。 */
   async joinRoom(roomId: string, roomToken: string, autoSubscribe = true): Promise<void> {
+    this.assertNotDestroyed();
     // 宿主指定的房间号同属 §2.5，不拦的话又是一条「1004 但不说为什么」。
     checkRoomId(roomId);
-    await this.loop.dispatch({
-      kind: 'act',
-      op: 'join',
-      args: { room_id: roomId, room_token: roomToken, auto_subscribe: autoSubscribe },
-    });
+    await this.act('join', { room_id: roomId, room_token: roomToken, auto_subscribe: autoSubscribe });
   }
 
   /** leaveRoom 离房。 */
   async leaveRoom(): Promise<void> {
-    await this.loop.dispatch({ kind: 'act', op: 'leave' });
+    await this.act('leave');
   }
 
   /** publishMicrophone 发布麦克风，返回轨道的 cid。 */
   async publishMicrophone(): Promise<string> {
     return publishMicrophone(this.mediaApi());
+  }
+
+  /**
+   * openMicrophone 是麦克风开关的**按类型**便捷接口（与腾讯 TUICallEngine 同名）。
+   *
+   * 这条轨道还没发布过就发布（等价 `publishMicrophone()`）；已经发布了就取消静音，
+   * **不会重新发布**——重复发布同一路麦克风会在 pub PC 上多挂一条 sender。
+   *
+   * 「发没发布过」问的是**媒体适配器自己的账**（`media.publishedMicrophoneCid()`），
+   * 不在门面另开一份：宿主先直接调 `publishMicrophone()` 发布过、再调这个方法的话，
+   * 门面自己那份账不知道已经发布过，会误判成「没发布」再发一次（2026-09-15 iOS 踩过）。
+   * `publishMicrophone()` / `setMuted(cid)` 仍然保留，给需要自己管 cid 的宿主用。
+   */
+  async openMicrophone(): Promise<void> {
+    const cid = this.media.publishedMicrophoneCid();
+    if (cid !== null) {
+      await this.setMuted(cid, false);
+      return;
+    }
+    await this.publishMicrophone();
+  }
+
+  /**
+   * closeMicrophone 关麦克风：对已发布的那条轨道 `setMuted(cid, true)`——**不 unpublish**，
+   * 协商保留。没发布过是空操作。
+   */
+  async closeMicrophone(): Promise<void> {
+    const cid = this.media.publishedMicrophoneCid();
+    if (cid !== null) await this.setMuted(cid, true);
   }
 
   /**
@@ -364,6 +438,7 @@ export class CallEngine {
    * 返回轨道的 cid，宿主拿它调 `attachLocalView`。
    */
   async startLocalPreview(): Promise<string> {
+    this.assertNotDestroyed();
     const info = await this.media.startLocalPreview();
     return info.cid;
   }
@@ -381,6 +456,29 @@ export class CallEngine {
   /** publishCamera 发布摄像头。已经在预览的话复用那条轨道。 */
   async publishCamera(simulcast = true): Promise<string> {
     return publishCamera(this.mediaApi(), simulcast);
+  }
+
+  /**
+   * openCamera 是摄像头开关的**按类型**便捷接口。还没发布就发布（有本端预览时复用它，
+   * 同 `publishCamera()` 现有逻辑）；已发布就取消静音——通话中开关摄像头走的是
+   * `setMuted` 既有的「关停采集、开重新采集换 sender」语义，不重新协商。
+   *
+   * 「发没发布过」同样问媒体适配器自己的账（`media.publishedCameraCid()`），
+   * 理由见 {@link openMicrophone}。
+   */
+  async openCamera(): Promise<void> {
+    const cid = this.media.publishedCameraCid();
+    if (cid !== null) {
+      await this.setMuted(cid, false);
+      return;
+    }
+    await this.publishCamera();
+  }
+
+  /** closeCamera 关摄像头：`setMuted(cid, true)`（停采集，指示灯灭；不 unpublish）。没发布过是空操作。 */
+  async closeCamera(): Promise<void> {
+    const cid = this.media.publishedCameraCid();
+    if (cid !== null) await this.setMuted(cid, true);
   }
 
   /**
@@ -461,6 +559,7 @@ export class CallEngine {
 
   /** mediaApi 是交给 media/engineMediaApi 那几个编排函数的一把依赖。 */
   private mediaApi(): MediaApiDeps {
+    this.assertNotDestroyed();
     return { media: this.media, loop: this.loop, bus: this.bus };
   }
 

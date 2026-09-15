@@ -6,12 +6,12 @@ import { ErrorCode, RtcError } from '@im-rtc/call-engine';
 import type { CallProviderProps } from '../src/CallProvider.js';
 import { CallProvider } from '../src/CallProvider.js';
 import { CallOverlay } from '../src/components/CallOverlay.js';
-import type { InviteContext, InvitePage, InviteProvider } from '../src/invite/types.js';
+import type { InviteContext, InvitePage, InviteMemberProvider } from '../src/invite/types.js';
 import { useCall } from '../src/useCall.js';
 import { FakeEngine, asEngine } from './fakeEngine.js';
 
 /**
- * HOST_INTEGRATION_DESIGN §3.4：`inviteProvider` / `onInviteRequest` / `canInvite` /
+ * HOST_INTEGRATION_DESIGN §3.4：`inviteMemberProvider` / `presentInvitePicker` / `canInvite` /
  * `allowManualUidInput`，以及 `useCall().joinCall`（§3.3/§3.4，协议 `call.join`）。
  *
  * 静态 `inviteCandidates` 的老路径由 `interactions.test.tsx` 守着，这里只加新东西。
@@ -139,19 +139,19 @@ describe('joinCall()：主动加入进行中的群通话', () => {
   });
 });
 
-describe('inviteProvider：按通话向宿主要候选人', () => {
+describe('inviteMemberProvider：按通话向宿主要候选人', () => {
   function page(items: { uid: string; name?: string }[], nextCursor?: string): InvitePage {
     return { items, ...(nextCursor === undefined ? {} : { nextCursor }) };
   }
 
   it('打开选人页立刻要第一页，不防抖；ctx 里带得上群号', async () => {
     const engine = new FakeEngine();
-    const provider = vi.fn<InviteProvider>(async (ctx: InviteContext) => {
+    const provider = vi.fn<InviteMemberProvider>(async (ctx: InviteContext) => {
       expect(ctx.chatGroupId).toBe('g-42');
       expect(ctx.callId).toBe('c-1');
       return page([{ uid: 'dave', name: '戴夫' }]);
     });
-    setup(engine, { inviteProvider: provider });
+    setup(engine, { inviteMemberProvider: provider });
     connectGroup(engine, { chatGroupId: 'g-42' });
 
     fireEvent.click(screen.getByTestId('invite-button'));
@@ -164,11 +164,11 @@ describe('inviteProvider：按通话向宿主要候选人', () => {
     vi.useFakeTimers();
     const engine = new FakeEngine();
     let resolveSlow: ((p: InvitePage) => void) | null = null;
-    const provider = vi.fn<InviteProvider>(async (_ctx, query) => {
+    const provider = vi.fn<InviteMemberProvider>(async (_ctx, query) => {
       if (query === 'd') return new Promise((resolve) => { resolveSlow = resolve; });
       return page([{ uid: `${query}-x` }]);
     });
-    setup(engine, { inviteProvider: provider });
+    setup(engine, { inviteMemberProvider: provider });
     connectGroup(engine);
 
     fireEvent.click(screen.getByTestId('invite-button'));
@@ -194,11 +194,11 @@ describe('inviteProvider：按通话向宿主要候选人', () => {
   it('加载失败带重试；重试成功后列表恢复', async () => {
     const engine = new FakeEngine();
     let shouldFail = true;
-    const provider = vi.fn<InviteProvider>(async () => {
+    const provider = vi.fn<InviteMemberProvider>(async () => {
       if (shouldFail) throw new Error('network');
       return page([{ uid: 'dave' }]);
     });
-    setup(engine, { inviteProvider: provider });
+    setup(engine, { inviteMemberProvider: provider });
     connectGroup(engine);
 
     fireEvent.click(screen.getByTestId('invite-button'));
@@ -215,11 +215,11 @@ describe('inviteProvider：按通话向宿主要候选人', () => {
     vi.useFakeTimers();
     const engine = new FakeEngine();
     let hang = true;
-    const provider = vi.fn<InviteProvider>(async () => {
+    const provider = vi.fn<InviteMemberProvider>(async () => {
       if (hang) return new Promise(() => { /* 永远不 resolve，模拟宿主没回调 */ });
       return page([{ uid: 'dave' }]);
     });
-    setup(engine, { inviteProvider: provider });
+    setup(engine, { inviteMemberProvider: provider });
     connectGroup(engine);
 
     fireEvent.click(screen.getByTestId('invite-button'));
@@ -237,9 +237,9 @@ describe('inviteProvider：按通话向宿主要候选人', () => {
 
   it('滚到底且有 nextCursor 时取下一页，条目是追加不是替换', async () => {
     const engine = new FakeEngine();
-    const provider = vi.fn<InviteProvider>(async (_ctx, _q, cursor) =>
+    const provider = vi.fn<InviteMemberProvider>(async (_ctx, _q, cursor) =>
       cursor === undefined ? page([{ uid: 'p1' }], 'cursor-2') : page([{ uid: 'p2' }]));
-    setup(engine, { inviteProvider: provider });
+    setup(engine, { inviteMemberProvider: provider });
     connectGroup(engine);
 
     fireEvent.click(screen.getByTestId('invite-button'));
@@ -261,9 +261,9 @@ describe('inviteProvider：按通话向宿主要候选人', () => {
 
   it('已在通话中的人置灰不可选；selectable:false 的候选人按 unselectableReason 置灰', async () => {
     const engine = new FakeEngine();
-    const provider = vi.fn<InviteProvider>(async () =>
+    const provider = vi.fn<InviteMemberProvider>(async () =>
       page([{ uid: 'bob' }, { uid: 'erin', selectable: false, unselectableReason: '群禁言中' }]));
-    setup(engine, { inviteProvider: provider });
+    setup(engine, { inviteMemberProvider: provider });
     connectGroup(engine);
 
     fireEvent.click(screen.getByTestId('invite-button'));
@@ -275,26 +275,26 @@ describe('inviteProvider：按通话向宿主要候选人', () => {
   });
 });
 
-describe('onInviteRequest：整页交给宿主', () => {
+describe('presentInvitePicker：整页交给宿主', () => {
   it('接管时根本不挂载 InvitePicker，选完直接调 inviteMore', async () => {
     const engine = new FakeEngine();
-    const onInviteRequest = vi.fn(async (ctx: InviteContext) => {
+    const presentInvitePicker = vi.fn(async (ctx: InviteContext) => {
       expect(ctx.slotsLeft).toBe(7);
       return ['dave'];
     });
-    setup(engine, { onInviteRequest });
+    setup(engine, { presentInvitePicker });
     connectGroup(engine);
 
     fireEvent.click(screen.getByTestId('invite-button'));
     await flush();
     expect(screen.queryByTestId('invite-picker')).toBeNull();
-    expect(onInviteRequest).toHaveBeenCalledTimes(1);
+    expect(presentInvitePicker).toHaveBeenCalledTimes(1);
     expect(engine.calls).toContain('inviteMore:dave');
   });
 
   it('返回空数组＝用户取消：不调 inviteMore', async () => {
     const engine = new FakeEngine();
-    setup(engine, { onInviteRequest: async () => [] });
+    setup(engine, { presentInvitePicker: async () => [] });
     connectGroup(engine);
     fireEvent.click(screen.getByTestId('invite-button'));
     await flush();
@@ -303,7 +303,7 @@ describe('onInviteRequest：整页交给宿主', () => {
 
   it('返回 null＝不接管：退回正常的 InvitePicker（这里退到静态名单）', async () => {
     const engine = new FakeEngine();
-    setup(engine, { onInviteRequest: async () => null, inviteCandidates: [{ uid: 'dave' }] });
+    setup(engine, { presentInvitePicker: async () => null, inviteCandidates: [{ uid: 'dave' }] });
     connectGroup(engine);
     fireEvent.click(screen.getByTestId('invite-button'));
     await flush();

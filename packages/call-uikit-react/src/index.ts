@@ -16,7 +16,7 @@
 export { CallProvider, CallContext } from './CallProvider.js';
 export type { CallActions, CallContextValue, CallProviderProps, InviteConfig } from './CallProvider.js';
 export type {
-  CanInvite, InviteCandidate, InviteContext, InvitePage, InviteProvider, OnInviteRequest,
+  CanInvite, InviteCandidate, InviteContext, InvitePage, InviteMemberProvider, PresentInvitePicker,
 } from './invite/types.js';
 export { buildInviteContext } from './invite/inviteContext.js';
 export { useCall } from './useCall.js';

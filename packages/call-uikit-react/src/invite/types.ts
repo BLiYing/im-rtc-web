@@ -39,7 +39,7 @@ export interface InviteCandidate {
   readonly unselectableReason?: string;
   /**
    * @deprecated 用 `subtitle` 自己拼文案。仅为兼容旧的静态 `inviteCandidates` 保留，
-   * 新代码（provider / onInviteRequest）不必给这个字段。
+   * 新代码（provider / presentInvitePicker）不必给这个字段。
    */
   readonly isOnline?: boolean;
 }
@@ -51,21 +51,21 @@ export interface InvitePage {
 }
 
 /**
- * InviteProvider 按 `(ctx, query, cursor)` 要一页候选人。
+ * InviteMemberProvider 按 `(ctx, query, cursor)` 要一页候选人。
  * `query` 为空串 = 默认列表；小群一次返回全部，超级群走宿主自己的服务端搜索。
  */
-export type InviteProvider = (
+export type InviteMemberProvider = (
   ctx: InviteContext,
   query: string,
   cursor?: string,
 ) => Promise<InvitePage>;
 
 /**
- * OnInviteRequest 让宿主**整页接管**「添加成员」——返回即表示宿主自己弹出了选人页。
+ * PresentInvitePicker 让宿主**整页接管**「添加成员」——返回即表示宿主自己弹出了选人页。
  * 结果是选中的 uid 数组（空数组 = 用户取消）；返回 `null` 表示这次不接管，
- * 退回 `inviteProvider` / 静态 `inviteCandidates`。
+ * 退回 `inviteMemberProvider` / 静态 `inviteCandidates`。
  */
-export type OnInviteRequest = (ctx: InviteContext) => Promise<string[] | null>;
+export type PresentInvitePicker = (ctx: InviteContext) => Promise<string[] | null>;
 
 /** CanInvite 是宿主的权限规则（例：群禁言时仅管理员可加人）。默认 true。 */
 export type CanInvite = (ctx: InviteContext) => boolean;

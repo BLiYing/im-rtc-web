@@ -6,10 +6,10 @@ import type { InviteContext } from './types.js';
 
 /**
  * buildInviteContext 把此刻的通话视图状态拼成一份 {@link InviteContext}，交给
- * `inviteProvider` / `onInviteRequest` / `canInvite`（HOST_INTEGRATION_DESIGN §3.4）。
+ * `inviteMemberProvider` / `presentInvitePicker` / `canInvite`（HOST_INTEGRATION_DESIGN §3.4）。
  *
  * 单独一个函数是因为它要拼三处会用到的同一份东西：「加人」按钮的 `canInvite` 判断、
- * 打开选人页时的 provider 调用、宿主接管页的 `onInviteRequest` 调用——
+ * 打开选人页时的 provider 调用、宿主接管页的 `presentInvitePicker` 调用——
  * 三处各拼一遍的话，字段漏一个只会在其中一处被发现。
  */
 export function buildInviteContext(engine: CallEngine, state: CallViewState): InviteContext {

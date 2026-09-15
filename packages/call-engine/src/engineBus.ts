@@ -49,7 +49,17 @@ export class EngineBus {
       logger.warn('状态机抛了一个没登记的回调', { cb: event.cb });
       return;
     }
-    this.emit(name, camelizeArgs(event.args) as never);
+    const args = camelizeArgs(event.args);
+    /*
+      callCancelled 的公开事件字段改成了 uid（四端命名核对，2026-09-15），但一致性向量
+      （四端共用，见 call_fsm.json）钉的是线路字段名 by，callRecv.ts 不能跟着改——
+      只在进公开事件表这最后一步做翻译，别处都还是 by。
+    */
+    if (name === 'callCancelled' && Object.hasOwn(args, 'by')) {
+      args['uid'] = args['by'];
+      delete args['by'];
+    }
+    this.emit(name, args as never);
   }
 
   /** emitError 把任意异常收敛成 error 事件。 */
@@ -60,6 +70,11 @@ export class EngineBus {
       name: errorName(error.code),
       message: error.message,
     });
+  }
+
+  /** clear 清空全部订阅。给 `CallEngine.destroy()` 用——终态销毁，之后不会再抛任何事件。 */
+  clear(): void {
+    this.bus.clear();
   }
 }
 

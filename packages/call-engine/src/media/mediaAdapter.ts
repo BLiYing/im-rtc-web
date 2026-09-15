@@ -102,6 +102,24 @@ export interface MediaAdapter {
    *  「这条流有几层」，报了不发就等于骗它——层选择会按不存在的层去挑。 */
   acquireCamera(simulcast?: boolean): Promise<LocalTrackInfo>;
 
+  /**
+   * publishedMicrophoneCid 返回**已经拿到并挂在 pub 上**的麦克风轨道 cid；没有则 `null`。
+   *
+   * 给 `CallEngine.openMicrophone` / `closeMicrophone` 按类型判断"发不发布"用——**必须问
+   * 适配器本身**，不能在门面另开一份账：宿主先直接调 `publishMicrophone()` 发布过、
+   * 再调 `openMicrophone()` 的话，门面自己那份账不知道已经发布过，会在 pub PC 上
+   * 再挂一条 sender（同一路麦克风重复发布）。
+   */
+  publishedMicrophoneCid(): string | null;
+
+  /**
+   * publishedCameraCid 返回**已经发布**（不是只在预览）的摄像头轨道 cid；没有则 `null`。
+   * 语义与 {@link publishedMicrophoneCid} 相同，只是摄像头多一个"只预览没发布"的中间态
+   * 不算数——`openCamera` 的"没发布就发布"要走 `acquireCamera` 复用预览那条轨道，
+   * 而不是把预览误判成已发布。
+   */
+  publishedCameraCid(): string | null;
+
   /** createPubOffer 生成上行 offer。**pub 的 offerer 恒为本端**（协议 §3.3）。 */
   createPubOffer(): Promise<string>;
   /** 让下一个上行 offer 带上 ICE restart。见 webrtcAdapter 里的说明。 */

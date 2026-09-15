@@ -1,9 +1,9 @@
-import type { InviteProvider } from '@im-rtc/call-uikit-react';
+import type { InviteMemberProvider } from '@im-rtc/call-uikit-react';
 
 import { DEMO_CONTACTS } from './contacts.js';
 
 /**
- * fakeInviteProvider 是 Demo 验收用的假 provider（HOST_INTEGRATION_DESIGN §3.4）。
+ * fakeInviteMemberProvider 是 Demo 验收用的假 provider（HOST_INTEGRATION_DESIGN §3.4）。
  *
  * 真实宿主的 provider 会去查群成员表；Demo 没有后端群组数据，所以自己拼一份：
  * **真实在线的 Demo 账号排在前面**（这些人真的能接得起来，双开标签页联调对得上），
@@ -39,11 +39,11 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export const fakeInviteProvider: InviteProvider = async (ctx, query, cursor) => {
+export const fakeInviteMemberProvider: InviteMemberProvider = async (ctx, query, cursor) => {
   const q = query.trim().toLowerCase();
   if (q === 'fail') {
     await delay(FAKE_LATENCY_MS);
-    throw new Error('demo: 模拟 inviteProvider 失败');
+    throw new Error('demo: 模拟 inviteMemberProvider 失败');
   }
   if (q === 'slow') {
     // 模拟宿主没回调：永远不 resolve。uikit 的 10 秒超时会接住这个。

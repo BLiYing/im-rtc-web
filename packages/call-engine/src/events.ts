@@ -97,7 +97,7 @@ export interface EngineEvents {
     endedBy: string;
   };
   /** 以下四个是**便利事件**，只在 1v1 抛；随后必有 callEnd。 */
-  callCancelled: { by: string };
+  callCancelled: { uid: string };
   callRejected: { uid: string };
   callBusy: { uid: string };
   callNoAnswer: { uid: string };
