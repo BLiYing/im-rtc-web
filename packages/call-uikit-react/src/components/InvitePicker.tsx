@@ -128,11 +128,10 @@ export function InvitePicker({ onClose }: InvitePickerProps): ReactNode {
     }
   };
 
-  // 自己与发起人不列：自己不能邀请自己；发起人离场后服务端拉不回来，列出来只会留一个转不停的占位格。
+  // 宿主给什么就列什么（含自己与发起人）：在通话里的人置灰「已在通话中」，不隐藏。
   const shown = items.filter((c) =>
-    c.uid !== engine.uid && c.uid !== ctx.callerUid
-    && (usesProvider // provider 已经按 query 在服务端过滤过了，本地不用再筛一遍。
-      || query.trim() === '' || c.uid.includes(query.trim()) || (c.name ?? '').includes(query.trim())));
+    usesProvider // provider 已经按 query 在服务端过滤过了，本地不用再筛一遍。
+      || query.trim() === '' || c.uid.includes(query.trim()) || (c.name ?? '').includes(query.trim()));
   const typedUid = query.trim();
   const canTypeIn = invite.allowManualUidInput && items.length === 0 && listState === 'ready'
     && typedUid !== '' && typedUid !== ctx.callerUid && !inCall.has(typedUid) && !picked.includes(typedUid);
@@ -158,16 +157,19 @@ export function InvitePicker({ onClose }: InvitePickerProps): ReactNode {
           <Icon name="xmark" size={16} />
         </button>
       </div>
-      <input
-        style={styles.sheetSearch}
-        placeholder={usesProvider || items.length > 0 ? '搜索联系人' : '输入对方 uid'}
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && canTypeIn) { toggle(typedUid, true); setQuery(''); }
-        }}
-        data-testid="invite-search"
-      />
+      <label style={styles.sheetSearch}>
+        <Icon name="magnifyingglass" size={15} />
+        <input
+          style={styles.sheetSearchInput}
+          placeholder={usesProvider || items.length > 0 ? '搜索联系人' : '输入对方 uid'}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && canTypeIn) { toggle(typedUid, true); setQuery(''); }
+          }}
+          data-testid="invite-search"
+        />
+      </label>
       <div style={styles.sheetList} onScroll={onScroll} data-testid="invite-list">
         {listState === 'loading' && <StateBlock text="加载中…" />}
         {listState === 'error' && <StateBlock text="加载失败" onRetry={retry} />}
@@ -185,8 +187,11 @@ export function InvitePicker({ onClose }: InvitePickerProps): ReactNode {
             ))}
             {shown.map((c) => {
               const already = inCall.has(c.uid);
-              const selectable = !already && c.selectable !== false;
+              // 离场的发起人服务端拉不回来（invite_more 回 bad_params），只能置灰。
+              const callerLeft = !already && c.uid === ctx.callerUid;
+              const selectable = !already && !callerLeft && c.selectable !== false;
               const sub = already ? '已在通话中'
+                : callerLeft ? '暂时无法邀请'
                 : c.selectable === false ? (c.unselectableReason ?? '')
                   : c.subtitle ?? (c.isOnline === false ? '离线 · 仍可邀请' : c.isOnline === true ? '在线' : '');
               return (

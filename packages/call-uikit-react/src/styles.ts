@@ -238,9 +238,14 @@ export const styles = {
     font: `14px/1.5 ${callFont}`,
   } satisfies CSSProperties,
   sheetHeader: { padding: '12px 14px 8px', display: 'flex', alignItems: 'center', gap: 8 } satisfies CSSProperties,
+  /** 搜索框外壳：放大镜 + 输入框一行；用 label 包着，点放大镜也能聚焦输入框。 */
   sheetSearch: {
-    margin: '0 14px 8px', height: 32, borderRadius: 9, border: 'none', padding: '0 10px', fontSize: 13,
-    background: callColors.ctlIdle, color: callColors.fg, font: 'inherit',
+    margin: '0 14px 8px', height: 32, borderRadius: 9, padding: '0 10px', boxSizing: 'border-box', flex: 'none',
+    display: 'flex', alignItems: 'center', gap: 6, background: callColors.ctlIdle, color: callColors.fgDim, cursor: 'text',
+  } satisfies CSSProperties,
+  sheetSearchInput: {
+    flex: 1, minWidth: 0, height: '100%', border: 'none', outline: 'none', padding: 0, background: 'none',
+    color: callColors.fg, font: 'inherit', fontSize: 13,
   } satisfies CSSProperties,
   sheetList: { flex: 1, overflowY: 'auto', minHeight: 0 } satisfies CSSProperties,
   sheetRow: {

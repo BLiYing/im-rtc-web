@@ -269,7 +269,7 @@ describe('九宫格加人', () => {
     expect(screen.queryByTestId('invite-button')).toBeNull();
   });
 
-  it('被叫也能加人；选人页不列发起人——他离场后服务端拉不回来', async () => {
+  it('被叫也能加人；离场的发起人照样列出，置灰「暂时无法邀请」', async () => {
     const engine = setup([{ uid: 'alice' }, { uid: 'dave' }]);
     act(() => {
       engine.emit('callReceived', { callId: 'c-1', caller: 'alice', calleeIds: ['me'], mediaType: 'video', isGroup: true });
@@ -280,11 +280,29 @@ describe('九宫格加人', () => {
     });
 
     fireEvent.click(screen.getByTestId('invite-button'));
-    expect(screen.queryByTestId('invite-row-alice')).toBeNull();
+    const aliceRow = screen.getByTestId('invite-row-alice');
+    expect(aliceRow.getAttribute('aria-disabled')).toBe('true');
+    expect(aliceRow.textContent).toContain('暂时无法邀请');
+    expect(aliceRow.textContent).not.toContain('发起人');
     fireEvent.click(screen.getByTestId('invite-row-dave'));
     fireEvent.click(screen.getByTestId('invite-go'));
     await flush();
     expect(engine.calls).toContain('inviteMore:dave');
+  });
+
+  it('发起人还在通话里：照样列出，和别人一样置灰「已在通话中」', () => {
+    const engine = setup([{ uid: 'alice' }, { uid: 'dave' }]);
+    act(() => {
+      engine.emit('callReceived', { callId: 'c-1', caller: 'alice', calleeIds: ['me'], mediaType: 'video', isGroup: true });
+      engine.emit('callBegin', { callId: 'c-1', roomId: 'r-1', mediaType: 'video', isGroup: true, role: 'callee' });
+      engine.emit('roomJoined', { roomId: 'r-1' });
+      engine.emit('userEnter', { uid: 'alice' });
+    });
+
+    fireEvent.click(screen.getByTestId('invite-button'));
+    const aliceRow = screen.getByTestId('invite-row-alice');
+    expect(aliceRow.getAttribute('aria-disabled')).toBe('true');
+    expect(aliceRow.textContent).toContain('已在通话中');
   });
 
   it('群通话的红按钮写「离开」', () => {

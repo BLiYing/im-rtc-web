@@ -17,6 +17,7 @@ export type IconName =
   | 'phone'
   | 'phone-down'
   | 'xmark'
+  | 'magnifyingglass'
   | 'minimize'
   | 'pip'
   | 'expand'
@@ -61,6 +62,13 @@ export function iconShape(name: IconName): ReactNode {
       return <g transform="rotate(135 12 12)">{handset()}</g>;
     case 'xmark':
       return <path d="M6 6l12 12M18 6 6 18" />;
+    case 'magnifyingglass':
+      return (
+        <>
+          <circle cx="10.5" cy="10.5" r="6.5" />
+          <path d="m15.3 15.3 4.7 4.7" />
+        </>
+      );
     case 'pip':
       /*
         收进小窗：**画中画字形**（外框 + 右下角一个实心小窗），对应 iOS 的 `pip.enter`

@@ -1,81 +1,27 @@
 # Current Task — im-rtc-web（TS engine + React uikit + Demo）
 
-> **活快照**：就地覆盖、不追加。历史见 `git log` 与 [current_task.archive.md](current_task.archive.md)（末节「2026-09-15 API 命名对齐前：宿主对接 M1→M2→M8 + 1409 缺口修复」）。
+> **活快照**：就地覆盖、不追加。历史见 `git log` 与 [current_task.archive.md](current_task.archive.md)（新的在上，顶节「2026-09-15 深夜（选人页优化前）：四端 API 命名对齐」）。
 > 规范 [CONVENTIONS.md](CONVENTIONS.md) · 分期 server `docs/design/RTC_CALL_DESIGN.md` §10 ·
 > 界面以设计稿 **v3.1** 为准：`../im-rtc-server/docs/design/sketches/RTC_CALL_UI_SPEC.html` / `RTC_CALL_UX_FLOWS.html`。
 > ✅ 状态只写在 `../im-rtc-server/docs/CLIENT_PARITY.md`。
 
 ## 当前焦点
 
-**2026-09-15：四端 API 命名核对——本仓只改 im-rtc-web（协议文档 / CLIENT_PARITY / 另外三端由别的会话并行改）。
-直接在 main 上改，未 commit / push。`./scripts/test.sh` 全绿（14 步；engine 385 / uikit 180 / demo-react 17）。**
+**2026-09-16：群通话「添加成员」选人页（用户自测通过，已提交）。** 提交前按用户要求没跑全量；只跑了 `npx tsc -b`、`npx tsc --noEmit -p demo-react`、
+`npx vitest run --root packages/call-uikit-react test/interactions.test.tsx`（31 条全过）。上一轮四端 API 命名对齐已提交 `90d0668`，细节在 archive 顶节。
 
-- **`callCancelled` 事件载荷 `{by}` → `{uid}`**：只改公开事件表这一层——线路字段与一致性向量
-  （`call_fsm.json`）钉的仍是 `by`，`callRecv.ts` 内部回调参数不能跟着改。翻译点在
-  `engineBus.ts` 的 `emitMachine`（新增一条 `callCancelled` 专属的 `by→uid` 改名，其余事件走
-  照常的 snake→camel）。下游改了 `events.ts` 的类型与 `subscribeEngine.ts` 的 `e.by`→`e.uid`。
-- **新增 `CallEngine.destroy(): void`**：终态销毁 = `logout()` + `EngineBus.clear()`（新增）。
-  **可重复调用**（幂等，不重复 logout）。之后再调「发起动作」的方法统一**抛 `2005 invalid_state`**
-  （不是静默空操作——事件订阅已清空，静默的话宿主的 `hangup()` 之类调用会石沉大海，没有任何
-  信号说明原因）；新增私有 `act()`（`call/joinCall/accept/reject/cancel/hangup/inviteMore/joinRoom/
-  leaveRoom` 共用的 dispatch 外壳，顺带把销毁检查收在一处）与 `mediaApi()` 里的检查（覆盖
-  `probeMicrophone/probeCamera/publishMicrophone/publishCamera/setMuted/setRemoteLayer` 及新增的
-  四个 open/close 方法）；`login()` / `startLocalPreview()` 单独各挂一行检查。**例外**：`logout()` /
-  `forceEnd()` / `on()` / `uid` / `state` / 读或清理类方法（`attachView` 传 `null`、`localTrack`、
-  `stopLocalPreview`、`updateToken`）**不受影响**，销毁后调用仍安全——它们本来就该在任意时刻可
-  无脑调用（尤其 `forceEnd()`，红键看门狗与 `logout()` 都靠它"绝不抛"这条契约）。
-- **新增按类型的媒体开关**（`openMicrophone` / `closeMicrophone` / `openCamera` / `closeCamera`，
-  与腾讯 TUICallEngine 同名）：open = 该类型还没发布就发布（摄像头复用预览，走 `publishCamera`
-  现有逻辑），已发布就 `setMuted(cid, false)`；close = 对已发布的那条 `setMuted(cid, true)`
-  （不 unpublish），没发布过是空操作。**「发没发布过」问的是媒体适配器自己的账**
-  （`MediaAdapter.publishedMicrophoneCid()` / `publishedCameraCid()`，新增到接口，`WebRTCAdapter`
-  实现——麦克风新增 `micCid` 字段跟 `acquire()` 一起记账，摄像头复用已有的 `preview`/
-  `cameraPublished`），**不在门面 `engine.ts` 另开一份影子记账**：协调会话中途指出 iOS 在等价
-  实现上踩过这个坑——门面自己记账的话，宿主先直接调 `publishMicrophone()` 发布过、再调
-  `openMicrophone()` 会被误判成"没发布"而重复发布（pub PC 上多挂一条 sender）。`micCid` 的清账
-  跟着 `WebRTCAdapter.close()` 走（`bridge.reset()`/`bridge.close()` 已经在通话结束/离房/logout
-  时调它，不需要另外接线）。`publishMicrophone`/`publishCamera`/`setMuted(cid)` 保留作高级接口；
-  uikit 内部未改用新方法（未扩大改动范围，符合任务边界）。
-- **uikit 改名对齐 iOS/Android**：`CallProvider` 的 prop `inviteProvider` → `inviteMemberProvider`，
-  `onInviteRequest` → `presentInvitePicker`；类型 `InviteProvider` → `InviteMemberProvider`，
-  `OnInviteRequest` → `PresentInvitePicker`（`invite/types.ts` + `index.ts` 导出同步）。
-  `InviteConfig`（`CallProvider.tsx` 内部 context 形状）的字段名 `provider`/`onRequest` **未改**
-  ——那是内部实现细节，不是公开 prop。`ProfileProvider` 按规格**不改名**。Demo 侧
-  `fakeInviteProvider.ts` → `fakeInviteMemberProvider.ts`（连带改了 `App.tsx` 的 import 与
-  prop 名）——这处改名不在规格明文要求里，是 sed 全局替换 `InviteProvider`→`InviteMemberProvider`
-  时把文件内的同名标识符一起带过去了，顺手把文件也重命名以保持一致，未额外核实是否有隐藏用户
-  依赖这个内部命名（Demo 站点范围内应该没有）。
-  **不留兼容别名**：宿主暂无人用这些 API，四个改名点全仓找不到旧名残留。
-- **`CallEndReason` / `CallEndReasonValue`**：确认已经从 `@im-rtc/call-engine` 包入口
-  （`src/index.ts`）导出，不用补。
-- 新增测试：engine `test/mediaToggle.test.ts`（13 条，含"先 publishMicrophone/publishCamera
-  再 open*"两条专门钉住"不能另开影子账"的回归用例）、`test/publishedCid.test.ts`（3 条，
-  `WebRTCAdapter.publishedMicrophoneCid/publishedCameraCid` 的直接单测）、`test/engineBus.test.ts`
-  （3 条，`callCancelled` 字段翻译 + `clear()`）；四个既有的 `MediaAdapter` 测试假实现
-  （`test/nullMedia.ts` 改成真状态、`engineEvents.test.ts`/`updateToken.test.ts`/`engineIce.test.ts`
-  的本地假类）补了新接口方法的桩，否则类型上不再满足 `MediaAdapter`（这几个测试文件不在
-  `tsc -b` 的 `include` 里，不补也不会被门禁挡住，但会是隐藏的类型错误，顺手修了）。
+- **列表全部列出**（用户 09-16 拍板，推翻设计稿「选人页不列发起人」）：`InvitePicker.tsx` 不再按自己 / 发起人过滤，也不再显示「是你」「发起人」；
+  在通话里的人（`ctx.participantUids`，含自己）统一置灰「已在通话中」。**唯一例外是离场的发起人**：置灰「暂时无法邀请」——服务端 `InviteMore` 对 `callee_ids` 含发起人回 `bad_params`
+  （发起人不在成员表里，拉不回来），选了只会失败。这句文案是我定的，用户没拍板。Demo `fakeInviteMemberProvider.ts` 原先自己剔发起人，一并放开。
+- **搜索框**：`styles.ts` 的 `sheetSearch` 改成 label 外壳（一行 flex：放大镜 + 输入框，点放大镜也聚焦），输入框样式拆到 `sheetSearchInput`；上一轮 `width: calc(100% - 28px)` 的补丁随之去掉。
+  新图标 `iconShapes.tsx` 的 `magnifyingglass`（圆心 10.5、半径 6.5 + 斜柄到 20,20），Android `ic_im_magnifyingglass.xml` 是同一份路径。
+- 测试：「被叫也能加人」改断言离场发起人置灰「暂时无法邀请」且不含「发起人」；新增「发起人还在通话里 → 已在通话中」。
 
 ## 下一步
 
-- **没做 / 已知限制**：
-  - `demo-react/src/fakeInviteMemberProvider.ts` 的改名是 sed 连带出来的，不是规格明文要求；
-    功能未变，但如果协调会话认为 Demo 内部命名不该跟着动，可以单独 revert 这一个文件名。
-  - `engine.ts`（582 行）与 `media/webrtcAdapter.ts`（529 行）体量门禁给了 WARN（阈值 480，
-    硬顶 600）——都还没超标，但这次分别加了 ~100 行和 ~20 行，下次再往这两个文件加东西前
-    应该先看一眼要不要拆，别等触顶才拆。
-  - `destroy()` 之后哪些方法"抛 2005"、哪些"始终安全"是我按本仓既有风格自己权衡的（规格给的
-    是"选一种，写进注释"），没有和 iOS/Android 的等价实现逐条对表——如果协调会话已经定了
-    另外三端的选择，这条可能要跟着改成一致的策略。
-  - open/close 媒体开关目前只在 `call-engine` 层加了测试；uikit 按规格没有改用新方法，所以
-    uikit 侧没有新增覆盖这四个方法的测试（符合"避免扩大改动"的要求，但也意味着 uikit 集成路径
-    上这四个方法目前只有 engine 层的保证）。
-  - 浏览器没有手动验证：全部通过 `./scripts/test.sh`（jsdom + node）过的，没有起 `dev.sh` 在真实
-    浏览器里点一遍 `openMicrophone`/`openCamera` 或验证销毁后的 UI 表现。
-- 本仓不改 `../im-rtc-server` 的 `/guide` 文档、`CLIENT_PARITY.md`、`RTC_PROTOCOL.md`——按任务边界
-  留给主会话处理；协议字段（`callCancelled` 的线路字段名）本身没有变化，只是 SDK 公开事件层的
-  命名，理论上不需要协议文档跟着改，但如果协议文档里也写了 `EngineEvents` 层的示例代码，可能要
-  一并核对。
+1. 「暂时无法邀请」（离场的发起人）文案待用户确认；要让离场的发起人能被邀回得改服务端 call 状态机，另立项。
+2. API 命名对齐遗留：`engine.ts`（582 行）与 `media/webrtcAdapter.ts`（529 行）体量 WARN，再往里加东西前先拆；
+   `destroy()` 之后哪些方法抛 2005 没和 iOS / Android 逐条对表；`openMicrophone` / `openCamera` 等四个开关只有 engine 层单测、没在真浏览器点过。
 
 ## 已知坑 / 限制
 

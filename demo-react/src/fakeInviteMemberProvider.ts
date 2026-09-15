@@ -39,7 +39,7 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export const fakeInviteMemberProvider: InviteMemberProvider = async (ctx, query, cursor) => {
+export const fakeInviteMemberProvider: InviteMemberProvider = async (_ctx, query, cursor) => {
   const q = query.trim().toLowerCase();
   if (q === 'fail') {
     await delay(FAKE_LATENCY_MS);
@@ -52,9 +52,9 @@ export const fakeInviteMemberProvider: InviteMemberProvider = async (ctx, query,
 
   await delay(FAKE_LATENCY_MS);
 
-  // 自己与发起人 uikit 会再过滤一遍（InvitePicker 的规矩），这里不用重复剔除。
-  const matched = allCandidates().filter((c) => c.uid !== ctx.callerUid
-    && (q === '' || c.uid.toLowerCase().includes(q) || c.name.toLowerCase().includes(q)));
+  // 不剔自己与发起人：uikit 会把在通话里的人置灰「已在通话中」。
+  const matched = allCandidates().filter((c) =>
+    q === '' || c.uid.toLowerCase().includes(q) || c.name.toLowerCase().includes(q));
 
   const offset = cursor === undefined ? 0 : Number.parseInt(cursor, 10) || 0;
   const page = matched.slice(offset, offset + PAGE_SIZE);

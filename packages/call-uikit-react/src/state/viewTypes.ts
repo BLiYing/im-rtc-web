@@ -101,7 +101,7 @@ export interface CallViewState {
   readonly role: CallRoleName;
   /** 1v1 的对端 uid；群通话为空串。 */
   readonly peerUid: string;
-  /** 发起人 uid，只在被叫侧有值（主叫侧就是自己）。选人页靠它不列发起人：他离场后服务端拉不回来。 */
+  /** 发起人 uid，只在被叫侧有值（主叫侧就是自己）。选人页靠它认出离场的发起人：服务端拉不回来，只能置灰。 */
   readonly callerUid: string;
   readonly participants: readonly RemoteParticipant[];
   readonly self: SelfState;
