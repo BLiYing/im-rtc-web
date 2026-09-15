@@ -17,10 +17,12 @@ export function subscribeEngine(engine: CallEngine, dispatch: (action: ViewActio
       // 名单里含自己，摆格子之前先去掉——「自己」不是远端成员。
       dispatch({ type: 'callReceived', callId: e.callId, caller: e.caller,
         calleeIds: e.calleeIds.filter((uid) => uid !== engine.uid),
-        mediaType: e.mediaType, isGroup: e.isGroup })),
+        mediaType: e.mediaType, isGroup: e.isGroup,
+        chatGroupId: e.chatGroupId, userData: e.userData })),
     engine.on('callBegin', (e) =>
       dispatch({ type: 'callBegin', callId: e.callId, roomId: e.roomId, mediaType: e.mediaType,
-        isGroup: e.isGroup, role: e.role, nowMs: Date.now() })),
+        isGroup: e.isGroup, role: e.role, nowMs: Date.now(),
+        caller: e.caller, chatGroupId: e.chatGroupId, userData: e.userData })),
     // 时长用服务端给的那个（不变量 I8：四端禁止自己算）。
     engine.on('callEnd', (e) => dispatch({ type: 'callEnd', reason: e.reason, durationSec: e.durationSec })),
     engine.on('userEnter', (e) => dispatch({ type: 'userEnter', uid: e.uid })),

@@ -1,5 +1,5 @@
-import type { CallEngine, MediaType } from '@im-rtc/call-engine';
-import { logger } from '@im-rtc/call-engine';
+import type { CallEngine, CallOptions, MediaType } from '@im-rtc/call-engine';
+import { ErrorCode, isRtcError, logger } from '@im-rtc/call-engine';
 import type { MutableRefObject } from 'react';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 
@@ -12,8 +12,13 @@ import type { PermissionGate } from './usePermissionGate.js';
 
 /** CallActions 是界面能做的全部动作。 */
 export interface CallActions {
-  /** placeCall 拨出。**先探权限再发 invite**（交互稿 §01）。 */
-  placeCall: (calleeIds: string[], mediaType: MediaType, isGroup?: boolean) => Promise<void>;
+  /**
+   * placeCall 拨出。**先探权限再发 invite**（交互稿 §01）。
+   *
+   * `options` 与 `CallEngine.call()` 同形：传布尔值等同旧的 `isGroup` 参数；传
+   * {@link CallOptions} 可以带上群号 / user_data（HOST_INTEGRATION_DESIGN §3.2）。
+   */
+  placeCall: (calleeIds: string[], mediaType: MediaType, options?: boolean | CallOptions) => Promise<void>;
   /** joinMeeting 直接进会议房（不走振铃）。 */
   joinMeeting: (roomId: string, roomToken: string) => Promise<void>;
   accept: () => Promise<void>;
@@ -63,6 +68,7 @@ export interface CallActionsDeps {
 export function useCallActions({ engine, state, dispatch, cids, gate, endWatchdogMs }: CallActionsDeps): {
   readonly actions: CallActions;
   readonly publishFor: (mediaType: MediaType, withCamera: boolean) => Promise<void>;
+  readonly joinCall: (callId: string) => Promise<void>;
 } {
   /** 最新状态。异步链回来时判断摄像头**此刻**还开不开，不用闭包里那份旧的。 */
   const latest = useRef(state);
@@ -165,8 +171,13 @@ export function useCallActions({ engine, state, dispatch, cids, gate, endWatchdo
 
   const actions = useMemo<CallActions>(
     () => ({
-      placeCall: async (calleeIds, mediaType, isGroup = false): Promise<void> => {
-        dispatch({ type: 'callPlaced', calleeIds, mediaType, isGroup });
+      placeCall: async (calleeIds, mediaType, options): Promise<void> => {
+        const opts: CallOptions = typeof options === 'boolean' ? { isGroup: options } : (options ?? {});
+        const isGroup = opts.isGroup ?? false;
+        dispatch({
+          type: 'callPlaced', calleeIds, mediaType, isGroup,
+          chatGroupId: opts.chatGroupId ?? '', userData: opts.userData ?? '',
+        });
         // **拿不到麦克风就不该去响别人的铃**：先探权限，再发 invite。
         const gateResult = await gate.ensure(devicesFor(mediaType, true));
         if (gateResult === 'cancelled' || gateResult === 'mic-blocked') {
@@ -175,7 +186,7 @@ export function useCallActions({ engine, state, dispatch, cids, gate, endWatchdo
         }
         // 群通话默认关着摄像头进来：权限照问（交互稿 §01），摄像头不开。
         if (gateResult === 'ok' && defaultCameraOn(mediaType, isGroup)) await startPreview();
-        await engine.call(calleeIds, mediaType, isGroup);
+        await engine.call(calleeIds, mediaType, options);
       },
       joinMeeting: async (roomId, roomToken): Promise<void> => {
         const gateResult = await gate.ensure(devicesFor('video', true));
@@ -314,6 +325,10 @@ export function useCallActions({ engine, state, dispatch, cids, gate, endWatchdo
           */
           logger.warn('加人失败，收回占位格', { err: String(err), uids: uids.join(',') });
           for (const uid of uids) dispatch({ type: 'userRemove', uid });
+          // 1409：宿主的邀请鉴权回调拒了这一批人（HOST_INTEGRATION_DESIGN §3.4 的加人文案）。
+          if (isRtcError(err) && err.code === ErrorCode.inviteDenied) {
+            dispatch({ type: 'hint', text: '对方暂时无法被邀请' });
+          }
         }
       },
       setMinimized: (minimized): void => dispatch({ type: 'setMinimized', minimized }),
@@ -326,5 +341,54 @@ export function useCallActions({ engine, state, dispatch, cids, gate, endWatchdo
      state.self.cameraBlocked, state.self.cameraOptedOut],
   );
 
-  return { actions, publishFor };
+  /**
+   * joinCall 是「群成员看到『进行中』主动加入」（协议 §4.1 `call.join`，`useCall().joinCall`）。
+   *
+   * # 为什么不能靠 `try/catch` 拿失败
+   *
+   * `CallEngine.joinCall()` 与状态机之间隔着 `FrameLoop.sendFrame`——请求被服务端拒绝时
+   * 它在内部把错误转成 `error` 事件再走 `rollback`，**从不把异常抛给调用方**
+   * （`inviteMore` 头上那段 `try/catch` 出于同一个误解，实际上也从未真的捕获到过网络层错误）。
+   * 所以这里在发起前先挂一个临时的 `error` 监听器，`await` 整条链路跑完再看有没有记到码——
+   * `engine.joinCall()` 的 promise 在 `call_failed → onCallEnd` 那一串同步完成之后才落定，
+   * 所以退订之后 `failCode` 要么是 `null`（成功），要么已经是那一次失败的码。
+   */
+  const joinCall = useCallback(async (callId: string): Promise<void> => {
+    /*
+      **已经在一场里就不接，只提示。** engine 只会本地回一个 2005，而下一步就把界面切成「接通中…」——
+      放行的话正在进行的那通电话的界面被盖掉、随后收场成「已结束」，人却还在通话里（2026-09-15 代码审查）。
+    */
+    const phase = latest.current.phase;
+    if (phase !== 'idle' && phase !== 'ended') {
+      logger.warn('[uikit] 正在通话中，忽略 joinCall', { call_id: callId, phase });
+      dispatch({ type: 'hint', text: '正在通话中，无法加入' });
+      return;
+    }
+    dispatch({ type: 'joinCallRequested', callId });
+    // 与接听同一道权限门，但只要麦克风：加入之前不知道这通是不是视频，摄像头等用户在通话里再开。
+    const gateResult = await gate.ensure(devicesFor('audio', false));
+    if (gateResult === 'cancelled' || gateResult === 'mic-blocked') {
+      dispatch({ type: 'dismiss' });
+      return;
+    }
+    let failCode: number | null = null;
+    const off = engine.on('error', (e) => {
+      failCode = e.code;
+    });
+    try {
+      await engine.joinCall(callId);
+    } finally {
+      off();
+    }
+    /*
+      **失败与否以通话机的状态为准，错误事件只用来挑文案。** `error` 是全局事件、不带 call_id，
+      这段 await 期间冒出来的不一定属于这次加入；真被拒时通话机已经退回 idle，加入成功则停在 accepting 之后。
+    */
+    if (failCode !== null && engine.state.call.state === 'idle') {
+      logger.warn('joinCall 被拒', { call_id: callId, code: failCode });
+      dispatch({ type: 'joinCallFailed', code: failCode });
+    }
+  }, [engine, dispatch, gate]);
+
+  return { actions, publishFor, joinCall };
 }

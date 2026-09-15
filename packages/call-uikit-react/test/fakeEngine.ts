@@ -7,12 +7,19 @@ import type { CallEngine, EngineEventName, EngineEvents, Layer, MediaType } from
  * 哪天这个假实现要加一个新方法，就说明 uikit 伸手伸到了公开事件表之外——
  * 那时该补的是回调表，不是这个文件。
  */
+/** FakeCallOptions 镜像 `CallEngine.call()` 的第三个参数形状，测试文件里不必再引 engine 包的类型。 */
+type FakeCallOptions =
+  | boolean
+  | { isGroup?: boolean; chatGroupId?: string; userData?: string; timeoutSec?: number }
+  | undefined;
+
 export class FakeEngine {
   readonly handlers = new Map<string, Set<(payload: unknown) => void>>();
   readonly attached: { uid: string; hasElement: boolean }[] = [];
   readonly layers: { uid: string; layer: Layer }[] = [];
   readonly calls: string[] = [];
-  state = { room: { publishTrackIds: {} as Record<string, string> } };
+  /** `call.state` 由 `joinCall` 推进：`useCallActions.joinCall` 以它判定加入是否被拒。 */
+  state = { room: { publishTrackIds: {} as Record<string, string> }, call: { state: 'idle' as string } };
   /** 本端 uid。`subscribeEngine` 用它把自己从 callee_ids 里剔掉。 */
   uid = 'me';
 
@@ -49,8 +56,11 @@ export class FakeEngine {
     this.layers.push({ uid, layer });
   }
 
-  async call(calleeIds: string[], mediaType: MediaType): Promise<void> {
+  /** 记录最近一次 call() 的 options，供测试断言 chatGroupId / userData 真的传到了 engine 这一层。 */
+  lastCallOptions: FakeCallOptions = undefined;
+  async call(calleeIds: string[], mediaType: MediaType, options?: FakeCallOptions): Promise<void> {
     this.calls.push(`call:${calleeIds.join(',')}:${mediaType}`);
+    this.lastCallOptions = options;
   }
   async accept(): Promise<void> {
     this.calls.push('accept');
@@ -72,6 +82,25 @@ export class FakeEngine {
   async inviteMore(calleeIds: string[]): Promise<void> {
     this.calls.push(`inviteMore:${calleeIds.join(',')}`);
     if (this.inviteMoreError !== null) throw this.inviteMoreError;
+  }
+  /**
+   * `call.join` 被拒由测试控制：设 `joinCallError`。
+   *
+   * **真 engine 从不为这类拒绝抛异常**（`FrameLoop.sendFrame` 内部把它转成 `error` 事件，
+   * 见 `useCallActions.joinCall` 的注释），这里同形——同步 `emit('error', …)`，
+   * 不 throw：调用方靠临时挂的 `error` 监听器拿码，不是 `try/catch`。
+   */
+  joinCallError: { code: number; name: string; message: string } | null = null;
+  /** 加入本身成功，但期间冒出一条与它无关的 `error`（验 joinCall 不把它算成失败）。 */
+  joinCallStrayError: { code: number; name: string; message: string } | null = null;
+  async joinCall(callId: string): Promise<void> {
+    this.calls.push(`joinCall:${callId}`);
+    if (this.joinCallStrayError !== null) this.emit('error', this.joinCallStrayError);
+    if (this.joinCallError !== null) {
+      this.emit('error', this.joinCallError);
+      return; // 被拒：通话机留在 idle，与真 engine 同形
+    }
+    this.state.call.state = 'accepting';
   }
   /** 探测结果由测试控制：默认成功；设 `probeError` 让它抛。 */
   probeError: unknown = null;

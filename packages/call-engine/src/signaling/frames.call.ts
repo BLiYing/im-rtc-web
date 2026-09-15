@@ -34,6 +34,11 @@ export const INVITE_FIELDS = {
     max: MAX_TIMEOUT_SEC,
   },
   userData: { kind: 'string', wire: 'user_data' },
+  /**
+   * 宿主自己的群号，opaque，≤64 字节，禁止空白与换行（服务端校验，本端也在 engine.ts 拦一道）。
+   * 通话期间不可改；服务端不解析、不校验群成员关系，只原样带出去（§3.2）。
+   */
+  chatGroupId: { kind: 'string', wire: 'chat_group_id' },
 } as const satisfies FrameFields;
 
 /** INVITE_OK_FIELDS：**主叫此时禁止 room.join**——接听前不进 SFU（§4.1）。 */
@@ -77,6 +82,8 @@ export const INCOMING_FIELDS = {
   },
   invitedAtMs: { kind: 'int', wire: 'invited_at_ms' },
   userData: { kind: 'string', wire: 'user_data' },
+  /** 群号，Kit 靠它决定「添加成员」列谁（§3.2）。 */
+  chatGroupId: { kind: 'string', wire: 'chat_group_id' },
 } as const satisfies FrameFields;
 
 /**
@@ -119,6 +126,14 @@ export const CONNECTED_FIELDS = {
   /** 通话时长的起点，服务端时钟。 */
   connectedAtMs: { kind: 'int', wire: 'connected_at_ms' },
   acceptedBy: { kind: 'string', wire: 'accepted_by' },
+  /**
+   * 发起人。`call.join` 进来的人没收过 `call.incoming`，只能从这里知道是谁打的（§3.2）。
+   */
+  caller: { kind: 'string', wire: 'caller' },
+  /** 同 call.invite，中途加入与断线恢复后也拿得到群号。 */
+  chatGroupId: { kind: 'string', wire: 'chat_group_id' },
+  /** 同 call.invite，原样回显。 */
+  userData: { kind: 'string', wire: 'user_data' },
 } as const satisfies FrameFields;
 
 /** HANDLED_ELSEWHERE_FIELDS：本账号另一台设备处理了这通电话。 */

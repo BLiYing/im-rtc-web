@@ -258,6 +258,17 @@ export const styles = {
     background: callColors.accept, color: callColors.acceptFg, fontWeight: 700, fontSize: 15, font: 'inherit',
   } satisfies CSSProperties,
   sheetGoDisabled: { background: callColors.ctlIdle, color: callColors.fgDim, cursor: 'default' } satisfies CSSProperties,
+  /** 选人页的加载中 / 失败 / 超时三态（共用一块居中提示区）。 */
+  sheetState: {
+    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+    gap: 10, padding: '32px 14px', color: callColors.fgDim, fontSize: 13,
+  } satisfies CSSProperties,
+  sheetRetry: {
+    height: 32, padding: '0 16px', borderRadius: 9, border: 'none', cursor: 'pointer',
+    background: callColors.ctlIdle, color: callColors.fg, fontSize: 13, font: 'inherit',
+  } satisfies CSSProperties,
+  /** 滚到底加载下一页时列表底部的小提示行。 */
+  sheetFooter: { padding: '10px 14px', textAlign: 'center', fontSize: 12, color: callColors.fgDim } satisfies CSSProperties,
 
   smallButton: {
     padding: '8px 14px', borderRadius: 999, border: 'none', cursor: 'pointer',

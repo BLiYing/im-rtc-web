@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 
+import { buildInviteContext } from '../invite/inviteContext.js';
 import { canShowInvite } from '../state/callView.js';
 import { useCall } from '../useCall.js';
 import { styles } from '../styles.js';
@@ -23,7 +24,15 @@ export interface CallHeaderProps {
 }
 
 export function CallHeader({ title, subtitle, networkLevel, onInvite, showsMinimize = true }: CallHeaderProps): ReactNode {
-  const { state, actions } = useCall();
+  const { state, actions, engine, invite } = useCall();
+  /*
+    **按钮显隐规则不以 chatGroupId 非空为条件**（HOST_INTEGRATION_DESIGN §3.4）：临时拉的
+    多人通话没有群号，一样要能加人，取名单由 provider 返回通讯录。`canShowInvite` 管的是
+    「是不是群通话、接没接通、房间满没满」（协议层面的硬约束）；`invite.canInvite` 是宿主
+    自己的权限规则（例：群禁言时仅管理员可加人），两条都过才给按钮。
+  */
+  const showInvite = canShowInvite(state)
+    && (invite.canInvite === undefined || invite.canInvite(buildInviteContext(engine, state)));
   return (
     <div style={styles.header}>
       {showsMinimize ? (
@@ -39,7 +48,7 @@ export function CallHeader({ title, subtitle, networkLevel, onInvite, showsMinim
           {networkLevel > 0 && <NetworkBars level={networkLevel} size={13} />}
         </div>
       </div>
-      {canShowInvite(state) ? (
+      {showInvite ? (
         <button type="button" style={styles.headerButton} aria-label="添加成员" data-testid="invite-button" onClick={onInvite}>
           <Icon name="person-add" size={18} />
         </button>

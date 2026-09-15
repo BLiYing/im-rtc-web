@@ -21,10 +21,11 @@ export interface DialerProps {
  * （CONVENTIONS §11）。它只调 `actions.placeCall` 与 `actions.joinMeeting`。
  */
 export function Dialer({ server, token, deviceId, uid }: DialerProps): ReactNode {
-  const { state, actions } = useCall();
+  const { state, actions, joinCall } = useCall();
   const [callee, setCallee] = useState('bob');
   const [picked, setPicked] = useState<readonly string[]>(['bob', 'carol']);
   const [roomId, setRoomId] = useState('');
+  const [callId, setCallId] = useState('');
   const [error, setError] = useState('');
   const busy = state.phase !== 'idle';
   // 自己不在候选里：带着自己发出去，服务端会以 1004 拒掉**整通**电话。
@@ -95,8 +96,15 @@ export function Dialer({ server, token, deviceId, uid }: DialerProps): ReactNode
             );
           })}
         </div>
+        {/*
+          群呼带上一个 `chatGroupId`（HOST_INTEGRATION_DESIGN §3.2）：Demo 没有真的群，
+          写死同一个值——被叫与中途 `joinCall()` 进来的人都能从这一通电话上拿到它，
+          「添加成员」的 `InviteContext.chatGroupId` 也是它。
+        */}
         <button type="button" disabled={busy || callees.length === 0}
-          onClick={guard(() => actions.placeCall(callees, 'video', true))}>群视频呼叫</button>
+          onClick={guard(() => actions.placeCall(callees, 'video', { isGroup: true, chatGroupId: DEMO_CHAT_GROUP_ID }))}>
+          群视频呼叫
+        </button>
       </div>
 
       <div className="row">
@@ -115,6 +123,25 @@ export function Dialer({ server, token, deviceId, uid }: DialerProps): ReactNode
         </button>
       </div>
 
+      {/*
+        「按 call_id 主动加入」（协议 §4.1 `call.join`，HOST_INTEGRATION_DESIGN §3.4）。
+        真实宿主靠 webhook `call.started` 或 `GET /v1/calls?chat_group_id=...&active=1`
+        自己判断「有通话在进行中」再摆横幅；Demo 没有这套，就让人把另一个标签页
+        打出的群通话 call_id 抄过来手动试——**这一个入口只给 Demo 用**，
+        协议本身不管「怎么知道有通话在进行中」。
+      */}
+      <div className="row">
+        <div>
+          <label htmlFor="join-call-id">按 call_id 加入进行中的群通话</label>
+          <input id="join-call-id" value={callId} onChange={(e) => setCallId(e.target.value)}
+            placeholder="从另一个标签页的通话记录 / 日志里抄一个 call_id" />
+        </div>
+        <button type="button" className="ghost" disabled={busy || callId.trim() === ''}
+          onClick={guard(() => joinCall(callId.trim()))} data-testid="join-call">
+          加入
+        </button>
+      </div>
+
       {error !== '' && <div className="note" style={{ color: '#e5484d' }}>{error}</div>}
       <div className="note">
         会议不走振铃，直接进房——同一个 Room 原语的另一种玩法。
@@ -124,3 +151,6 @@ export function Dialer({ server, token, deviceId, uid }: DialerProps): ReactNode
     </div>
   );
 }
+
+/** DEMO_CHAT_GROUP_ID 是 Demo 写死的群号（Demo 没有真的群系统）。 */
+const DEMO_CHAT_GROUP_ID = 'demo-group';

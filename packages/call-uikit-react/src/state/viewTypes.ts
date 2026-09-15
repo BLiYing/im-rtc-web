@@ -148,6 +148,18 @@ export interface CallViewState {
    * 正常情况下那时根本看不到按钮，这条是兜底。
    */
   readonly canInvite: boolean;
+  /**
+   * 宿主自己的群号，`callReceived` / `callBegin` 里带来的（HOST_INTEGRATION_DESIGN §3.2）。
+   * 建 `InviteContext` 要用，**按钮显隐不看它**（临时拉的多人通话由 provider 返回通讯录）。
+   */
+  readonly chatGroupId: string;
+  /** 原样透传，`InviteContext` 里带给 provider，uikit 自己不解析。 */
+  readonly userData: string;
+  /**
+   * `joinCall()` 被拒时按错误码给的文案，覆盖 `CallEnded` 默认的 `endReasonText`
+   * （HOST_INTEGRATION_DESIGN §3.4：「被拒按错误码提示并收起」）。空串 = 用默认文案。
+   */
+  readonly joinDeniedText: string;
 }
 
 /** initialCallView 是没有通话时的状态。 */
@@ -174,6 +186,9 @@ export const initialCallView: CallViewState = {
   isMediaReady: false,
   connection: 'ok',
   canInvite: true,
+  chatGroupId: '',
+  userData: '',
+  joinDeniedText: '',
 };
 
 /**
@@ -187,12 +202,22 @@ export type ViewAction =
   | { readonly type: 'callReceived'; readonly callId: string; readonly caller: string;
       /** 这通电话邀了谁，**已去掉自己**。群通话靠它摆占位格。 */
       readonly calleeIds: readonly string[];
-      readonly mediaType: MediaType; readonly isGroup: boolean }
+      readonly mediaType: MediaType; readonly isGroup: boolean;
+      readonly chatGroupId: string; readonly userData: string }
   | { readonly type: 'callPlaced'; readonly calleeIds: readonly string[];
-      readonly mediaType: MediaType; readonly isGroup: boolean }
+      readonly mediaType: MediaType; readonly isGroup: boolean;
+      readonly chatGroupId: string; readonly userData: string }
   | { readonly type: 'callBegin'; readonly callId: string; readonly roomId: string;
       readonly mediaType: MediaType; readonly isGroup: boolean; readonly role: CallRoleName;
-      readonly nowMs: number }
+      readonly nowMs: number; readonly caller: string;
+      readonly chatGroupId: string; readonly userData: string }
+  /**
+   * 主动加入进行中的群通话（`useCall().joinCall`）：**直接进「接通中…」**
+   * （HOST_INTEGRATION_DESIGN §3.4），不经过来电页。
+   */
+  | { readonly type: 'joinCallRequested'; readonly callId: string }
+  /** `call.join` 被拒：按错误码给一句文案，随后走既有的 `callEnd` 收场（同一个出口）。 */
+  | { readonly type: 'joinCallFailed'; readonly code: number }
   | { readonly type: 'callEnd'; readonly reason: CallEndReasonValue; readonly durationSec: number }
   | { readonly type: 'localCamera'; readonly cid: string }
   /** 摄像头拿不到（权限被拒 / 没设备）：通话继续，按钮禁用。 */

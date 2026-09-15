@@ -1,46 +1,79 @@
 # Current Task — im-rtc-web（TS engine + React uikit + Demo）
 
-> **活快照**：就地覆盖、不追加。历史见 `git log` 与 [current_task.archive.md](current_task.archive.md)（末节「2026-09-11 精简前全文」）。
+> **活快照**：就地覆盖、不追加。历史见 `git log` 与 [current_task.archive.md](current_task.archive.md)（末节「2026-09-15 09:xx 精简前：强制收场与红键看门狗」）。
 > 规范 [CONVENTIONS.md](CONVENTIONS.md) · 分期 server `docs/design/RTC_CALL_DESIGN.md` §10 ·
 > 界面以设计稿 **v3.1** 为准：`../im-rtc-server/docs/design/sketches/RTC_CALL_UI_SPEC.html` / `RTC_CALL_UX_FLOWS.html`。
 > ✅ 状态只写在 `../im-rtc-server/docs/CLIENT_PARITY.md`。
 
 ## 当前焦点
 
-**2026-09-15：群通话里的任何人都能加人（服务端同日放开）。未提交；单测已跑，浏览器未验（测之前重起 vite）。**
-`canShowInvite` 去掉 `role === 'caller'`；`CallViewState.callerUid`（被叫侧记发起人）→ `InvitePicker` 不列发起人（离场后服务端拉不回来）；1407 提示改「你已不在通话中，无法添加成员」。
+**2026-09-15：宿主对接 M1 → M2 → M8（`../im-rtc-server/docs/design/HOST_INTEGRATION_DESIGN.md` §3）三期都做完，未提交。`./scripts/test.sh` 全绿（14 步，engine 366 / uikit 173 / demo-react 17）。**
 
-**2026-09-15：红键等不到结束事件时引擎也收场（`forceEnd`）+ uikit 补红键看门狗（Web 原先没有）。已提交 `dd5e4c0`，09-15 与 iOS frank、Android alice 联测验过（见下一步）。两个小账随后单独一笔提交（单测覆盖，真机未验），`./scripts/test.sh` 全绿（14 步，engine 345 / uikit 156 / demo-react 17）。**
-- 小账已修：① 强制收场时长从本端 `onCallBegin` 那一刻算（`EngineContext.callStartedAtMs`，`reduceEngine` 入口统一打点、通话回 idle 清零），不再用整通 `connected_at_ms`；
-  ② 拨出中没 call_id 时按取消不发帧、记 `CallContext.cancelPending`，`call.invite.ok` 一回来立刻补发 `call.cancel`（不再换回 1401）。
-起因 09-13 14:53~14:58 iOS frank：接听后 room.join 晚 28.6 秒才上线路，其间按红键，call.hangup 一帧没到服务端；看门狗只收了界面，引擎留在通话与房间里，其余端一直看得见他。
-iOS 已落同形状（`../im-rtc-ios/current_task.md`），形状见 server `CLIENT_PARITY.md` 的 `[^forceend]`。上一件（对端重开摄像头闪一下）已提交 `e447276`、21:11 验过。
-
-- engine `CallEngine.forceEnd(): void`（同步、不抛）→ `FrameLoop.forceEnd`：纯函数 `state/forceEnd.ts`（`forceEnd` / `endFrames`）挑帧——通话中 hangup、响铃 reject、拨出 cancel、accepting reject+hangup、会议 room.leave；
-  帧走 `Connection.fire`（不等应答、应答配对后丢掉、未连接只记日志）**不排在在途请求后面**；本地收场与发帧在同一次同步调用里（先发帧、再落状态/关媒体/抛事件），所以不需要 iOS 那种 call_id 比对。
-- 迟到帧：`roomRecv.ts` idle 下 `room.join.ok` 补发 `room.leave`、其余丢弃；`callRecv.ts` idle 下 `call.invite.ok` 补发 `call.cancel`、`call.connected` 补发 `call.hangup`（拨出中没 call_id 的补救）；`frameLoop` 房间 idle 时丢迟到的候选 / SDP。
-- `请求往返慢`（≥ 2000ms，`type` / `elapsed_ms` / `failed`）。没做卡顿探针（iOS 独有）。
-- uikit：`redButtonWatchdog.ts`（`RedButtonWatchdog` 注入调度器、`endActionFor`、`endWatchdogReason`）；`useCallActions` 的 `end` 与 `reject` 都武装，phase 到 idle/ended 撤；
-  到点 → `callEnd`（本地收场）+ `engine.forceEnd()`；`CallProvider` 新 prop `endWatchdogMs`（默认 3000）；视图状态 idle 下 `callEnd` 忽略。日志 `[uikit] 按下红键` / `[uikit] 红按钮本地收场：没等到结束事件`。
-- 用例：engine `test/forceEnd.test.ts`、`test/forceEndEngine.test.ts`、`test/connectionFire.test.ts`；uikit `test/redButtonWatchdog.test.ts`、`test/endWatchdog.test.tsx`。
-  `test/engineIce.test.ts` 的 `joinRoom` 原先靠「idle 下凭空认领 call.connected / join.ok」进房，改成先 `call.incoming` 再接通、应答真的那条 join；两条候选用例先进房。
-
-**测之前先重起 vite**：uikit 按 `dist/` 被 demo 消费，不重起还是旧的（有一轮就这么白测了）。
+- **M1（engine）**：`call.invite` / `call.incoming` / `call.connected` 加 `chat_group_id`（三处）与
+  `call.connected` 加 `caller` / `user_data`（`signaling/frames.call.ts`）；`call()` 签名改成
+  `call(calleeIds, mediaType, options?: boolean | CallOptions)`（`CallOptions = {isGroup?, chatGroupId?,
+  userData?, timeoutSec?}`，传布尔等同旧 `isGroup`）；新增 `joinCall(callId)`（状态机那半——
+  `callMachine.ts` 的 `join_call` / `joinOngoingCall`、`engineMachine.ts` 的 `CALL_ACTS`、
+  `frameLoop.ts` 的 rollback 表——**M1 开工前就已经在，这次只是把门面方法补上**）；`ErrorCode.inviteDenied
+  = 1409`；本地校验 `chatGroupId`（>64 字节或含空白）/ `userData`（>4096 字节），与「名单里有自己」同一个
+  出口（`engine.ts` 的 `rejectsBadCallOptions`，纯校验挪进新模块 `callOptions.ts` 的
+  `violatesCallOptionLimits`——engine.ts 是体量红线卡得最紧的文件，能抽出去的纯函数不留在里面）。
+  `CallContext` 新增 `chatGroupId` / `userData` 两个字段，
+  只当 `call.connected` 没带值时的回落（`callRecv.ts` 的 `handleConnected`）。
+- **M2（uikit）**：新模块 `src/invite/`（`types.ts` 的 `InviteContext` / `InviteCandidate`（扩
+  `avatarUrl`/`subtitle`/`selectable`/`unselectableReason`）/ `InviteProvider` / `OnInviteRequest` /
+  `CanInvite`，`inviteContext.ts` 的 `buildInviteContext`）；`CallProvider` 新 props `inviteProvider` /
+  `onInviteRequest` / `canInvite` / `allowManualUidInput`（默认 `false`），经 `useCall().invite` 暴露；
+  `InvitePicker.tsx` 整个重写：300ms 防抖 + 请求序号作废旧结果、滚到底翻页、加载中/失败(重试)/
+  超时(10s) 三态、已在通话中不可选、`selectable:false` 置灰带 `unselectableReason`、按 `slotsLeft`
+  限选；`ActiveCall.tsx` 的 `handleInvite` 做取名单优先级（`onInviteRequest` 接管 > 弹
+  `InvitePicker`）；`CallHeader.tsx` 的按钮显隐叠加 `invite.canInvite(ctx)`（不叠加 chatGroupId 判断）。
+  `useCall().joinCall(callId)`：`joinCallRequested` 直接把 `CallViewState.phase` 打成 `connecting`
+  （复用既有的「接通中…」文案，不经来电页）；失败时 `joinCallFailed` **自己**把阶段收到 `ended`
+  并把 `CallEnded` 要显示的文案换成「无法加入该通话」（`state/callView.ts` 的 `joinDeniedTextFor`）——
+  不依赖真 engine 是否会紧跟着抛一条 `callEnd`，两条路径都收得住（`useCallActions.joinCall` 的注释里
+  记着为什么不能用 `try/catch` 拿失败：`FrameLoop.sendFrame` 从不把服务端拒绝转成异常）。`inviteMore`
+  被 1409 拒时提示「对方暂时无法被邀请」。静态 `inviteCandidates` 保持兼容（取名单优先级最低档）。
+- **Demo**：`demo-react/src/fakeInviteProvider.ts`——真实 `DEMO_CONTACTS` 排前面 + 40 个假成员凑分页
+  （一页 12 条），搜索词 `fail` 立即 reject、`slow` 永远不 resolve（验证 uikit 的 10 秒超时）；`App.tsx`
+  把 `inviteCandidates={DEMO_CONTACTS}` 换成 `inviteProvider={fakeInviteProvider}`；`Dialer.tsx` 群呼带
+  `chatGroupId: 'demo-group'`，新增「按 call_id 加入」一行（`useCall().joinCall`）。`demo/`（自画 UI）
+  没碰通话 API，`tsc --noEmit -p demo` 照样过。
+- 新增测试：engine `test/callOptions.test.ts`（`call()` 的 options 校验、`joinCall` 正常与被拒两条路径）+
+  `test/callMachine.test.ts` 补的回落用例（`call.connected` 不带群号时回落到 `call()` 选项 / `call.incoming`
+  记的那份）；uikit `test/hostIntegration.test.tsx`（14 条：`joinCall` 三条、`inviteProvider` 六条含防抖/
+  分页/失败/超时、`onInviteRequest` 三条、`canInvite` 两条）；`interactions.test.tsx` 改了一条
+  （`allowManualUidInput` 默认关，原「宿主没给名单：输入 uid 也能邀请」拆成两条）。
 
 ## 下一步
 
-- ~~浏览器验收~~（09-15 demo-react 5179 已验，服务端 `FAULT_INJECTION=1`）：② 故障注入拒掉 bob 的 hangup 10:06:09.548 → 10:06:12.549 `强制收场` 补发被受理，`callEnd` 只抛一次；
-  ③ 延迟 bob 的 `call.invite` 8 秒、其间按取消：10:09:21 本地收场（没 call_id、没发帧）→ 10:09:24.917 invite 落地 → 补发 `call.cancel`，alice 横幅只露 13ms；`请求往返慢 elapsed_ms=8003` 也记下了。
-  还没验：① 正常挂断路径（iOS / Android 已验，Web 走同一段 `end`，风险低）；断网后按红键（结束帧发不出去、只本地收场）。
-- 首帧闸门 21:11 实测：`wait_ms` 232–910、`judged_by` 全是 `receive_time`、两次 `skipped=1`；以后再报闪先看这三个字段，常撞 2 秒兜底就查后台标签页 / 对端迟迟不出关键帧。
-- 静默失败点清单（P0×3 / P1×7 / P2×7）：`../im-rtc-server/docs/ops/silent-failure/web.md`，逐条状态只在那里。
-  未修头两条：§A 发布 / 订阅被拒没有收场路径（四端同源）、呼出阶段按静音只改 UI 对方仍听得见。
-- 跨端老批次（含本端「挂断后再邀请回来看得到画面」）清单见 `../im-rtc-server/current_task.md`「跨端待验」。
-- `getUserMedia` 那类失败仍可能静默：日志回传够不到浏览器 console。
-- `CLIENT_PARITY.md` 真机验完再改。
+- **没做 / 已知限制**：
+  - `joinDeniedTextFor` 不按错误码细分文案——设计稿只钦定了「无法加入该通话」一句通用话，1401/1402/
+    1405/1408/1202/1409 走 `call.join` 失败都共用它。以后要分档看 `state/callView.ts` 那个函数。
+  - `InvitePicker` 的 uid 输入框（`canTypeIn`）判的是 `items.length === 0`，不是过滤后 `shown.length
+    === 0`——候选人全被过滤掉（比如只剩自己/发起人）时不会退化出输入框。旧代码就是这条限制，未修。
+  - Provider 失败/超时只有 uikit 侧的表现；没有验证真机上宿主 provider 抛出的非 `Error` 值（字符串、
+    `undefined`）会不会被 `String(err)` 弄丢原因——现在只有一条 `logger.warn`。
+  - **浏览器没有手动验**：`joinCall` 双开标签页互测、`fail`/`slow` 搜索词在真实 5179 demo-react 上没有
+    点过一遍，只在 jsdom 里过了。下次起 `./scripts/dev.sh start react` 顺手点一遍。
+  - server 端 `call.join` 与邀请鉴权回调是另一个人同时改的，本仓没有跟着联调（协议文档已定稿，
+    向量已跑绿，但没有对着真服务端发过一次真实 `call.join`）。
+- **协议 / 文档侧发现的问题（需要跟服务端那位或文档作者对一下，本仓没有改它们）**：
+  - `RTC_PROTOCOL.md` §4.1 `call.invite_more` / `call.join` 的错误分支表没提 1409（只在 §3.5 与 §7.1
+    提过），读的人容易漏掉「宿主开了邀请鉴权回调也会在这两条帧上收到 1409」。
+  - `HOST_INTEGRATION_DESIGN.md` §3.4 没写清楚 provider 超时之后、宿主的回调如果**迟到才真的 resolve**
+    要怎么处理——本仓按「迟到的结果一律按 `seq` 作废，不回填」处理（同「新请求作废旧结果」一个机制），
+    这条约定值得回写进设计文档，否则其余三端可能各自选了不同的处理方式。
+- `CLIENT_PARITY.md` 真机验完再改（本仓不改该文件）。
+- 里程碑完成后按惯例应同步 server `docs/design/RTC_CALL_DESIGN.md` §10 的状态——**本次没有改**（任务
+  范围明确只改 im-rtc-web 仓），麻烦碰 server 仓的人补一下 M1/M2/M8 web 列的日期。
 
 ## 已知坑 / 限制
 
+- **`FrameLoop.sendFrame` 从不把服务端拒绝转成异常**：`call()` / `joinCall()` / `inviteMore()` 这类
+  「发一帧、等应答」的门面方法在被服务端拒绝时永远 `resolve`，不会 `reject`——失败只经由 `error` 事件
+  + 随后的状态机收场（`call_failed` → `onCallEnd`）体现。**写宿主代码或测试时不要用 `try/catch` 猜失败**，
+  订阅 `error` 事件或看状态机的落地状态。`useCallActions.joinCall` 与 `inviteMore` 的注释里各记了一次。
 - **2006 阈值「3」未校准、uikit 只认 2 个错误码**：见 server「已知坑」。
 - **关摄像头停采集**：通话中关 = `track.stop()`，开 = 重新 `getUserMedia` 再 `replaceTrack` 到同一个 sender（transceiver / msid / cid 不变、不重协商）；开关串行（`cameraToggle`），`close()` 后才回来的按代数自己收摊；
   重新采集被拒时错误原样抛给调用方。`stopLocalPreview()` 不停 `cameraClaimed`（正在发布 / 已发布）的；等在起的那次落地再停，期间又有人要预览就听后来的（`previewIntent`）。
@@ -58,8 +91,10 @@ iOS 已落同形状（`../im-rtc-ios/current_task.md`），形状见 server `CLI
 - 下行 call 帧必须按 call_id 过滤（第三方呼叫的 `call.ended{busy}` 带新来那通的 id）。
 - **停 Demo 用 Ctrl+C，别用 Ctrl+Z**：挂起的 vite 占着端口不响应（"Port is already in use"、curl 零字节超时），只能 `kill -9 -<pgid>`。走 `./scripts/dev.sh` 会自动回收。
 - jsdom 25 没有 `PointerEvent`（`test/setup.ts` 用 `MouseEvent` 垫）；jsdom 里容器是 0×0，拖动用例只验逻辑不验坐标。
+- **jsdom 下用 `vi.useFakeTimers()` 时，纯 `await Promise.resolve()`（哪怕连做几次）不会让 `setTimeout(fn, 0)` 落地**，得显式 `vi.advanceTimersByTimeAsync(...)`；**真实定时器**下则要用
+  `await new Promise((r) => setTimeout(r, 0))` 这种真的让出一次宏任务的写法，光 `act(async () => { await Promise.resolve(); })` 在系统负载高时不稳定（`hostIntegration.test.tsx` 的分页用例踩过一次）。
 - `getUserMedia` 只在 localhost / HTTPS 可用，公网联调必须 HTTPS。
-- 便利事件只在 1v1 抛，群通话只抛 `onUser*`；加人失败靠 `error` 事件的 1202 / 1407。
+- 便利事件只在 1v1 抛，群通话只抛 `onUser*`；加人失败靠 `error` 事件的 1202 / 1407 / 1409。
 - effect 依赖看内容签名不看 length（`settledUids`）；回调型 prop 走 `useRef`。
 - 状态机 `args` 一律 snake_case（与向量、另外三端同名），转 camelCase 是 `engineBus` 的活。
 - `packages/call-engine/src/` 里不能放 `*.test.ts`（会被 `tsc -b` 算进 build），测试放 `test/`。
@@ -71,6 +106,7 @@ iOS 已落同形状（`../im-rtc-ios/current_task.md`），形状见 server `CLI
 ## 关联工程 / 常用命令
 
 - 协议契约与一致性向量：`../im-rtc-server/docs/RTC_PROTOCOL.md` 与 `../im-rtc-server/docs/conformance/`，只读引用。
+- 宿主对接设计：`../im-rtc-server/docs/design/HOST_INTEGRATION_DESIGN.md`（本轮 M1/M2/M8 的依据，§3）。
 - 起服务端联调：`cd ../im-rtc-server && ./scripts/dev.sh`（控制面 :8787，媒体面 UDP 7881）。
 - 浏览器实测：两个标签页各登一个用户并**勾上「合成音视频源」**（Browser 面板里拿不到真麦克风）。
   ```bash

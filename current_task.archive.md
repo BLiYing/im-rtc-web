@@ -3,6 +3,56 @@
 > 2026-09-05 从 `current_task.md` 整体搬来。之后的历史看 `git log`。
 
 
+## 2026-09-15（M1 开工前）：强制收场（forceEnd）与红键看门狗
+
+被 M1/M2/M8（宿主对接：`chat_group_id` / `joinCall` / provider 选人页）挤下 `current_task.md` 前的原文：
+
+**红键等不到结束事件时引擎也收场（`forceEnd`）+ uikit 补红键看门狗（Web 原先没有）。已提交 `dd5e4c0`，
+09-15 与 iOS frank、Android alice 联测验过。两个小账随后单独一笔提交（单测覆盖，真机未验），
+`./scripts/test.sh` 全绿（14 步，engine 345 / uikit 156 / demo-react 17）。**
+- 小账已修：① 强制收场时长从本端 `onCallBegin` 那一刻算（`EngineContext.callStartedAtMs`，`reduceEngine`
+  入口统一打点、通话回 idle 清零），不再用整通 `connected_at_ms`；
+  ② 拨出中没 call_id 时按取消不发帧、记 `CallContext.cancelPending`，`call.invite.ok` 一回来立刻补发
+  `call.cancel`（不再换回 1401）。
+起因 09-13 14:53~14:58 iOS frank：接听后 room.join 晚 28.6 秒才上线路，其间按红键，call.hangup 一帧没到
+服务端；看门狗只收了界面，引擎留在通话与房间里，其余端一直看得见他。
+iOS 已落同形状（`../im-rtc-ios/current_task.md`），形状见 server `CLIENT_PARITY.md` 的 `[^forceend]`。
+上一件（对端重开摄像头闪一下）已提交 `e447276`、21:11 验过。
+
+- engine `CallEngine.forceEnd(): void`（同步、不抛）→ `FrameLoop.forceEnd`：纯函数 `state/forceEnd.ts`
+  （`forceEnd` / `endFrames`）挑帧——通话中 hangup、响铃 reject、拨出 cancel、accepting reject+hangup、
+  会议 room.leave；帧走 `Connection.fire`（不等应答、应答配对后丢掉、未连接只记日志）**不排在在途请求
+  后面**；本地收场与发帧在同一次同步调用里（先发帧、再落状态/关媒体/抛事件），所以不需要 iOS 那种
+  call_id 比对。
+- 迟到帧：`roomRecv.ts` idle 下 `room.join.ok` 补发 `room.leave`、其余丢弃；`callRecv.ts` idle 下
+  `call.invite.ok` 补发 `call.cancel`、`call.connected` 补发 `call.hangup`（拨出中没 call_id 的补救）；
+  `frameLoop` 房间 idle 时丢迟到的候选 / SDP。
+- `请求往返慢`（≥ 2000ms，`type` / `elapsed_ms` / `failed`）。没做卡顿探针（iOS 独有）。
+- uikit：`redButtonWatchdog.ts`（`RedButtonWatchdog` 注入调度器、`endActionFor`、`endWatchdogReason`）；
+  `useCallActions` 的 `end` 与 `reject` 都武装，phase 到 idle/ended 撤；到点 → `callEnd`（本地收场）+
+  `engine.forceEnd()`；`CallProvider` 新 prop `endWatchdogMs`（默认 3000）；视图状态 idle 下 `callEnd` 忽略。
+  日志 `[uikit] 按下红键` / `[uikit] 红按钮本地收场：没等到结束事件`。
+- 用例：engine `test/forceEnd.test.ts`、`test/forceEndEngine.test.ts`、`test/connectionFire.test.ts`；
+  uikit `test/redButtonWatchdog.test.ts`、`test/endWatchdog.test.tsx`。`test/engineIce.test.ts` 的
+  `joinRoom` 原先靠「idle 下凭空认领 call.connected / join.ok」进房，改成先 `call.incoming` 再接通、
+  应答真的那条 join；两条候选用例先进房。
+
+**当时的下一步（浏览器验收，部分已完成）**：
+- ~~浏览器验收~~（09-15 demo-react 5179 已验，服务端 `FAULT_INJECTION=1`）：② 故障注入拒掉 bob 的
+  hangup 10:06:09.548 → 10:06:12.549 `强制收场` 补发被受理，`callEnd` 只抛一次；③ 延迟 bob 的
+  `call.invite` 8 秒、其间按取消：10:09:21 本地收场（没 call_id、没发帧）→ 10:09:24.917 invite 落地 →
+  补发 `call.cancel`，alice 横幅只露 13ms；`请求往返慢 elapsed_ms=8003` 也记下了。
+  还没验：① 正常挂断路径（iOS / Android 已验，Web 走同一段 `end`，风险低）；断网后按红键（结束帧发不出去、
+  只本地收场）。
+- 首帧闸门 21:11 实测：`wait_ms` 232–910、`judged_by` 全是 `receive_time`、两次 `skipped=1`；以后再报闪
+  先看这三个字段，常撞 2 秒兜底就查后台标签页 / 对端迟迟不出关键帧。
+- 静默失败点清单（P0×3 / P1×7 / P2×7）：`../im-rtc-server/docs/ops/silent-failure/web.md`，逐条状态只在
+  那里。未修头两条：§A 发布 / 订阅被拒没有收场路径（四端同源）、呼出阶段按静音只改 UI 对方仍听得见。
+- 跨端老批次（含本端「挂断后再邀请回来看得到画面」）清单见 `../im-rtc-server/current_task.md`「跨端待验」。
+- `getUserMedia` 那类失败仍可能静默：日志回传够不到浏览器 console。
+- `CLIENT_PARITY.md` 真机验完再改。
+
+
 ## 2026-09-08 之前的「当前焦点」（resumeRoom 那一刀挤下来的）
 
 **`/code-review high` 的 13 条一次修完（2026-09-08）**，在 worktree `../wt-web-review`

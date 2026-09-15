@@ -1,3 +1,6 @@
+import { byteLength } from './bytes.js';
+import type { CallOptions } from './callOptions.js';
+import { violatesCallOptionLimits } from './callOptions.js';
 import { EngineBus } from './engineBus.js';
 import type { EngineWiring } from './engineWiring.js';
 import { engineConnectionHandlers, engineMediaDeps } from './engineWiring.js';
@@ -61,6 +64,8 @@ export interface EngineOptions {
    */
   videoProfile?: VideoProfile;
 }
+
+export type { CallOptions } from './callOptions.js';
 
 /** CallEngine 是宿主唯一需要接触的类型。 */
 export class CallEngine {
@@ -198,9 +203,23 @@ export class CallEngine {
     this.loop.reset();
   }
 
-  /** call 发起通话。**名单里不能有自己**，见 {@link rejectsSelf}。 */
-  async call(calleeIds: string[], mediaType: MediaType, isGroup = false): Promise<void> {
-    if (this.rejectsSelf(calleeIds, '呼叫')) {
+  /**
+   * call 发起通话。**名单里不能有自己**，见 {@link rejectsSelf}。
+   *
+   * `options` 传布尔值等同旧的 `isGroup` 参数（三参数签名保持兼容）；传 {@link CallOptions}
+   * 可以带上群号 / user_data / 振铃超时（HOST_INTEGRATION_DESIGN §3.3）。
+   */
+  async call(
+    calleeIds: string[],
+    mediaType: MediaType,
+    options?: boolean | CallOptions,
+  ): Promise<void> {
+    const opts: CallOptions = typeof options === 'boolean' ? { isGroup: options } : (options ?? {});
+    const isGroup = opts.isGroup ?? false;
+    const chatGroupId = opts.chatGroupId ?? '';
+    const userData = opts.userData ?? '';
+
+    if (this.rejectsSelf(calleeIds, '呼叫') || this.rejectsBadCallOptions(chatGroupId, userData)) {
       /*
         **本地拒掉也要给界面一个出口。**
 
@@ -212,6 +231,7 @@ export class CallEngine {
 
         `callEnd` 是所有结束分支的唯一出口（设计 §7.5），
         这一条与「服务端拒了 invite」（call_failed）走同一个出口，界面只认它。
+        chatGroupId / userData 超限走同一个出口——不上线路，理由同上。
       */
       this.bus.emit('callEnd', {
         callId: '',
@@ -221,11 +241,24 @@ export class CallEngine {
       });
       return;
     }
-    await this.loop.dispatch({
-      kind: 'act',
-      op: 'call',
-      args: { callee_ids: calleeIds, media_type: mediaType, is_group: isGroup },
-    });
+    const args: Record<string, unknown> = { callee_ids: calleeIds, media_type: mediaType, is_group: isGroup };
+    // 省略表达「没传」，见 callMachine.ts startCall 的同一条注释。
+    if (chatGroupId !== '') args['chat_group_id'] = chatGroupId;
+    if (userData !== '') args['user_data'] = userData;
+    if (opts.timeoutSec !== undefined) args['timeout_sec'] = opts.timeoutSec;
+    await this.loop.dispatch({ kind: 'act', op: 'call', args });
+  }
+
+  /**
+   * joinCall 是「群成员看到『进行中』主动加入」（协议 §4.1 `call.join`）。
+   *
+   * **「怎么知道有通话在进行中」不是 engine 的事**——宿主拿 webhook `call.started`
+   * 或后台 `GET /v1/calls?chat_group_id=...&active=1` 自己判断、自己摆横幅。
+   * 服务端拒绝（不存在 / 已结束 / 满员 / 本人已在通话中 / 宿主邀请鉴权回调拒绝 1409）
+   * 时与 `call()` 被拒同一个出口：`onError` + `onCallEnd(error)`。
+   */
+  async joinCall(callId: string): Promise<void> {
+    await this.loop.dispatch({ kind: 'act', op: 'join_call', args: { call_id: callId } });
   }
 
   /** accept 接听。 */
@@ -405,6 +438,23 @@ export class CallEngine {
   private rejectsSelf(calleeIds: string[], what: string): boolean {
     if (this.myUid === '' || !calleeIds.includes(this.myUid)) return false;
     logger.warn(`${what}名单里含自己，已就地拒掉`, { uid: this.myUid });
+    this.bus.emitError(new RtcError(ErrorCode.badParams));
+    return true;
+  }
+
+  /**
+   * rejectsBadCallOptions 挡住超限的 `chatGroupId` / `userData`，就地报错并返回 true。
+   *
+   * 服务端会以 `1004 bad_params` 拒掉，但那条链路上主叫已经乐观地进了「正在呼叫…」，
+   * 错误只是一条没头没尾的 1004——与 {@link rejectsSelf} 同一个理由，本地先拦，
+   * 走同一个出口（HOST_INTEGRATION_DESIGN §3.3）。判断本身在 `callOptions.ts`
+   * （纯函数，直接单测）；这里只管日志与出口这两件带副作用的事。
+   */
+  private rejectsBadCallOptions(chatGroupId: string, userData: string): boolean {
+    if (!violatesCallOptionLimits(chatGroupId, userData)) return false;
+    logger.warn('chatGroupId / userData 超限，已就地拒掉', {
+      chatGroupId, userDataBytes: byteLength(userData),
+    });
     this.bus.emitError(new RtcError(ErrorCode.badParams));
     return true;
   }

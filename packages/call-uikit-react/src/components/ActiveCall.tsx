@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { useState } from 'react';
 
 import { formatDuration } from '../format/duration.js';
+import { buildInviteContext } from '../invite/inviteContext.js';
 import { defaultPipCorner, pipSizeFor } from '../layout/pip.js';
 import type { CallViewState } from '../state/viewTypes.js';
 import { useAutoHide } from '../useAutoHide.js';
@@ -52,9 +53,28 @@ export function pickLayout(state: CallViewState): CallLayout {
 }
 
 export function ActiveCall(): ReactNode {
-  const { state } = useCall();
+  const { state, engine, actions, invite } = useCall();
   const seconds = useElapsed(state.beganAtMs);
   const [picker, setPicker] = useState(false);
+  /**
+   * handleInvite 决定「添加成员」按钮按下去之后**该不该把 InvitePicker 弹出来**。
+   *
+   * 取名单优先级第一位是 `onInviteRequest`（HOST_INTEGRATION_DESIGN §3.4）：宿主接管了
+   * 选人页，这一层**根本不挂载 InvitePicker**——由宿主自己的页面完成选人，选完把 uid
+   * 交回，仍然由 uikit 调 `inviteMore`（一等公民只有一条，不能宿主自己直接摸信令）。
+   * 返回 `null` 表示这次不接管，退回 `inviteProvider` / 静态名单，那就正常弹半屏。
+   */
+  const handleInvite = (): void => {
+    if (invite.onRequest === undefined) {
+      setPicker(true);
+      return;
+    }
+    void invite.onRequest(buildInviteContext(engine, state)).then((uids) => {
+      // null = 这次不接管：退回 inviteProvider / 静态名单，正常弹半屏。
+      if (uids === null) { setPicker(true); return; }
+      if (uids.length > 0) void actions.inviteMore(uids);
+    });
+  };
   const layout = pickLayout(state);
   const peer = state.participants[0];
   // 只有视频版式藏控制条：语音页、拨出中、九宫格上没有画面需要让出来。
@@ -82,7 +102,7 @@ export function ActiveCall(): ReactNode {
           title={bare ? '' : title(state, state.participants.length)}
           subtitle={bare ? '' : statusLine(state, seconds)}
           networkLevel={state.isGroup ? 0 : (peer?.networkLevel ?? 0)}
-          onInvite={() => setPicker(true)}
+          onInvite={handleInvite}
           showsMinimize={!incoming}
         />
       </div>

@@ -4,7 +4,7 @@ import type { MediaType } from '../signaling/enums.js';
 import { FrameType } from '../signaling/registry.js';
 import type { EmittedEvent, MachineInput, MachineOutput, OutgoingFrame } from './types.js';
 import { reduceRecv } from './callRecv.js';
-import { bool, str, strArray } from './types.js';
+import { bool, num, str, strArray } from './types.js';
 
 /**
  * 通话状态机：RTC_PROTOCOL.md §5.1 的 TS 实现。
@@ -45,6 +45,14 @@ export interface CallContext {
    * （2026-09-15 10:09 demo-react 真机）。与 iOS `IMCallContext.cancelPending` 同形。
    */
   readonly cancelPending: boolean;
+  /**
+   * 本通电话记下的群号 / user_data——主叫来自 `call()` 的选项，被叫来自 `call.incoming`。
+   *
+   * **只当 `call.connected` 的兜底用**（HOST_INTEGRATION_DESIGN §3.3）：`onCallBegin` 优先取
+   * `call.connected` 里的值，为空才回落到这里，兼容尚未升级的旧服务端。
+   */
+  readonly chatGroupId: string;
+  readonly userData: string;
 }
 
 /** initialCallContext 是 idle 态的初值。 */
@@ -58,6 +66,8 @@ export const initialCallContext: CallContext = {
   role: '',
   connectedAtMs: 0,
   cancelPending: false,
+  chatGroupId: '',
+  userData: '',
 };
 
 
@@ -156,15 +166,23 @@ function startCall(
   const calleeIds = strArray(args, 'callee_ids');
   const mediaType = str(args, 'media_type') === 'video' ? 'video' : 'audio';
   const isGroup = bool(args, 'is_group');
+  const chatGroupId = str(args, 'chat_group_id');
+  const userData = str(args, 'user_data');
+
+  /*
+    **省略 = 协议默认值**（newFrameData 的规矩，见 registry.ts）：只在宿主真的给了值时才
+    把键放进去，交给 frameSender → encodeFields 那一层去填协议默认值。显式写空串/0 会把
+    「没传」和「传了空/0」混为一谈——`timeout_sec` 尤其致命：写 0 会被 §2.6 的钳制夹到
+    下限 5s，而不是协议默认的 30s。
+  */
+  const data: Record<string, unknown> = { callee_ids: calleeIds, media_type: mediaType, is_group: isGroup };
+  if (chatGroupId !== '') data['chat_group_id'] = chatGroupId;
+  if (userData !== '') data['user_data'] = userData;
+  if (Object.hasOwn(args, 'timeout_sec')) data['timeout_sec'] = num(args, 'timeout_sec');
 
   return out(
-    { ...ctx, state: 'inviting', role: 'caller', mediaType, isGroup },
-    [
-      {
-        type: FrameType.callInvite,
-        data: { callee_ids: calleeIds, media_type: mediaType, is_group: isGroup },
-      },
-    ],
+    { ...ctx, state: 'inviting', role: 'caller', mediaType, isGroup, chatGroupId, userData },
+    [{ type: FrameType.callInvite, data }],
   );
 }
 

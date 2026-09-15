@@ -169,6 +169,10 @@ function handleIncoming(
     roomId: str(data, 'room_id'),
     mediaType,
     isGroup: bool(data, 'is_group'),
+    // 记下来给 onCallBegin 兜底用（HOST_INTEGRATION_DESIGN §3.3）：接通时优先用
+    // call.connected 自己带的值，这里存的是万一它为空时的回落。
+    chatGroupId: str(data, 'chat_group_id'),
+    userData: str(data, 'user_data'),
   };
   return out(next, [], [
     {
@@ -180,6 +184,8 @@ function handleIncoming(
         callee_ids: strArray(data, 'callee_ids'),
         media_type: mediaType,
         is_group: next.isGroup,
+        chat_group_id: next.chatGroupId,
+        user_data: next.userData,
       },
     },
   ]);
@@ -201,6 +207,10 @@ function handleConnected(
   const roomId = str(data, 'room_id');
   const roomToken = str(data, 'room_token');
   const mediaType = str(data, 'media_type') === 'video' ? 'video' : ctx.mediaType;
+  // 群号 / user_data：优先取 call.connected 自己带的值，为空才回落到本通 call.incoming /
+  // call() 选项里记下的那份（兼容还没升级的旧服务端，HOST_INTEGRATION_DESIGN §3.3）。
+  const chatGroupId = str(data, 'chat_group_id') || ctx.chatGroupId;
+  const userData = str(data, 'user_data') || ctx.userData;
   const next: CallContext = {
     ...ctx,
     state: 'connecting',
@@ -210,6 +220,8 @@ function handleConnected(
     mediaType,
     isGroup: bool(data, 'is_group') || ctx.isGroup,
     connectedAtMs: num(data, 'connected_at_ms'),
+    chatGroupId,
+    userData,
   };
   return out(
     next,
@@ -223,6 +235,10 @@ function handleConnected(
           media_type: mediaType,
           is_group: next.isGroup,
           role: next.role,
+          // call.join 进来的人没收过 call.incoming，caller 只能从这里知道是谁打的（协议 §4.2）。
+          caller: str(data, 'caller'),
+          chat_group_id: chatGroupId,
+          user_data: userData,
         },
       },
     ],

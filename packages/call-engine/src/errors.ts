@@ -83,6 +83,8 @@ export const ErrorCode = {
   notCallOwner: 1407,
   /** 自己已在别的通话中 */
   alreadyInCall: 1408,
+  /** 宿主的邀请鉴权回调拒绝了 call.invite / call.invite_more / call.join（或回调失败且应用配成拒绝） */
+  inviteDenied: 1409,
   /** 内部错误兜底 */
   internal: 1501,
   /** 无可用 SFU 节点 */
@@ -165,6 +167,7 @@ export const ERROR_DEFINITIONS: readonly ErrorDefinition[] = [
   { code: 1406, name: 'too_many_callees', msg: 'too many callees', retryable: false, local: false },
   { code: 1407, name: 'not_call_owner', msg: 'not call owner', retryable: false, local: false },
   { code: 1408, name: 'already_in_call', msg: 'already in call', retryable: false, local: false },
+  { code: 1409, name: 'invite_denied', msg: 'invite denied by host', retryable: false, local: false },
   { code: 1501, name: 'internal', msg: 'internal error', retryable: true, local: false },
   { code: 1502, name: 'sfu_unavailable', msg: 'sfu unavailable', retryable: true, local: false },
   { code: 1503, name: 'shutting_down', msg: 'server shutting down', retryable: true, local: false },

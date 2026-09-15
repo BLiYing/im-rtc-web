@@ -11,11 +11,15 @@ import { FakeEngine, asEngine } from './fakeEngine.js';
  * **一律在 jsdom 里测**（CONVENTIONS §9）：拖动吸到哪个角靠肉眼是看不准的。
  */
 
-function setup(candidates?: readonly { uid: string; name?: string }[]): FakeEngine {
+function setup(
+  candidates?: readonly { uid: string; name?: string }[],
+  opts: { allowManualUidInput?: boolean } = {},
+): FakeEngine {
   const engine = new FakeEngine();
   render(
     <CallProvider engine={asEngine(engine)} endedHoldMs={0}
-      {...(candidates === undefined ? {} : { inviteCandidates: candidates })}>
+      {...(candidates === undefined ? {} : { inviteCandidates: candidates })}
+      {...(opts.allowManualUidInput === undefined ? {} : { allowManualUidInput: opts.allowManualUidInput })}>
       <CallOverlay />
     </CallProvider>,
   );
@@ -193,8 +197,17 @@ describe('九宫格加人', () => {
     expect(screen.getByTestId('ringing-dave').textContent).toBe('呼叫中…');
   });
 
-  it('宿主没给名单：输入 uid 也能邀请', async () => {
+  it('uid 输入框默认关：宿主没给名单时空态里没有输入框，也点不出「邀请 xxx」', () => {
     const engine = setup();
+    connectAs(engine, 'caller', true);
+    fireEvent.click(screen.getByTestId('invite-button'));
+    expect(screen.getByTestId('invite-empty')).toBeTruthy();
+    fireEvent.change(screen.getByTestId('invite-search'), { target: { value: 'erin' } });
+    expect(screen.queryByTestId('invite-typed')).toBeNull();
+  });
+
+  it('allowManualUidInput 打开后，空态里才出现输入 uid 邀请的入口', async () => {
+    const engine = setup(undefined, { allowManualUidInput: true });
     connectAs(engine, 'caller', true);
     fireEvent.click(screen.getByTestId('invite-button'));
     fireEvent.change(screen.getByTestId('invite-search'), { target: { value: 'erin' } });

@@ -50,6 +50,8 @@ export function reduceCallView(state: CallViewState, action: ViewAction): CallVi
         ],
         self: { ...initialCallView.self, cameraOn: defaultCameraOn(action.mediaType, action.isGroup) },
         connection: state.connection,
+        chatGroupId: action.chatGroupId,
+        userData: action.userData,
       };
 
     case 'callPlaced':
@@ -65,6 +67,8 @@ export function reduceCallView(state: CallViewState, action: ViewAction): CallVi
         role: 'caller',
         peerUid: action.isGroup ? '' : (action.calleeIds[0] ?? ''),
         self: { ...initialCallView.self, cameraOn: defaultCameraOn(action.mediaType, action.isGroup) },
+        chatGroupId: action.chatGroupId,
+        userData: action.userData,
       };
 
     case 'callBegin':
@@ -80,6 +84,40 @@ export function reduceCallView(state: CallViewState, action: ViewAction): CallVi
         role: action.role,
         beganAtMs: action.nowMs,
         hint: '',
+        // caller 侧不必覆盖（自己就是发起人，callerUid 留空）；callee 侧可能是靠 joinCall
+        // 直接进来的，没经过 callReceived，callerUid 只能从这里第一次拿到。
+        callerUid: action.role === 'callee' ? (action.caller || state.callerUid) : state.callerUid,
+        // 同理：群号 / user_data 优先用 callBegin 自己带的（engine 已经做过一层回落，
+        // 见 CallEngine 的 callBegin 事件注释），callReceived 没发生过时这里是唯一来源。
+        chatGroupId: action.chatGroupId || state.chatGroupId,
+        userData: action.userData || state.userData,
+      };
+
+    case 'joinCallRequested':
+      // 直接进「接通中…」，不经过来电页（HOST_INTEGRATION_DESIGN §3.4）。
+      return {
+        ...initialCallView,
+        phase: 'connecting',
+        callId: action.callId,
+        isGroup: true,
+        role: 'callee',
+        connection: state.connection,
+      };
+
+    case 'joinCallFailed':
+      /*
+        **自己把阶段收到 `ended`，不指望等一条独立的 `callEnd`。**
+
+        真 engine 确实会在这之前或之后紧跟着抛一条 `callEnd(reason:'error')`
+        （`call.join` 在 rollback 表里，与 `call.invite` 同一条路径），但那条事件的
+        到达时机不该是这里的前提——`useCallActions.joinCall` 只保证在
+        `engine.joinCall()` 落定之后才回来通知失败，具体几条事件、先后顺序都是
+        实现细节。真来了一条 `callEnd(reason:'error')` 也不冲突：`endReason`/`phase`
+        会被这里的值原样再写一遍，是幂等的。
+      */
+      return {
+        ...state, phase: 'ended', endReason: 'error', endedDurationSec: 0, isMinimized: false,
+        joinDeniedText: joinDeniedTextFor(action.code),
       };
 
     case 'meetingJoined':
@@ -264,4 +302,17 @@ export function canShowInvite(state: CallViewState, maxParticipants = 9): boolea
 /** inviteSlotsLeft 是还能加几个人（顶部「还能加 N 人」）。 */
 export function inviteSlotsLeft(state: CallViewState, maxParticipants = 9): number {
   return Math.max(maxParticipants - 1 - state.participants.length, 0);
+}
+
+/**
+ * joinDeniedTextFor 是 `joinCall()` 被拒时给用户看的那句话（HOST_INTEGRATION_DESIGN §3.4：
+ * 「加入时『无法加入该通话』」）。会在 `call.join` 上出现的码不止 1409
+ * （1401/1402/1405/1408/1202 同样会走这条路），设计稿只钦定了一句通用文案，
+ * 不按码细分——都不含内部信息，说细了反而像是在解释服务端的裁决。
+ *
+ * `code` 参数留着不是没用的：调用方（`useCallActions.joinCall`）已经把它记进日志，
+ * 这里单独收着方便以后按码拆细，不必再回头改调用点。
+ */
+export function joinDeniedTextFor(_code: number): string {
+  return '无法加入该通话';
 }

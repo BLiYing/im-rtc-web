@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { createContext, useEffect, useMemo, useReducer, useRef } from 'react';
 
 import { endedHoldMs as holdMsFor } from './format/endReason.js';
+import type { CanInvite, InviteCandidate, InviteProvider, OnInviteRequest } from './invite/types.js';
 import { END_WATCHDOG_MS } from './redButtonWatchdog.js';
 import { initialCallView, reduceCallView, showsIncomingPage } from './state/callView.js';
 import type { CallViewState } from './state/callView.js';
@@ -19,6 +20,9 @@ import { useRingingPreview } from './useRingingPreview.js';
 import { useVideoRevealFallback } from './useVideoRevealFallback.js';
 
 export type { CallActions } from './useCallActions.js';
+export type {
+  CanInvite, InviteCandidate, InviteContext, InvitePage, InviteProvider, OnInviteRequest,
+} from './invite/types.js';
 
 /**
  * CallProvider 把 engine 的公开事件接成界面状态。
@@ -34,11 +38,21 @@ export type { CallActions } from './useCallActions.js';
  * 推不推、推麦克风还是也推摄像头，是界面的决定。所以这里在 `callBegin` 之后发布。
  */
 
-/** InviteCandidate 是宿主给的「可以邀请的人」。uikit 不内置联系人系统（CONVENTIONS §11）。 */
-export interface InviteCandidate {
-  readonly uid: string;
-  readonly name?: string;
-  readonly isOnline?: boolean;
+/**
+ * InviteConfig 是「按通话向宿主要候选人」的那一把钩子，原样从 `CallProviderProps` 转发过来
+ * （HOST_INTEGRATION_DESIGN §3.4）。拆成一个嵌套对象而不是四个平铺字段，
+ * 是想让 `useCall().invite` 在调用点自解释——四个同名布尔/函数散在 context 顶层，
+ * 读代码的人分不清它们是一组还是各自独立的开关。
+ */
+export interface InviteConfig {
+  /** `(ctx, query, cursor) → 一页候选人`。取名单优先级：宿主接管 > provider > 静态名单 > 空态。 */
+  readonly provider?: InviteProvider;
+  /** 整页换成宿主自己的选人页；返回 `null` 表示这次不接管。 */
+  readonly onRequest?: OnInviteRequest;
+  /** 宿主的权限规则（例：群禁言时仅管理员可加人）。不给按 true 处理。 */
+  readonly canInvite?: CanInvite;
+  /** uid 输入框默认关（false）；打开后只出现在候选名单为空的空态里，只给 Demo 用。 */
+  readonly allowManualUidInput: boolean;
 }
 
 /** CallContextValue 是 context 里的东西。 */
@@ -46,10 +60,16 @@ export interface CallContextValue {
   readonly state: CallViewState;
   readonly engine: CallEngine;
   readonly actions: CallActions;
+  /**
+   * joinCall 是「群成员看到『进行中』主动加入」（协议 §4.1 `call.join`）——
+   * `useCall().joinCall(callId)`，见 HOST_INTEGRATION_DESIGN §3.4。
+   */
+  readonly joinCall: (callId: string) => Promise<void>;
   /** 正在显示的权限说明 / 被拒卡；null = 没有。 */
   readonly prompt: PermissionPromptView | null;
-  /** 「添加成员」的候选名单。 */
+  /** 「添加成员」的静态候选名单（旧接口，保留兼容）。取名单的完整优先级见 `InviteConfig`。 */
   readonly candidates: readonly InviteCandidate[];
+  readonly invite: InviteConfig;
   /** 来电先出横幅（true）还是直接进来电页（false）。见 `CallProviderProps.bannerFirst`。 */
   readonly bannerFirst: boolean;
 }
@@ -62,8 +82,30 @@ export interface CallProviderProps {
   readonly children: ReactNode;
   /** 结束画面停留多久再自动收起。默认按原因分档（`format/endReason.ts`）。0 = 不自动收。 */
   readonly endedHoldMs?: number;
-  /** 群通话里「添加成员」的候选名单。不给就退化成 uid 输入框。 */
+  /**
+   * 群通话里「添加成员」的**静态**候选名单（旧接口，保留兼容）。
+   * 新代码请用 `inviteProvider`——取名单优先级：`onInviteRequest` 接管 > `inviteProvider` >
+   * 这个静态数组 > 都没给时的空态「没有可邀请的成员」（HOST_INTEGRATION_DESIGN §3.4）。
+   */
   readonly inviteCandidates?: readonly InviteCandidate[];
+  /**
+   * 按通话向宿主要候选人：`(ctx, query, cursor) => Promise<{items, nextCursor?}>`。
+   * `query` 为空串 = 默认列表；小群一次返回全部，超级群走宿主自己的服务端搜索、
+   * 分页由 `nextCursor` 驱动。
+   */
+  readonly inviteProvider?: InviteProvider;
+  /**
+   * 整页换成宿主自己的选人页：返回选中的 uid 数组（空数组 = 用户取消）交回 uikit，
+   * 由 uikit 调 `inviteMore`；返回 `null` 表示这次不接管，退回 `inviteProvider` / 静态名单。
+   */
+  readonly onInviteRequest?: OnInviteRequest;
+  /** 宿主的权限规则（例：群禁言时仅管理员可加人）。不给按 true 处理。 */
+  readonly canInvite?: CanInvite;
+  /**
+   * uid 输入框默认关（HOST_INTEGRATION_DESIGN §3.4）：`inviteProvider` /
+   * `inviteCandidates` 都没有候选人时，空态里才会出现，**只给 Demo 用**。
+   */
+  readonly allowManualUidInput?: boolean;
   /** 权限状态查询。默认走浏览器 `navigator.permissions`；测试可注入。 */
   readonly permissionQuery?: PermissionQuery;
   /**
@@ -84,13 +126,15 @@ const NO_CANDIDATES: readonly InviteCandidate[] = [];
 
 export function CallProvider({
   engine, children, endedHoldMs = DEFAULT_ENDED_HOLD_MS,
-  inviteCandidates = NO_CANDIDATES, permissionQuery = browserPermissionQuery, bannerFirst = true,
+  inviteCandidates = NO_CANDIDATES, inviteProvider, onInviteRequest, canInvite,
+  allowManualUidInput = false,
+  permissionQuery = browserPermissionQuery, bannerFirst = true,
   endWatchdogMs = END_WATCHDOG_MS,
 }: CallProviderProps): ReactNode {
   const [state, dispatch] = useReducer(reduceCallView, initialCallView);
   const cids = useRef<PublishedCids>({ mic: '', cam: '' });
   const gate = usePermissionGate(engine, dispatch, permissionQuery);
-  const { actions, publishFor } = useCallActions({ engine, state, dispatch, cids, gate, endWatchdogMs });
+  const { actions, publishFor, joinCall } = useCallActions({ engine, state, dispatch, cids, gate, endWatchdogMs });
   useRingingPreview({ engine, state, dispatch, query: permissionQuery, pageShown: showsIncomingPage(state, bannerFirst) });
 
   useEffect(() => subscribeEngine(engine, dispatch), [engine]);
@@ -224,9 +268,18 @@ export function CallProvider({
     return () => window.removeEventListener('beforeunload', onUnload);
   }, [isLive]);
 
+  const invite = useMemo<CallContextValue['invite']>(
+    () => ({
+      ...(inviteProvider === undefined ? {} : { provider: inviteProvider }),
+      ...(onInviteRequest === undefined ? {} : { onRequest: onInviteRequest }),
+      ...(canInvite === undefined ? {} : { canInvite }),
+      allowManualUidInput,
+    }),
+    [inviteProvider, onInviteRequest, canInvite, allowManualUidInput],
+  );
   const value = useMemo<CallContextValue>(
-    () => ({ state, engine, actions, prompt: gate.prompt, candidates: inviteCandidates, bannerFirst }),
-    [state, engine, actions, gate.prompt, inviteCandidates, bannerFirst],
+    () => ({ state, engine, actions, joinCall, prompt: gate.prompt, candidates: inviteCandidates, invite, bannerFirst }),
+    [state, engine, actions, joinCall, gate.prompt, inviteCandidates, invite, bannerFirst],
   );
   return <CallContext.Provider value={value}>{children}</CallContext.Provider>;
 }

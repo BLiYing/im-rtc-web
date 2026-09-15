@@ -174,3 +174,99 @@ describe('发起呼叫被服务端拒掉', () => {
     expect(again.send.map((f) => f.type)).toEqual(['call.invite']);
   });
 });
+
+describe('chatGroupId / userData 的回落（HOST_INTEGRATION_DESIGN §3.3）', () => {
+  /**
+   * 一致性向量里的 `caller_group_call_carries_chat_group_id` /
+   * `callee_group_call_learns_chat_group_id` 都是 `call.connected` **自己带着值**的情况，
+   * 没覆盖「服务端没升级、`call.connected` 里这两个字段是空串」这条分支——这里补上。
+   */
+  it('主叫：call.connected 没带群号时，回落到 call() 选项里记的那份', () => {
+    const placed = reduceCall(initialCallContext, {
+      kind: 'act',
+      op: 'call',
+      args: {
+        callee_ids: ['bob'], media_type: 'audio', is_group: true,
+        chat_group_id: 'g-9', user_data: 'ud-9',
+      },
+    });
+    expect(placed.state.chatGroupId).toBe('g-9');
+    expect(placed.state.userData).toBe('ud-9');
+
+    const inviteOk = reduceCall(placed.state, {
+      kind: 'recv', type: 'call.invite.ok', data: { call_id: 'call-1', room_id: 'r-1' },
+    });
+    const connected = reduceCall(inviteOk.state, {
+      kind: 'recv',
+      type: 'call.connected',
+      data: {
+        call_id: 'call-1', room_id: 'r-1', room_token: 'tk', media_type: 'audio',
+        is_group: true, connected_at_ms: 1, accepted_by: 'bob', caller: 'alice',
+        // 旧服务端：没有这两个字段。
+      },
+    });
+    const begin = connected.emit.find((e) => e.cb === 'onCallBegin');
+    expect(begin?.args['chat_group_id']).toBe('g-9');
+    expect(begin?.args['user_data']).toBe('ud-9');
+    expect(begin?.args['caller']).toBe('alice');
+  });
+
+  it('被叫：call.connected 没带群号时，回落到 call.incoming 里记的那份', () => {
+    const incoming = reduceCall(initialCallContext, {
+      kind: 'recv',
+      type: 'call.incoming',
+      data: {
+        call_id: 'call-1', room_id: 'r-1', caller: 'alice', callee_ids: ['bob'],
+        media_type: 'audio', is_group: true, chat_group_id: 'g-9', user_data: 'ud-9',
+      },
+    });
+    expect(incoming.state.chatGroupId).toBe('g-9');
+
+    const accepted = reduceCall(incoming.state, { kind: 'act', op: 'accept' });
+    const connected = reduceCall(accepted.state, {
+      kind: 'recv',
+      type: 'call.connected',
+      data: {
+        call_id: 'call-1', room_id: 'r-1', room_token: 'tk', media_type: 'audio',
+        is_group: true, connected_at_ms: 1, accepted_by: 'bob', caller: 'alice',
+      },
+    });
+    const begin = connected.emit.find((e) => e.cb === 'onCallBegin');
+    expect(begin?.args['chat_group_id']).toBe('g-9');
+    expect(begin?.args['user_data']).toBe('ud-9');
+  });
+
+  it('call.connected 自己带的值优先于回落值', () => {
+    const placed = reduceCall(initialCallContext, {
+      kind: 'act',
+      op: 'call',
+      args: { callee_ids: ['bob'], media_type: 'audio', is_group: true, chat_group_id: 'old' },
+    });
+    const inviteOk = reduceCall(placed.state, {
+      kind: 'recv', type: 'call.invite.ok', data: { call_id: 'call-1', room_id: 'r-1' },
+    });
+    const connected = reduceCall(inviteOk.state, {
+      kind: 'recv',
+      type: 'call.connected',
+      data: {
+        call_id: 'call-1', room_id: 'r-1', room_token: 'tk', media_type: 'audio',
+        is_group: true, connected_at_ms: 1, accepted_by: 'bob', caller: 'alice',
+        chat_group_id: 'new',
+      },
+    });
+    expect(connected.emit.find((e) => e.cb === 'onCallBegin')?.args['chat_group_id']).toBe('new');
+  });
+
+  it('call() 不给 chat_group_id / user_data 时，发出去的 call.invite 不带这两个键（协议默认值陷阱）', () => {
+    const placed = reduceCall(initialCallContext, {
+      kind: 'act',
+      op: 'call',
+      args: { callee_ids: ['bob'], media_type: 'audio', is_group: false },
+    });
+    const invite = placed.send[0];
+    expect(invite?.type).toBe('call.invite');
+    expect(Object.hasOwn(invite?.data ?? {}, 'chat_group_id')).toBe(false);
+    expect(Object.hasOwn(invite?.data ?? {}, 'user_data')).toBe(false);
+    expect(Object.hasOwn(invite?.data ?? {}, 'timeout_sec')).toBe(false);
+  });
+});

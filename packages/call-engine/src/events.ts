@@ -65,6 +65,10 @@ export interface EngineEvents {
     calleeIds: string[];
     mediaType: MediaType;
     isGroup: boolean;
+    /** 宿主自己的群号，`call()` 的选项里没给就是空串（HOST_INTEGRATION_DESIGN §3.2）。 */
+    chatGroupId: string;
+    /** 原样透传，服务端不解析。 */
+    userData: string;
   };
   /** 接通。**主被叫都抛**，此刻开始计时。 */
   callBegin: {
@@ -73,6 +77,17 @@ export interface EngineEvents {
     mediaType: MediaType;
     isGroup: boolean;
     role: CallRoleName;
+    /**
+     * 发起人。`joinCall()` 进来的人没收过 `callReceived`，只有这里能知道是谁打的这通电话。
+     */
+    caller: string;
+    /**
+     * 群号：取 `call.connected` 里的值，为空时回落到本通 `callReceived` / `call()`
+     * 选项里记下的值（兼容旧服务端，HOST_INTEGRATION_DESIGN §3.3）。Kit 靠它决定
+     * 「添加成员」列谁的通讯录。
+     */
+    chatGroupId: string;
+    userData: string;
   };
   /** **所有结束分支的唯一出口**。只监听它也能完整记录一通电话。 */
   callEnd: {

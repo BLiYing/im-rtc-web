@@ -115,7 +115,7 @@ export type { EngineContext } from './state/engineMachine.js';
 export type { EmittedEvent, MachineInput, MachineOutput, OutgoingFrame } from './state/types.js';
 
 export { CallEngine } from './engine.js';
-export type { EngineOptions } from './engine.js';
+export type { CallOptions, EngineOptions } from './engine.js';
 export { EventBus } from './eventBus.js';
 export { EngineBus } from './engineBus.js';
 export { MACHINE_EVENT_NAMES } from './events.js';
