@@ -34,8 +34,8 @@ export function reduceRecv(
   // 终态帧优先：**任何非 idle 状态收到 call.ended 都直达 idle**（§5.1）。
   if (type === FrameType.callEnded) return handleEnded(ctx, data);
 
-  // idle 下的迟到帧一律静默丢弃：不抛回调、不发帧、不报错。
-  if (ctx.state === 'idle' && type !== FrameType.callIncoming) return out(ctx);
+  // idle 下的迟到帧一律静默丢弃：不抛回调、不报错。只有两条例外要补发结束帧，见 handleLateFrame。
+  if (ctx.state === 'idle' && type !== FrameType.callIncoming) return handleLateFrame(ctx, type, data);
 
   switch (type) {
     case FrameType.callIncoming:
@@ -107,6 +107,35 @@ function handleForeignCall(
       },
     },
   ]);
+}
+
+/**
+ * handleLateFrame：idle 下迟到的帧**照旧丢弃**（优先级规则 2），只有两条例外——
+ * 它们说明服务端那边**还有一通挂着本端的电话**，而本地早就收场了
+ * （红键强制收场时请求还在路上，或请求超时回滚之后应答才到）：
+ *
+ * - `call.invite.ok`：邀请在服务端落地了，被叫正在响铃。补发 `call.cancel`，
+ *   否则被叫一直响到超时，而主叫这边一个界面都没有。
+ * - `call.connected`：有人已经接起来了（cancel 来不及，或本端是被叫、accept 已落地）。
+ *   补发 `call.hangup`，否则服务端一直把本端当成在通话里。
+ *
+ * 本地状态不动、不抛回调。补发的帧被拒（比如通话已经结束）只换回一条 error 事件，无害。
+ * 与 iOS `IMCallMachine.handleLateFrame` 同形。
+ */
+function handleLateFrame(
+  ctx: CallContext,
+  type: string,
+  data: Readonly<Record<string, unknown>>,
+): MachineOutput<CallContext> {
+  const callId = str(data, 'call_id');
+  if (callId === '') return out(ctx);
+  if (type === CALL_INVITE_OK) {
+    return out(ctx, [{ type: FrameType.callCancel, data: { call_id: callId } }]);
+  }
+  if (type === FrameType.callConnected) {
+    return out(ctx, [{ type: FrameType.callHangup, data: { call_id: callId } }]);
+  }
+  return out(ctx);
 }
 
 function handleIncoming(

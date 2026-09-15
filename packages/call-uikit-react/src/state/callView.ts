@@ -118,6 +118,12 @@ export function reduceCallView(state: CallViewState, action: ViewAction): CallVi
         主叫那一侧不一样：拨出去没打通，人需要知道为什么，所以停一下说明原因。
       */
       if (state.phase === 'incoming') return { ...initialCallView, connection: state.connection };
+      /*
+        **已经收起来了就不再弹结束画面。** 红键看门狗本地收场、界面收起之后，engine 的
+        callEnd（或服务端迟到的那条）还会再来一次；照样进 ended 的话「通话已结束」又闪一下
+        （2026-09-13 14:58:21 iOS frank 撞上过）。界面上什么都没有时，没有东西可结束。
+      */
+      if (state.phase === 'idle') return state;
       return {
         ...state,
         phase: 'ended',

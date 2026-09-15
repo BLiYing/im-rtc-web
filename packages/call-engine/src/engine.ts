@@ -249,6 +249,28 @@ export class CallEngine {
   }
 
   /**
+   * forceEnd 强制结束当前这一场：**结束帧立刻上线路，本地立刻收场，不等服务端**（设计文档 §7.5，五端同名）。
+   *
+   * 给「红键按下去、等不到结束事件」用——uikit 的红键看门狗 3 秒到点就调它。宿主自画 UI 时同理：
+   * `hangup()` 发出去几秒没收到 `callEnd`，就调这个。同步、不抛。
+   *
+   * 与 `hangup()` 的区别：`hangup()` 只发帧、等服务端的 `call.ended` 推进状态（§5.1），
+   * 帧没发出去或被拒了，这一场就收不掉（2026-09-13 iOS frank：界面收了，人还挂在房里四分钟）。
+   * `forceEnd()` 不等：按此刻状态挑结束帧（通话中 hangup、响铃中 reject、拨出中 cancel、
+   * 会议里 room.leave）**直接交给信令连接**，再本地收场并抛 `callEnd` / `roomLeft`；
+   * 服务端随后的 `call.ended` 会因为本地已是 idle 被静默丢弃，不会抛第二次。
+   *
+   * 收场之后才到的东西也兜住了：迟到的 `room.join.ok` 补发 `room.leave`（服务端只验房票、
+   * 不查通话成员），迟到的 `call.invite.ok` 补发 `call.cancel`、`call.connected` 补发 `call.hangup`，
+   * 迟到的候选与 SDP 不再交给媒体层。
+   *
+   * **已知限制**：没登录 / 连接断着时帧发不出去，只做本地收场；服务端那边由恢复窗口到期兜底。
+   */
+  forceEnd(): void {
+    this.loop.forceEnd();
+  }
+
+  /**
    * inviteMore 往进行中的群通话里再拉人（协议 §4.1 `call.invite_more`）。
    * 名单里同样不能有自己，见 {@link rejectsSelf}。
    *

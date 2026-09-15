@@ -1,15 +1,18 @@
 import type { EngineBus } from './engineBus.js';
 import { ErrorCode, RtcError } from './errors.js';
-import { logger } from './logger.js';
+import { LogField, logger } from './logger.js';
 import type { MediaAdapter } from './media/mediaAdapter.js';
 import type { MediaBridge } from './media/mediaBridge.js';
 import type { MediaPlaneDeps } from './media/mediaPlane.js';
 import { addRemoteCandidate } from './media/mediaPlane.js';
+import { toFrameProps } from './signaling/caseMapping.js';
 import type { Connection } from './signaling/connection.js';
 import type { FrameSender } from './signaling/frameSender.js';
+import { lookupFrame } from './signaling/registry.js';
 import type { EngineContext } from './state/engineMachine.js';
 import { initialEngineContext, reduceEngine } from './state/engineMachine.js';
-import type { EmittedEvent, MachineInput, OutgoingFrame } from './state/types.js';
+import { forceEnd as planForceEnd } from './state/forceEnd.js';
+import type { EmittedEvent, MachineInput, MachineOutput, OutgoingFrame } from './state/types.js';
 
 /**
  * engine 的**核心循环**：输入喂进状态机 → 产出的帧发出去 → 应答再喂回来。
@@ -26,6 +29,12 @@ import type { EmittedEvent, MachineInput, OutgoingFrame } from './state/types.js
  * 少算一个的后果是同一条：下一次进房带着上一轮的 PeerConnection。
  */
 const LEAVE_CALLBACKS = new Set(['onCallEnd', 'onRoomLeft', 'onRoomClosed']);
+
+/** LATE_MEDIA_FRAMES 是交给媒体层之前要先看房间还在不在的那几帧。见 `handleIncoming` 开头。 */
+const LATE_MEDIA_FRAMES = new Set(['room.ice_candidate', 'room.offer', 'room.answer']);
+
+/** SLOW_REQUEST_MS：请求往返超过这么久记一条。正常是几十毫秒。 */
+const SLOW_REQUEST_MS = 2_000;
 
 /** FrameLoopDeps 是这个循环要用到的全部东西。 */
 export interface FrameLoopDeps {
@@ -64,6 +73,17 @@ export class FrameLoop {
    */
   async handleIncoming(type: string, data: Record<string, unknown>): Promise<void> {
     const { media, sender } = this.deps;
+    /*
+      **房间已经不在了，迟到的媒体帧不许交给媒体层。**
+
+      强制收场、通话结束之后才到的候选或 SDP 要是照常交下去，媒体层会在一个没人要的房间上
+      继续协商、甚至把 PeerConnection 重新建起来，一直挂到下一次关媒体。
+      状态机那一侧由房间机的 idle 分支丢弃（`roomRecv.ts` 的 `handleLateFrame`）。
+    */
+    if (this.ctx.room.state === 'idle' && LATE_MEDIA_FRAMES.has(type)) {
+      logger.debug('房间已不在，丢弃迟到的媒体帧', { type });
+      return;
+    }
     if (type === 'room.ice_candidate') {
       await addRemoteCandidate(
         this.deps.mediaDeps(),
@@ -84,8 +104,65 @@ export class FrameLoop {
 
   /** dispatch 把一个输入喂进状态机，然后发帧、抛事件。 */
   async dispatch(input: MachineInput): Promise<void> {
+    await this.apply(reduceEngine(this.ctx, input), input);
+  }
+
+  /**
+   * forceEnd 强制收掉当前这一场：**先把结束帧直接交给信令连接，再在本地收场**（`CallEngine.forceEnd`）。
+   *
+   * # 为什么不走 dispatch
+   *
+   * dispatch 产出的帧要排在 `sendFrame` 的 await 链上——前面要是还有一个在途请求
+   * （比如迟迟没回的 room.join），结束帧就跟着一起卡住。2026-09-13 iOS frank 那次
+   * `call.hangup` 一帧都没到服务端，卡的正是这一段。所以帧走 `Connection.fire`，
+   * 在这次调用里就同步写进 socket。
+   *
+   * # 为什么这里不用比对「是不是同一场」
+   *
+   * 算帧与本地收场在同一次同步调用里完成，中间不会插进别的帧（iOS 那边隔着 actor 才要比对）。
+   * 拨出中还没拿到 call_id 的，此刻发不了 cancel：本地照样收场，
+   * 那条 invite.ok 迟到时由通话机的 idle 分支补发（`callRecv.ts` 的 `handleLateFrame`）。
+   */
+  forceEnd(nowMs: number = Date.now()): void {
+    const plan = planForceEnd(this.ctx, nowMs);
+    if (plan.emit.length === 0) {
+      logger.info('强制收场：没有进行中的通话或房间', {});
+      return;
+    }
+    logger.warn('强制收场', {
+      [LogField.callId]: this.ctx.call.callId,
+      call_state: this.ctx.call.state,
+      [LogField.roomId]: this.ctx.room.roomId,
+      room_state: this.ctx.room.state,
+      frames: plan.send.map((frame) => frame.type).join(','),
+    });
+    this.fireFrames(plan.send);
+    // 结束帧已经直发过了，这里只落状态与事件；apply 的同步前半段（记状态、关媒体、抛事件）当场跑完。
+    this.apply({ state: plan.state, send: [], emit: plan.emit }).catch((err: unknown) =>
+      this.deps.bus.emitError(err),
+    );
+  }
+
+  /** fireFrames 把结束帧直接交给信令连接，不等应答。 */
+  private fireFrames(frames: readonly OutgoingFrame[]): void {
+    const connection = this.deps.connection();
+    if (connection === null) {
+      if (frames.length > 0) logger.warn('强制收场：没有信令连接，结束帧发不出去，只做本地收场', {});
+      return;
+    }
+    for (const frame of frames) {
+      const fields = lookupFrame(frame.type);
+      if (fields !== undefined) connection.fire(frame.type, fields, toFrameProps(fields, frame.data));
+    }
+  }
+
+  /**
+   * apply 把一次推进的结果落地：记状态、同步媒体层、抛事件、发帧。
+   *
+   * **发帧之前的部分都是同步的**——`forceEnd` 靠这一点在调用返回前就把事件抛完。
+   */
+  private async apply(result: MachineOutput<EngineContext>, input?: MachineInput): Promise<void> {
     const { bus, bridge } = this.deps;
-    const result = reduceEngine(this.ctx, input);
     this.ctx = result.state;
 
     // 认领新到的远端轨道，**并把状态机里已经没有的那些摘掉**（见 syncRemoteTracks）。
@@ -104,7 +181,7 @@ export class FrameLoop {
       **roomJoined 和 userEnter 排在 callBegin 前面**——它还没被告知有这通电话，
       就先收到了这通电话房间里的事件。
     */
-    this.logLocalReject(input, result.emit);
+    if (input !== undefined) this.logLocalReject(input, result.emit);
     for (const event of result.emit) {
       /*
         **`onDisconnected` 由连接层独占**，状态机那一份不往外发。
@@ -161,11 +238,14 @@ export class FrameLoop {
       await this.rollback(frame.type);
       return;
     }
+    const startedMs = Date.now();
     try {
       const reply = await this.deps.sender.send(connection, frame.type, frame.data);
+      noteSlowRequest(frame.type, startedMs, false);
       // **应答也要喂回状态机**：join.ok / publish.ok 都是状态推进的关键一步。
       if (reply !== null) await this.handleIncoming(reply.type, reply.data);
     } catch (err) {
+      noteSlowRequest(frame.type, startedMs, true);
       // 请求失败不该中断整个事件流：转成 error 事件交给宿主。
       this.deps.bus.emitError(err);
       await this.rollback(frame.type);
@@ -239,6 +319,18 @@ export class FrameLoop {
       room_state: this.ctx.room.state,
     });
   }
+}
+
+/**
+ * noteSlowRequest 记下「这一帧从交给 sender 到拿回应答」慢得不正常的那几次。
+ *
+ * 2026-09-13 iOS frank 的 room.join 从状态机产出到服务端收到隔了 28.6 秒，而客户端一个字都没留下。
+ * 有了这一条，拿 `elapsed_ms` 对服务端的受理时刻，就分得清慢在本端发出之前还是服务端那边。
+ */
+function noteSlowRequest(type: string, startedMs: number, failed: boolean): void {
+  const elapsedMs = Date.now() - startedMs;
+  if (elapsedMs < SLOW_REQUEST_MS) return;
+  logger.warn('请求往返慢', { type, elapsed_ms: elapsedMs, failed });
 }
 
 /**

@@ -64,6 +64,9 @@ export class FakeEngine {
   async hangup(): Promise<void> {
     this.calls.push('hangup');
   }
+  forceEnd(): void {
+    this.calls.push('forceEnd');
+  }
   /** 加人失败由测试控制：设 `inviteMoreError` 让它抛（服务端 1407 / 1202）。 */
   inviteMoreError: unknown = null;
   async inviteMore(calleeIds: string[]): Promise<void> {

@@ -1,8 +1,10 @@
 import type { CallEngine, MediaType } from '@im-rtc/call-engine';
 import { logger } from '@im-rtc/call-engine';
 import type { MutableRefObject } from 'react';
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 
+import type { EndAction } from './redButtonWatchdog.js';
+import { RedButtonWatchdog, endActionFor, endWatchdogReason, timerSchedule } from './redButtonWatchdog.js';
 import { defaultCameraOn } from './state/callView.js';
 import { classifyProbeError, devicesFor, devicesForAnswering } from './state/permissions.js';
 import type { CallViewState, ViewAction } from './state/viewTypes.js';
@@ -22,6 +24,9 @@ export interface CallActions {
    * **振铃通话接通前是 cancel、接通后是 hangup**（协议 §4.4），
    * **会议是 leaveRoom**（会议房里根本没有 call）。界面上是同一个红按钮——
    * 让调用方去分辨这三件事，迟早有人分辨错。
+   *
+   * 按下之后还要**盯着这一屏到底走没走**（见 `RedButtonWatchdog`）：认得出该发哪一帧，
+   * 不等于那一帧真的发得出去。
    */
   end: () => Promise<void>;
   toggleMic: () => Promise<void>;
@@ -48,12 +53,14 @@ export interface CallActionsDeps {
   readonly dispatch: (action: ViewAction) => void;
   readonly cids: MutableRefObject<PublishedCids>;
   readonly gate: PermissionGate;
+  /** 红键看门狗等多久（见 `RedButtonWatchdog`）。 */
+  readonly endWatchdogMs: number;
 }
 
 /**
  * useCallActions 把界面动作接到 engine 上。逻辑与渲染分离（CONVENTIONS §2）。
  */
-export function useCallActions({ engine, state, dispatch, cids, gate }: CallActionsDeps): {
+export function useCallActions({ engine, state, dispatch, cids, gate, endWatchdogMs }: CallActionsDeps): {
   readonly actions: CallActions;
   readonly publishFor: (mediaType: MediaType, withCamera: boolean) => Promise<void>;
 } {
@@ -123,6 +130,39 @@ export function useCallActions({ engine, state, dispatch, cids, gate }: CallActi
     }
   }, [engine, dispatch]);
 
+  /*
+    红键看门狗（见 `RedButtonWatchdog`）。这一屏走了（idle / ended）就撤，卸载时也撤——
+    定时器成对清理（CONVENTIONS §7）。
+  */
+  const watchdog = useMemo(() => new RedButtonWatchdog(timerSchedule, endWatchdogMs), [endWatchdogMs]);
+  useEffect(() => () => watchdog.disarm(), [watchdog]);
+  useEffect(() => {
+    if (state.phase === 'idle' || state.phase === 'ended') watchdog.disarm();
+  }, [state.phase, watchdog]);
+
+  /**
+   * armEnd：按下红键记一条，并开始盯着这一屏走没走。
+   *
+   * 到点还在通话里就**两件事一起做**：界面本地收场，再让 engine 也离场（`forceEnd`）。
+   * 只收界面的话，结束帧没发出去时 engine 还留在通话与房间里——别人一直看得见他，
+   * 摄像头麦克风也还开着（2026-09-13 14:54 iOS frank，直到 14:58 整通结束才被带走）。
+   */
+  const armEnd = useCallback(
+    (action: EndAction): void => {
+      // **按下红键要留一条**：那次到底按没按、按的时候在哪个阶段，事后只能靠猜。
+      logger.info('[uikit] 按下红键', { action, phase: latest.current.phase });
+      const reason = endWatchdogReason(action);
+      watchdog.arm(() => {
+        const phase = latest.current.phase;
+        if (phase === 'idle' || phase === 'ended') return;
+        logger.warn('[uikit] 红按钮本地收场：没等到结束事件', { phase, reason, timeout_ms: watchdog.timeoutMs });
+        dispatch({ type: 'callEnd', reason, durationSec: 0 });
+        engine.forceEnd();
+      });
+    },
+    [engine, dispatch, watchdog],
+  );
+
   const actions = useMemo<CallActions>(
     () => ({
       placeCall: async (calleeIds, mediaType, isGroup = false): Promise<void> => {
@@ -175,17 +215,27 @@ export function useCallActions({ engine, state, dispatch, cids, gate }: CallActi
         await engine.accept();
       },
       reject: async (): Promise<void> => {
+        // 来电页上的红键同样要盯着：拒接帧发不出去时，来电页不能一直挂在那儿。
+        armEnd('reject');
         await engine.reject();
       },
       end: async (): Promise<void> => {
         /*
-          红按钮在四种场合是四个不同的动作，**分辨这件事是 uikit 的责任**。
-          最容易错的是最后一条：**会议房里没有 call**，发 hangup 会被通话机本地拒成 2005。
+          红按钮在四种场合是四个不同的动作，**分辨这件事是 uikit 的责任**（`endActionFor`）。
+          最容易错的是会议：**会议房里没有 call**，发 hangup 会被通话机本地拒成 2005。
         */
-        if (state.isMeeting) return engine.leaveRoom();
-        if (state.phase === 'incoming') return engine.reject();
-        if (state.phase === 'outgoing') return engine.cancel();
-        return engine.hangup();
+        const action = endActionFor(state);
+        armEnd(action);
+        switch (action) {
+          case 'leaveRoom':
+            return engine.leaveRoom();
+          case 'reject':
+            return engine.reject();
+          case 'cancel':
+            return engine.cancel();
+          case 'hangup':
+            return engine.hangup();
+        }
       },
       toggleMic: async (): Promise<void> => {
         const on = !state.self.micOn;
@@ -271,9 +321,9 @@ export function useCallActions({ engine, state, dispatch, cids, gate }: CallActi
       expandIncoming: (): void => dispatch({ type: 'expandIncoming' }),
       dismiss: (): void => dispatch({ type: 'dismiss' }),
     }),
-    [engine, dispatch, cids, gate, publishFor, startPreview, state.phase, state.mediaType, state.isMeeting,
-     state.roomId, state.localCameraCid, state.self.micOn, state.self.cameraOn, state.self.cameraBlocked,
-     state.self.cameraOptedOut],
+    [engine, dispatch, cids, gate, publishFor, startPreview, armEnd, state, state.phase, state.mediaType,
+     state.isMeeting, state.roomId, state.localCameraCid, state.self.micOn, state.self.cameraOn,
+     state.self.cameraBlocked, state.self.cameraOptedOut],
   );
 
   return { actions, publishFor };

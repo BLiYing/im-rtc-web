@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { createContext, useEffect, useMemo, useReducer, useRef } from 'react';
 
 import { endedHoldMs as holdMsFor } from './format/endReason.js';
+import { END_WATCHDOG_MS } from './redButtonWatchdog.js';
 import { initialCallView, reduceCallView, showsIncomingPage } from './state/callView.js';
 import type { CallViewState } from './state/callView.js';
 import type { PermissionQuery } from './state/permissions.js';
@@ -70,6 +71,11 @@ export interface CallProviderProps {
    * 与 iOS / Android Kit 配置里的 `bannerFirst` 同名同义。
    */
   readonly bannerFirst?: boolean;
+  /**
+   * 红键按下后等结束事件的最长时间，到点这一屏还在就本地收场并调 `engine.forceEnd()`
+   * （见 `redButtonWatchdog.ts`）。默认 3000，与 iOS / Android 同数；测试可调短。
+   */
+  readonly endWatchdogMs?: number;
 }
 
 /** 结束画面的默认停留时长。见 `format/endReason.ts`：实际时长按原因分档。 */
@@ -79,11 +85,12 @@ const NO_CANDIDATES: readonly InviteCandidate[] = [];
 export function CallProvider({
   engine, children, endedHoldMs = DEFAULT_ENDED_HOLD_MS,
   inviteCandidates = NO_CANDIDATES, permissionQuery = browserPermissionQuery, bannerFirst = true,
+  endWatchdogMs = END_WATCHDOG_MS,
 }: CallProviderProps): ReactNode {
   const [state, dispatch] = useReducer(reduceCallView, initialCallView);
   const cids = useRef<PublishedCids>({ mic: '', cam: '' });
   const gate = usePermissionGate(engine, dispatch, permissionQuery);
-  const { actions, publishFor } = useCallActions({ engine, state, dispatch, cids, gate });
+  const { actions, publishFor } = useCallActions({ engine, state, dispatch, cids, gate, endWatchdogMs });
   useRingingPreview({ engine, state, dispatch, query: permissionQuery, pageShown: showsIncomingPage(state, bannerFirst) });
 
   useEffect(() => subscribeEngine(engine, dispatch), [engine]);

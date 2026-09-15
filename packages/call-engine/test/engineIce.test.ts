@@ -106,8 +106,19 @@ async function setup(): Promise<{
   return { engine, media, ws: socket, latest };
 }
 
-/** joinRoom 把房间推到 joined —— 只有 joined 才允许发布/协商类动作（不变量 R1）。 */
+/**
+ * joinRoom 把房间推到 joined —— 只有 joined 才允许发布/协商类动作（不变量 R1）。
+ *
+ * **先响铃再接通**，并应答 engine 真正发出去的那条 room.join：idle 下凭空收到的
+ * `call.connected` 与 `room.join.ok` 都会被当成迟到帧退回去（补发 hangup / leave，
+ * 见 callRecv.ts / roomRecv.ts 的 `handleLateFrame`）——这里原先就是靠「凭空认领」进的房。
+ */
 async function joinRoom(ws: FakeWebSocket): Promise<void> {
+  deliverEvent(ws, 'call.incoming', {
+    call_id: 'call-1', room_id: 'r-1', caller: 'alice', callee_ids: ['bob'],
+    media_type: 'video', is_group: false, timeout_sec: 30, invited_at_ms: 1, user_data: '',
+  });
+  await flush(4);
   deliverEvent(ws, 'call.connected', {
     call_id: 'call-1', room_id: 'r-1', room_token: 'tk', media_type: 'video',
     is_group: false, connected_at_ms: 1756876812000, accepted_by: 'bob',
@@ -132,6 +143,8 @@ function deliverEvent(ws: FakeWebSocket, type: string, data: Record<string, unkn
 describe('trickle ICE 是双向的', () => {
   it('服务端来的候选要交给媒体层', async () => {
     const { media, ws } = await setup();
+    // 候选只属于某个房间：**不在房里时迟到的候选会被丢掉**（frameLoop.handleIncoming），所以先进房。
+    await joinRoom(ws);
 
     deliverEvent(ws, 'room.ice_candidate', {
       pc: 'sub', candidate: 'candidate:1 1 udp 2130706431 127.0.0.1 7881 typ host',
@@ -146,6 +159,7 @@ describe('trickle ICE 是双向的', () => {
 
   it('候选走的是 pc 字段说的那条连接', async () => {
     const { media, ws } = await setup();
+    await joinRoom(ws);
     deliverEvent(ws, 'room.ice_candidate', {
       pc: 'pub', candidate: 'candidate:2 1 udp 1 10.0.0.1 5000 typ host',
       sdp_mid: '1', sdp_mline_index: 1,

@@ -226,6 +226,27 @@ export class Connection {
     socket.send(encodeEnvelope(type, reqId, encodeFields(fields, value as never)));
   }
 
+  /**
+   * fire 发一个请求但**不等应答**：应答照常按 req_id 配对后丢掉，不会漏进事件流。
+   *
+   * 只给 `CallEngine.forceEnd()` 用：结束帧不许排在帧循环与在途请求后面
+   * （2026-09-13 iOS 那次挂断一帧没发出去，卡的正是那一段）。
+   * 帧在这次调用里就同步写进 socket（`dispatchRequest` 在第一个 await 之前就 send 了）。
+   * 未连接时只记一条日志——握手之前发业务帧会被服务端当成协议错误。
+   */
+  fire(type: string, fields: FrameFields, value: Record<string, unknown>): void {
+    if (this.state !== 'connected') {
+      logger.warn('帧没发出去：连接不可用', { type, state: this.state });
+      return;
+    }
+    void this.dispatchRequest(type, fields, value).catch((err: unknown) => {
+      logger.info('不等应答的请求失败了', {
+        type,
+        code: err instanceof RtcError ? err.code : 'unknown',
+      });
+    });
+  }
+
   private nextReqId(): string {
     this.seq += 1;
     return `w-${this.seq}`;

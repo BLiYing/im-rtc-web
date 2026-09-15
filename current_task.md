@@ -7,22 +7,27 @@
 
 ## 当前焦点
 
-**Web 看对端重开摄像头「刷新一闪」——已提交 `e447276`，用户 2026-09-11 21:11 浏览器验过**（web bob 看 iOS carol / Android alice；Android 同一问题 20:04 真机已验好）。
+**2026-09-15：红键等不到结束事件时引擎也收场（`forceEnd`）+ uikit 补红键看门狗（Web 原先没有）。未提交；`./scripts/test.sh` 全绿（14 步，engine 337 / uikit 156 / demo-react 17）；09-15 与 iOS frank、Android alice 联测验过（见下一步）。**
+起因 09-13 14:53~14:58 iOS frank：接听后 room.join 晚 28.6 秒才上线路，其间按红键，call.hangup 一帧没到服务端；看门狗只收了界面，引擎留在通话与房间里，其余端一直看得见他。
+iOS 已落同形状（`../im-rtc-ios/current_task.md`），形状见 server `CLIENT_PARITY.md` 的 `[^forceend]`。上一件（对端重开摄像头闪一下）已提交 `e447276`、21:11 验过。
 
-- 20:45 复测第一版仍闪：日志里 `wait_ms` 7 / 20 / 29（一两个刷新周期），早于 iOS 本端首帧（开后约 180ms）——rVFC 报的是关时藏起来、积压没上屏的旧帧，一可见就补上屏。
-  排除了换层（iOS 只推 h 层）、分辨率变化（恒 720×1280）、重挂 srcObject（挂载 effect 不依赖 hasVideo）。
-  第二版：`FirstFrameGate.isStale` 只认 `receiveTime` 晚于 `armedAt` 的帧，没有 receiveTime 就等 `mediaTime` 变；落定日志带 `skipped` / `judged_by` / `received_ago_ms`。
-
-- 根因：关摄像头走 `room.track_muted`，轨道不摘、`<video>` 整通复用，元素上留着关之前的最后一帧；`firstVideoFrame` 按轨道只抛一次（日志里 carol 开关约 10 次、首帧只 1 次），uikit 按 `userVideoAvailable(true)` 立刻揭示 → 先露旧画面、几百毫秒后换新画面。
-- 改法：engine `frameLoop.ts` 的 `videoTurnedOn` → `MediaBridge.awaitFirstVideoFrame` → `media/firstFrameGate.ts` 的 `FirstFrameGate`（`requestVideoFrameCallback` 等新帧上屏）再抛一次 `firstVideoFrame`；
-  uikit `RemoteParticipant.isVideoPending`（`state/participants.ts` 的 `setVideo` / `revealVideo`），`VideoTile` 等待时头像盖在**仍可见**的 `<video>` 上，`useVideoRevealFallback` 2 秒兜底。
-- 日志关键字：`远端开摄像头后新画面上屏`（带 `wait_ms`）/ `浏览器报不了画面上屏，开摄像头即揭示` / `新画面迟迟没上屏，到点照样揭示`。
-- 用例：engine `test/firstFrameGate.test.ts`，uikit `test/videoReveal.test.tsx`。
+- engine `CallEngine.forceEnd(): void`（同步、不抛）→ `FrameLoop.forceEnd`：纯函数 `state/forceEnd.ts`（`forceEnd` / `endFrames`）挑帧——通话中 hangup、响铃 reject、拨出 cancel、accepting reject+hangup、会议 room.leave；
+  帧走 `Connection.fire`（不等应答、应答配对后丢掉、未连接只记日志）**不排在在途请求后面**；本地收场与发帧在同一次同步调用里（先发帧、再落状态/关媒体/抛事件），所以不需要 iOS 那种 call_id 比对。
+- 迟到帧：`roomRecv.ts` idle 下 `room.join.ok` 补发 `room.leave`、其余丢弃；`callRecv.ts` idle 下 `call.invite.ok` 补发 `call.cancel`、`call.connected` 补发 `call.hangup`（拨出中没 call_id 的补救）；`frameLoop` 房间 idle 时丢迟到的候选 / SDP。
+- `请求往返慢`（≥ 2000ms，`type` / `elapsed_ms` / `failed`）。没做卡顿探针（iOS 独有）。
+- uikit：`redButtonWatchdog.ts`（`RedButtonWatchdog` 注入调度器、`endActionFor`、`endWatchdogReason`）；`useCallActions` 的 `end` 与 `reject` 都武装，phase 到 idle/ended 撤；
+  到点 → `callEnd`（本地收场）+ `engine.forceEnd()`；`CallProvider` 新 prop `endWatchdogMs`（默认 3000）；视图状态 idle 下 `callEnd` 忽略。日志 `[uikit] 按下红键` / `[uikit] 红按钮本地收场：没等到结束事件`。
+- 用例：engine `test/forceEnd.test.ts`、`test/forceEndEngine.test.ts`、`test/connectionFire.test.ts`；uikit `test/redButtonWatchdog.test.ts`、`test/endWatchdog.test.tsx`。
+  `test/engineIce.test.ts` 的 `joinRoom` 原先靠「idle 下凭空认领 call.connected / join.ok」进房，改成先 `call.incoming` 再接通、应答真的那条 join；两条候选用例先进房。
 
 **测之前先重起 vite**：uikit 按 `dist/` 被 demo 消费，不重起还是旧的（有一轮就这么白测了）。
 
 ## 下一步
 
+- ~~浏览器验收~~（09-15 demo-react 5179 已验，服务端 `FAULT_INJECTION=1`）：② 故障注入拒掉 bob 的 hangup 10:06:09.548 → 10:06:12.549 `强制收场` 补发被受理，`callEnd` 只抛一次；
+  ③ 延迟 bob 的 `call.invite` 8 秒、其间按取消：10:09:21 本地收场（没 call_id、没发帧）→ 10:09:24.917 invite 落地 → 补发 `call.cancel`，alice 横幅只露 13ms；`请求往返慢 elapsed_ms=8003` 也记下了。
+  小账：拨出中按取消那帧没有 call_id，被服务端拒成 1401，宿主多收一条 error。
+  还没验：① 正常挂断路径（iOS / Android 已验，Web 走同一段 `end`，风险低）；断网后按红键（结束帧发不出去、只本地收场）。
 - 首帧闸门 21:11 实测：`wait_ms` 232–910、`judged_by` 全是 `receive_time`、两次 `skipped=1`；以后再报闪先看这三个字段，常撞 2 秒兜底就查后台标签页 / 对端迟迟不出关键帧。
 - 静默失败点清单（P0×3 / P1×7 / P2×7）：`../im-rtc-server/docs/ops/silent-failure/web.md`，逐条状态只在那里。
   未修头两条：§A 发布 / 订阅被拒没有收场路径（四端同源）、呼出阶段按静音只改 UI 对方仍听得见。
