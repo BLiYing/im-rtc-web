@@ -38,6 +38,13 @@ export interface CallContext {
   readonly role: CallRole;
   /** 通话时长的起点，来自服务端。**客户端不自己算时长**（I8）。 */
   readonly connectedAtMs: number;
+  /**
+   * 拨出中**还没拿到 call_id** 就按了取消：先记下，`call.invite.ok` 一到就补发 `call.cancel`（见 callRecv.ts）。
+   *
+   * 不这样的话那一帧带着空 call_id 上线路，服务端回 1401，宿主平白多收一条 error
+   * （2026-09-15 10:09 demo-react 真机）。与 iOS `IMCallContext.cancelPending` 同形。
+   */
+  readonly cancelPending: boolean;
 }
 
 /** initialCallContext 是 idle 态的初值。 */
@@ -50,6 +57,7 @@ export const initialCallContext: CallContext = {
   isGroup: false,
   role: '',
   connectedAtMs: 0,
+  cancelPending: false,
 };
 
 
@@ -122,9 +130,10 @@ function reduceAct(
         ? out(ctx, [{ type: FrameType.callReject, data: { call_id: ctx.callId } }])
         : invalidState(ctx);
     case 'cancel':
-      return ctx.state === 'inviting'
-        ? out(ctx, [{ type: FrameType.callCancel, data: { call_id: ctx.callId } }])
-        : invalidState(ctx);
+      if (ctx.state !== 'inviting') return invalidState(ctx);
+      // 还没拿到 call_id（invite.ok 在路上）：这一帧发出去只会换回 1401。先挂起，invite.ok 一到就补发（callRecv.ts）。
+      if (ctx.callId === '') return out({ ...ctx, cancelPending: true });
+      return out(ctx, [{ type: FrameType.callCancel, data: { call_id: ctx.callId } }]);
     case 'hangup':
       return ctx.state === 'connected' || ctx.state === 'connecting'
         ? out(ctx, [{ type: FrameType.callHangup, data: { call_id: ctx.callId } }])

@@ -201,6 +201,34 @@ describe('forceEnd：invite 在飞时强制收场', () => {
   });
 });
 
+describe('拨出中还没拿到 call_id 就按取消（10:09 demo-react 真机多收一条 1401）', () => {
+  it('invite 未回时 cancel：不发帧、不抛 error；invite.ok 回来立刻补发带 call_id 的 cancel', async () => {
+    const h = await setup();
+    const errors: number[] = [];
+    h.engine.on('error', (e) => errors.push(e.code));
+    const calling = h.engine.call(['bob'], 'video', false);
+    await flush(4);
+
+    await h.engine.cancel();
+    await flush(4);
+    expect(h.latest().frames().some((f) => f.type === 'call.cancel')).toBe(false);
+    expect(errors).toEqual([]);
+
+    h.reply('call.invite', 'call.invite.ok', { call_id: 'c-9', room_id: 'r-9' });
+    await flush(6);
+    const cancel = h.latest().frames().at(-1);
+    expect(cancel?.type).toBe('call.cancel');
+    expect(cancel?.data['call_id']).toBe('c-9');
+
+    h.reply('call.cancel', 'call.cancel.ok');
+    h.event('call.ended', { call_id: 'c-9', room_id: 'r-9', reason: 'cancel', duration_sec: 0, ended_by: 'alice' });
+    await calling;
+    await flush(4);
+    expect(h.callEnds).toEqual([{ reason: 'cancel' }]);
+    expect(errors).toEqual([]);
+  });
+});
+
 describe('forceEnd：没有进行中的通话', () => {
   it('什么都不发、什么都不抛', async () => {
     const h = await setup();

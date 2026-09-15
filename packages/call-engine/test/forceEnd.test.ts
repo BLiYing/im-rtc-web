@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { CallContext } from '../src/state/callMachine.js';
 import { initialCallContext, reduceCall } from '../src/state/callMachine.js';
 import type { EngineContext } from '../src/state/engineMachine.js';
-import { initialEngineContext } from '../src/state/engineMachine.js';
+import { initialEngineContext, reduceEngine } from '../src/state/engineMachine.js';
 import { forceEnd } from '../src/state/forceEnd.js';
 import type { RoomState } from '../src/state/roomMachine.js';
 import { initialRoomContext, reduceRoom } from '../src/state/roomMachine.js';
@@ -25,8 +25,82 @@ function inCall(
   return {
     call: { ...initialCallContext, state, callId, connectedAtMs: 1_000 },
     room: { ...initialRoomContext, state: room, roomId: room === 'idle' ? '' : 'r-1' },
+    callStartedAtMs: 0,
   };
 }
+
+describe('强制收场的时长从本端进来那一刻算', () => {
+  it('中途被拉进来的人：用 callStartedAtMs，不用整通电话的 connected_at_ms（10:05 frank 6 秒写成 124 秒）', () => {
+    const ctx: EngineContext = { ...inCall('connected', 'c-1', 'joined'), callStartedAtMs: 119_500 };
+    const out = forceEnd(ctx, 125_500);
+    expect(out.emit[0]?.args['duration_sec']).toBe(6);
+    expect(out.state.callStartedAtMs).toBe(0);
+  });
+
+  it('没记到本端开始时刻：退回 connected_at_ms', () => {
+    const out = forceEnd(inCall('connected', 'c-1', 'joined'), 125_000);
+    expect(out.emit[0]?.args['duration_sec']).toBe(124);
+  });
+
+  it('engine 在抛 onCallBegin 那一刻打点，中间推进不冲掉，call.ended 清零', () => {
+    const accepting: EngineContext = {
+      ...initialEngineContext,
+      call: { ...initialCallContext, state: 'accepting', callId: 'c-1', role: 'callee' },
+    };
+    const began = reduceEngine(accepting, {
+      kind: 'recv',
+      type: 'call.connected',
+      data: { call_id: 'c-1', room_id: 'r-1', room_token: 'rt', connected_at_ms: 1_000 },
+    }, 119_000);
+    expect(began.state.callStartedAtMs).toBe(119_000);
+
+    const later = reduceEngine(began.state, { kind: 'internal', name: 'media_ready' }, 130_000);
+    expect(later.state.callStartedAtMs).toBe(119_000);
+
+    const ended = reduceEngine(later.state, {
+      kind: 'recv',
+      type: 'call.ended',
+      data: { call_id: 'c-1', reason: 'hangup', duration_sec: 5, ended_by: 'bob' },
+    }, 140_000);
+    expect(ended.state.call.state).toBe('idle');
+    expect(ended.state.callStartedAtMs).toBe(0);
+  });
+});
+
+describe('拨出中还没拿到 call_id 就按取消', () => {
+  const inviting = (): CallContext => ({ ...initialCallContext, state: 'inviting', role: 'caller' });
+
+  it('不发帧、不报错，只把取消挂起', () => {
+    const out = reduceCall(inviting(), { kind: 'act', op: 'cancel' });
+    expect(out.send).toEqual([]);
+    expect(out.emit).toEqual([]);
+    expect(out.state.cancelPending).toBe(true);
+    expect(out.state.state).toBe('inviting');
+  });
+
+  it('invite.ok 一回来立刻补发带 call_id 的 call.cancel，标记清掉', () => {
+    const pending = reduceCall(inviting(), { kind: 'act', op: 'cancel' }).state;
+    const out = reduceCall(pending, {
+      kind: 'recv', type: 'call.invite.ok', data: { call_id: 'c-9', room_id: 'r-9' },
+    });
+    expect(out.send).toEqual([{ type: 'call.cancel', data: { call_id: 'c-9' } }]);
+    expect(out.state.callId).toBe('c-9');
+    expect(out.state.cancelPending).toBe(false);
+  });
+
+  it('有 call_id 时照旧立刻发（向量 caller_1v1_cancel）', () => {
+    const out = reduceCall({ ...inviting(), callId: 'c-1' }, { kind: 'act', op: 'cancel' });
+    expect(out.send).toEqual([{ type: 'call.cancel', data: { call_id: 'c-1' } }]);
+    expect(out.state.cancelPending).toBe(false);
+  });
+
+  it('没按过取消时 invite.ok 不发任何帧', () => {
+    const out = reduceCall(inviting(), {
+      kind: 'recv', type: 'call.invite.ok', data: { call_id: 'c-9', room_id: 'r-9' },
+    });
+    expect(out.send).toEqual([]);
+  });
+});
 
 describe('forceEnd：通话', () => {
   it('通话中：发 call.hangup，本地两台机器一起归零，抛一次 onCallEnd', () => {

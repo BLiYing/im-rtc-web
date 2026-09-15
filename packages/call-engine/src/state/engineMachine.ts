@@ -26,12 +26,21 @@ import { bool, str } from './types.js';
 export interface EngineContext {
   readonly room: RoomContext;
   readonly call: CallContext;
+  /**
+   * **本端**这一场从哪一刻算起（本机时钟，毫秒）：抛 `onCallBegin` 时记下，通话回 idle 清零。
+   *
+   * 强制收场本地算时长要用它（`state/forceEnd.ts`）。整通电话的 `connected_at_ms` 是第一个人
+   * 接起来的时刻，中途被拉进来的人拿它算会偏大（2026-09-15 10:05 iOS frank 待了约 6 秒，
+   * 本地写成 124 秒）。不进一致性向量：向量只断言通话 / 房间那几个键。与 iOS `callStartedAtMS` 同形。
+   */
+  readonly callStartedAtMs: number;
 }
 
 /** initialEngineContext 是全空态。 */
 export const initialEngineContext: EngineContext = {
   room: initialRoomContext,
   call: initialCallContext,
+  callStartedAtMs: 0,
 };
 
 const CALL_ACTS = new Set(['call', 'accept', 'reject', 'cancel', 'hangup', 'invite_more', 'join_call']);
@@ -47,17 +56,46 @@ const ROOM_ACTS = new Set([
   'restart_pub_ice',
 ]);
 
-/** reduceEngine 是 engine 状态的唯一入口。 */
+/**
+ * reduceEngine 是 engine 状态的唯一入口。
+ *
+ * `nowMs` 只用来给 `callStartedAtMs` 打点，状态转移本身不看它（I4：禁止由定时器改状态）。
+ */
 export function reduceEngine(
   ctx: EngineContext,
   input: MachineInput,
+  nowMs: number = Date.now(),
 ): MachineOutput<EngineContext> {
+  return stampCallStart(ctx, reduceInput(ctx, input), nowMs);
+}
+
+function reduceInput(ctx: EngineContext, input: MachineInput): MachineOutput<EngineContext> {
   if (input.kind === 'recv' && input.type === 'sys.hello.ok') {
     return handleHelloOk(ctx, input.data);
   }
   if (input.kind === 'internal') return handleInternal(ctx, input.name);
   if (input.kind === 'recv') return routeFrame(ctx, input);
   return routeAct(ctx, input);
+}
+
+/**
+ * stampCallStart：这一步抛了 `onCallBegin` 就记下此刻；通话回到 idle 就清零；其余沿用。
+ *
+ * **统一放在入口**：各分支有的沿用 ctx、有的重建 ctx，挨个分支去记迟早漏一条。
+ */
+function stampCallStart(
+  before: EngineContext,
+  result: MachineOutput<EngineContext>,
+  nowMs: number,
+): MachineOutput<EngineContext> {
+  let callStartedAtMs = before.callStartedAtMs;
+  if (result.emit.some((event) => event.cb === 'onCallBegin')) {
+    callStartedAtMs = nowMs;
+  } else if (result.state.call.state === 'idle') {
+    callStartedAtMs = 0;
+  }
+  if (result.state.callStartedAtMs === callStartedAtMs) return result;
+  return { ...result, state: { ...result.state, callStartedAtMs } };
 }
 
 /**
@@ -80,7 +118,7 @@ function handleHelloOk(
 
   const room = resumeRoom(ctx.room, true);
   emit.push(...room.emit);
-  return { state: { room: room.state, call: ctx.call }, send: [...room.send], emit };
+  return { state: { ...ctx, room: room.state }, send: [...room.send], emit };
 }
 
 /**
@@ -116,7 +154,7 @@ function dropLostSession(ctx: EngineContext): MachineOutput<EngineContext> {
   } else if (ctx.room.state !== 'idle') {
     emit.push({ cb: 'onRoomLeft', args: { room_id: ctx.room.roomId } });
   }
-  return { state: { room: room.state, call }, send: [...room.send], emit };
+  return { state: { ...ctx, room: room.state, call }, send: [...room.send], emit };
 }
 
 function handleInternal(ctx: EngineContext, name: string): MachineOutput<EngineContext> {
@@ -134,7 +172,7 @@ function handleInternal(ctx: EngineContext, name: string): MachineOutput<EngineC
   if (name === 'ws_closed_4403') {
     // 被踢：什么都不留。重连没有意义——那等于跟另一台设备打架。
     return {
-      state: { room: clearedRoom('idle'), call: initialCallContext },
+      state: { ...ctx, room: clearedRoom('idle'), call: initialCallContext },
       send: [],
       // 不带关闭码：这个内部事件也被「鉴权连续失败」复用，那时真实关闭码是 4401。
       // 关闭码由连接层原样上报（见 engine.ts 里为什么状态机这条不外发）。
@@ -144,7 +182,7 @@ function handleInternal(ctx: EngineContext, name: string): MachineOutput<EngineC
   if (name === 'disconnected') {
     const room = reduceRoom(ctx.room, { kind: 'internal', name });
     return {
-      state: { room: room.state, call: ctx.call },
+      state: { ...ctx, room: room.state },
       send: [],
       emit: [{ cb: 'onDisconnected', args: {} }, ...room.emit],
     };
@@ -226,5 +264,5 @@ function liftCall(
   if (emit.some((event) => event.cb === 'onCallEnd')) {
     room = clearedRoom('idle');
   }
-  return { state: { room, call: result.state }, send, emit };
+  return { state: { ...ctx, room, call: result.state }, send, emit };
 }

@@ -26,14 +26,17 @@ import type { MachineOutput, OutgoingFrame } from './types.js';
 /**
  * forceEnd 算出强制收场的结果。没有进行中的通话也不在房里时原样返回（`emit` 为空）。
  *
- * 时长按服务端给的 `connected_at_ms` 估算，与恢复失败时 I8 的那条例外同一个算法：
- * 本地已经收场，服务端那条带真值的 `call.ended` 随后会因为 idle 被丢掉，没有更准的值可用。
+ * 时长与恢复失败时 I8 的那条例外同一个算法：本地已经收场，服务端那条带真值的 `call.ended`
+ * 随后会因为 idle 被丢掉，没有更准的值可用。起点优先用**本端**进来那一刻（`callStartedAtMs`），
+ * 没记到才退回整通电话的 `connected_at_ms`——中途被拉进来的人用后者会偏大
+ * （2026-09-15 10:05 iOS frank 待了约 6 秒，本地写成 124 秒）。
  */
 export function forceEnd(ctx: EngineContext, nowMs: number): MachineOutput<EngineContext> {
   if (ctx.call.state !== 'idle') {
     const { frames, reason } = endFrames(ctx.call);
+    const startedAtMs = ctx.callStartedAtMs > 0 ? ctx.callStartedAtMs : ctx.call.connectedAtMs;
     return {
-      state: { room: clearedRoom('idle'), call: initialCallContext },
+      state: { room: clearedRoom('idle'), call: initialCallContext, callStartedAtMs: 0 },
       send: frames,
       emit: [
         {
@@ -41,7 +44,7 @@ export function forceEnd(ctx: EngineContext, nowMs: number): MachineOutput<Engin
           args: {
             call_id: ctx.call.callId,
             reason,
-            duration_sec: callDurationSec(ctx.call.connectedAtMs, nowMs),
+            duration_sec: callDurationSec(startedAtMs, nowMs),
             ended_by: '',
           },
         },

@@ -41,7 +41,7 @@ export function reduceRecv(
     case FrameType.callIncoming:
       return handleIncoming(ctx, data);
     case CALL_INVITE_OK:
-      return out({ ...ctx, callId: str(data, 'call_id'), roomId: str(data, 'room_id') });
+      return handleInviteOk(ctx, data);
     case FrameType.callConnected:
       return handleConnected(ctx, data);
     case FrameType.callAccepted:
@@ -136,6 +136,23 @@ function handleLateFrame(
     return out(ctx, [{ type: FrameType.callHangup, data: { call_id: callId } }]);
   }
   return out(ctx);
+}
+
+/**
+ * handleInviteOk：记下 call_id / room_id。
+ *
+ * **invite.ok 回来之前按过取消**（callMachine 的 `cancel`，那时没有 call_id 可发）：
+ * 现在有了，立刻补发 `call.cancel`——不必等 uikit 的看门狗。与 iOS `IMCallMachine.reduceRecv` 同形。
+ */
+function handleInviteOk(
+  ctx: CallContext,
+  data: Readonly<Record<string, unknown>>,
+): MachineOutput<CallContext> {
+  const next: CallContext = { ...ctx, callId: str(data, 'call_id'), roomId: str(data, 'room_id') };
+  if (!ctx.cancelPending || next.callId === '') return out(next);
+  return out({ ...next, cancelPending: false }, [
+    { type: FrameType.callCancel, data: { call_id: next.callId } },
+  ]);
 }
 
 function handleIncoming(

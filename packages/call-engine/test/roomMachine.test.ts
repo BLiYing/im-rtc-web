@@ -90,6 +90,7 @@ function seed(testCase: RoomCase): EngineContext {
       roomId: 'r-1',
       connectedAtMs: init.call === 'connected' ? Date.now() - 5_000 : 0,
     },
+    callStartedAtMs: 0,
   };
 }
 

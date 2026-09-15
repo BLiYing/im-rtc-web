@@ -7,7 +7,9 @@
 
 ## 当前焦点
 
-**2026-09-15：红键等不到结束事件时引擎也收场（`forceEnd`）+ uikit 补红键看门狗（Web 原先没有）。未提交；`./scripts/test.sh` 全绿（14 步，engine 337 / uikit 156 / demo-react 17）；09-15 与 iOS frank、Android alice 联测验过（见下一步）。**
+**2026-09-15：红键等不到结束事件时引擎也收场（`forceEnd`）+ uikit 补红键看门狗（Web 原先没有）。已提交 `dd5e4c0`，09-15 与 iOS frank、Android alice 联测验过（见下一步）。两个小账随后单独一笔提交（单测覆盖，真机未验），`./scripts/test.sh` 全绿（14 步，engine 345 / uikit 156 / demo-react 17）。**
+- 小账已修：① 强制收场时长从本端 `onCallBegin` 那一刻算（`EngineContext.callStartedAtMs`，`reduceEngine` 入口统一打点、通话回 idle 清零），不再用整通 `connected_at_ms`；
+  ② 拨出中没 call_id 时按取消不发帧、记 `CallContext.cancelPending`，`call.invite.ok` 一回来立刻补发 `call.cancel`（不再换回 1401）。
 起因 09-13 14:53~14:58 iOS frank：接听后 room.join 晚 28.6 秒才上线路，其间按红键，call.hangup 一帧没到服务端；看门狗只收了界面，引擎留在通话与房间里，其余端一直看得见他。
 iOS 已落同形状（`../im-rtc-ios/current_task.md`），形状见 server `CLIENT_PARITY.md` 的 `[^forceend]`。上一件（对端重开摄像头闪一下）已提交 `e447276`、21:11 验过。
 
@@ -26,7 +28,6 @@ iOS 已落同形状（`../im-rtc-ios/current_task.md`），形状见 server `CLI
 
 - ~~浏览器验收~~（09-15 demo-react 5179 已验，服务端 `FAULT_INJECTION=1`）：② 故障注入拒掉 bob 的 hangup 10:06:09.548 → 10:06:12.549 `强制收场` 补发被受理，`callEnd` 只抛一次；
   ③ 延迟 bob 的 `call.invite` 8 秒、其间按取消：10:09:21 本地收场（没 call_id、没发帧）→ 10:09:24.917 invite 落地 → 补发 `call.cancel`，alice 横幅只露 13ms；`请求往返慢 elapsed_ms=8003` 也记下了。
-  小账：拨出中按取消那帧没有 call_id，被服务端拒成 1401，宿主多收一条 error。
   还没验：① 正常挂断路径（iOS / Android 已验，Web 走同一段 `end`，风险低）；断网后按红键（结束帧发不出去、只本地收场）。
 - 首帧闸门 21:11 实测：`wait_ms` 232–910、`judged_by` 全是 `receive_time`、两次 `skipped=1`；以后再报闪先看这三个字段，常撞 2 秒兜底就查后台标签页 / 对端迟迟不出关键帧。
 - 静默失败点清单（P0×3 / P1×7 / P2×7）：`../im-rtc-server/docs/ops/silent-failure/web.md`，逐条状态只在那里。
