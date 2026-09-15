@@ -21,11 +21,15 @@ export function CallEnded(): ReactNode {
   // 时长用服务端给的那个（不变量 I8：四端禁止自己算，时钟对不齐）。
   // joinDeniedText 优先：`joinCall()` 被拒时这里显示的是错误码文案，不是通用的 endReasonText
   // （HOST_INTEGRATION_DESIGN §3.4，走的还是同一个 callEnd 出口，只是这一句话被换掉了）。
+  // endHint 其次：初始 `call()` 被 1409 拒时的专属文案，同一个道理——见 `callView.ts` 的
+  // `inviteRejectedByHost`。两者互斥（一个来自 joinCall，一个来自 call()），不会同时非空。
   const text = state.joinDeniedText !== ''
     ? state.joinDeniedText
-    : state.isMeeting
-      ? '已离开会议'
-      : endReasonText(state.endReason, state.role, state.endedDurationSec);
+    : state.endHint !== ''
+      ? state.endHint
+      : state.isMeeting
+        ? '已离开会议'
+        : endReasonText(state.endReason, state.role, state.endedDurationSec);
 
   return (
     <div style={styles.overlay} data-testid="call-ended">

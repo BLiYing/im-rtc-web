@@ -1,5 +1,5 @@
 import type { CallEngine, CallOptions, MediaType } from '@im-rtc/call-engine';
-import { ErrorCode, isRtcError, logger } from '@im-rtc/call-engine';
+import { logger } from '@im-rtc/call-engine';
 import type { MutableRefObject } from 'react';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 
@@ -314,21 +314,17 @@ export function useCallActions({ engine, state, dispatch, cids, gate, endWatchdo
       inviteMore: async (uids): Promise<void> => {
         // 占位格**立刻**出现（交互稿 §05 G3），帧随后才发。
         dispatch({ type: 'invited', uids });
+        /*
+          **服务端拒绝（1202 满员 / 1407 本端不在通话里 / 1409 宿主拒绝）不会让这个 promise
+          reject**——`FrameLoop.sendFrame` 从不把服务端拒绝转成异常（同 `joinCall` 那段注释
+          的道理），真正的失败只经 `subscribeEngine` 订阅的 `error` 事件到达，那边负责把
+          占位格收回来、出对应的提示。这里的 `try/catch` 纯属兜底：万一未来实现变了，或者
+          宿主传进来的 `uids` 触发了别的本地异常，至少不吞掉、留一条日志，不假装邀请发出去了。
+        */
         try {
           await engine.inviteMore([...uids]);
         } catch (err) {
-          /*
-            **邀请没发出去就要把占位格收回来。** 服务端拒掉（1407 本端不在通话里 / 1202 满员）时
-            不会有 `userReject` / `userNoResponse` ——那两条是给「真的响了铃的人」的。
-            不收的话，那几格会一直挂着「呼叫中…」到通话结束，而且还占着人数，
-            让「还能加 N 人」和九宫格的行列都算错一格。
-          */
-          logger.warn('加人失败，收回占位格', { err: String(err), uids: uids.join(',') });
-          for (const uid of uids) dispatch({ type: 'userRemove', uid });
-          // 1409：宿主的邀请鉴权回调拒了这一批人（HOST_INTEGRATION_DESIGN §3.4 的加人文案）。
-          if (isRtcError(err) && err.code === ErrorCode.inviteDenied) {
-            dispatch({ type: 'hint', text: '对方暂时无法被邀请' });
-          }
+          logger.warn('inviteMore 抛出了意料之外的异常', { err: String(err), uids: uids.join(',') });
         }
       },
       setMinimized: (minimized): void => dispatch({ type: 'setMinimized', minimized }),

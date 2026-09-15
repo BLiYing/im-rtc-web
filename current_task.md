@@ -7,7 +7,25 @@
 
 ## 当前焦点
 
-**2026-09-15：宿主对接 M1 → M2 → M8（`../im-rtc-server/docs/design/HOST_INTEGRATION_DESIGN.md` §3）三期都做完，未提交。`./scripts/test.sh` 全绿（14 步，engine 366 / uikit 173 / demo-react 17）。**
+**2026-09-15：宿主对接 M1 → M2 → M8 做完之后，补了一个 Kit 缺口——邀请鉴权回调 1409 在 Web
+上原先有两个洞（见下一条）。`./scripts/test.sh` 全绿（14 步，engine 366 / uikit 180 / demo-react 17）。未提交。**
+
+- **1409 缺口修复**：查实 `useCallActions.inviteMore` 头上那段 `try/catch` 是**死代码**——
+  `FrameLoop.sendFrame` 从不把服务端拒绝转成异常，`inviteMore()` 也没有任何本地校验会
+  `throw`，所以那段 catch（含「对方暂时无法被邀请」的提示与占位格回收）从来没被真正触发过；
+  1202 / 1407 同理，`subscribeEngine.ts` 原先接的 `error` 事件只出提示、**没有**收占位格
+  （同一处死代码留下的假象）。改法：`subscribeEngine.ts` 新增 `inviteRevoked`（1202/1407/1409
+  共用，调 `participants.ts` 的 `revokeLastInvited`）与 `inviteRejectedByHost`（1409 专用，
+  按 `state.phase==='connecting'&&roomId===''` 识别「主动加入还没成」并跳过，避免跟
+  `joinCallFailed` 的「无法加入该通话」撞在一起冒两条提示）；`viewTypes.ts` 新增
+  `lastInvited`（每次 `inviteMore` 整批替换，只收最近这一批，不误伤上一轮还在响铃的人）与
+  `endHint`（初始 `call()` 被拒时 `phase` 还是 `outgoing`，`callEnd` 紧跟着到，`CallOverlay`
+  换成 `CallEnded` 之后 `hint` 没人读了，单独记一份挂在 `CallEnded.tsx`，做法同 `joinDeniedText`）；
+  `useCallActions.inviteMore` 的 catch 精简成纯防御性日志。
+  **已知限制（本次没修，不在任务范围内）**：`call.join` 本身也可能被 1202/1407 拒（见
+  `joinDeniedTextFor` 的注释），那种情况下 `subscribeEngine` 的全局 `error` 监听器与
+  `useCallActions.joinCall` 的临时监听器会同时收到同一条，可能双出「无法加入该通话」+
+  「通话已满员」——这是 1409 之外的同类问题，没有被这次改动引入，也没有一并修。
 
 - **M1（engine）**：`call.invite` / `call.incoming` / `call.connected` 加 `chat_group_id`（三处）与
   `call.connected` 加 `caller` / `user_data`（`signaling/frames.call.ts`）；`call()` 签名改成
@@ -32,8 +50,10 @@
   （复用既有的「接通中…」文案，不经来电页）；失败时 `joinCallFailed` **自己**把阶段收到 `ended`
   并把 `CallEnded` 要显示的文案换成「无法加入该通话」（`state/callView.ts` 的 `joinDeniedTextFor`）——
   不依赖真 engine 是否会紧跟着抛一条 `callEnd`，两条路径都收得住（`useCallActions.joinCall` 的注释里
-  记着为什么不能用 `try/catch` 拿失败：`FrameLoop.sendFrame` 从不把服务端拒绝转成异常）。`inviteMore`
-  被 1409 拒时提示「对方暂时无法被邀请」。静态 `inviteCandidates` 保持兼容（取名单优先级最低档）。
+  记着为什么不能用 `try/catch` 拿失败：`FrameLoop.sendFrame` 从不把服务端拒绝转成异常）。
+  初始 `call()` / 通话中 `inviteMore` 被 1409 拒时提示「对方暂时无法被邀请」（经 `subscribeEngine`
+  的 `error` 事件，不经 `inviteMore` 的 catch——那条路死代码，见上一条「1409 缺口修复」）。
+  静态 `inviteCandidates` 保持兼容（取名单优先级最低档）。
 - **Demo**：`demo-react/src/fakeInviteProvider.ts`——真实 `DEMO_CONTACTS` 排前面 + 40 个假成员凑分页
   （一页 12 条），搜索词 `fail` 立即 reject、`slow` 永远不 resolve（验证 uikit 的 10 秒超时）；`App.tsx`
   把 `inviteCandidates={DEMO_CONTACTS}` 换成 `inviteProvider={fakeInviteProvider}`；`Dialer.tsx` 群呼带
@@ -41,9 +61,13 @@
   没碰通话 API，`tsc --noEmit -p demo` 照样过。
 - 新增测试：engine `test/callOptions.test.ts`（`call()` 的 options 校验、`joinCall` 正常与被拒两条路径）+
   `test/callMachine.test.ts` 补的回落用例（`call.connected` 不带群号时回落到 `call()` 选项 / `call.incoming`
-  记的那份）；uikit `test/hostIntegration.test.tsx`（14 条：`joinCall` 三条、`inviteProvider` 六条含防抖/
-  分页/失败/超时、`onInviteRequest` 三条、`canInvite` 两条）；`interactions.test.tsx` 改了一条
-  （`allowManualUidInput` 默认关，原「宿主没给名单：输入 uid 也能邀请」拆成两条）。
+  记的那份）；uikit `test/hostIntegration.test.tsx`（`joinCall` 三条、`inviteProvider` 六条含防抖/
+  分页/失败/超时、`onInviteRequest` 三条、`canInvite` 两条，加了一条 1409 时不重复冒「对方暂时无法被邀请」
+  的断言）；`interactions.test.tsx` 改了一条（`allowManualUidInput` 默认关，原「宿主没给名单：输入 uid
+  也能邀请」拆成两条）；1409 缺口修复新增（uikit 173 → 180）：`宿主邀请鉴权回调拒绝（1409）` 整个
+  describe 块三条（初始呼叫被拒、通话中加人被拒、跨批次不误伤）+ 改写「加人被拒：占位格要收回来」
+  （原来靠 `FakeEngine.inviteMoreError` 抛异常，现改走真实的 `engine.emit('error', …)`）+ 新增
+  「inviteMore 抛出意料之外的异常：不崩溃」（防御性 catch 的兜底测试）。
 
 ## 下一步
 

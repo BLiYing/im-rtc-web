@@ -160,6 +160,24 @@ export interface CallViewState {
    * （HOST_INTEGRATION_DESIGN §3.4：「被拒按错误码提示并收起」）。空串 = 用默认文案。
    */
   readonly joinDeniedText: string;
+  /**
+   * 最近一批被邀请、还没有终局的 uid（`inviteMore` 记的，进的是占位格）。
+   *
+   * 服务端拒掉这一批（1202 满员 / 1407 本端不在通话里 / 1409 宿主拒绝）时用它把占位格
+   * 精确收回来——**不能扫全部未接听的人**：群通话里可能还有上一轮邀请、或最初呼叫时
+   * 就没接的人在响铃，那些跟这次失败无关。每次 `inviteMore` **整批替换**（不是累加），
+   * 与 iOS `IMCallController.lastInvited` 同形。
+   */
+  readonly lastInvited: readonly string[];
+  /**
+   * 初始 `call()` 被 1409 拒时的提示文案，覆盖 `CallEnded` 的 `endReasonText`。
+   *
+   * 与 `joinDeniedText` 同一个理由：那次拒绝先抛 `error` 事件、紧跟着才是 `callEnd`
+   * （`phase` 还在 `outgoing`），而 `hint` 只在 `ActiveCall` 的状态行里渲染——`CallOverlay`
+   * 到 `ended` 阶段换成 `CallEnded`，`hint` 那时已经没人读了。单独记一份挂在这里，
+   * 界面收起之后这句话依然看得见。空串 = 不覆盖。
+   */
+  readonly endHint: string;
 }
 
 /** initialCallView 是没有通话时的状态。 */
@@ -189,6 +207,8 @@ export const initialCallView: CallViewState = {
   chatGroupId: '',
   userData: '',
   joinDeniedText: '',
+  lastInvited: [],
+  endHint: '',
 };
 
 /**
@@ -230,6 +250,15 @@ export type ViewAction =
   | { readonly type: 'userRemove'; readonly uid: string }
   /** 服务端说本端不在通话里（1407）：藏掉加人入口。 */
   | { readonly type: 'inviteDenied' }
+  /** 把 `lastInvited` 里还没接听的占位格收回来（1202 / 1407 / 1409 共用）。 */
+  | { readonly type: 'inviteRevoked' }
+  /**
+   * 宿主的邀请鉴权回调拒了这一次（1409）。**不区分是初始 invite 还是通话中 invite_more**——
+   * 两种场景都提示「对方暂时无法被邀请」，reducer 按 `state.phase` 自己分派该做什么
+   * （见 `callView.ts` 的 `inviteRejectedByHost`）。主动加入（`call.join`）被拒**不走这条**：
+   * 那条路专属文案已经由 `joinCallFailed` 单独收场。
+   */
+  | { readonly type: 'inviteRejectedByHost' }
   | { readonly type: 'meetingJoined'; readonly roomId: string; readonly nowMs: number }
   | { readonly type: 'roomLeft' }
   | { readonly type: 'mediaReady' }

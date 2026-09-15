@@ -83,6 +83,30 @@ export function removeParticipant(state: CallViewState, uid: string): CallViewSt
 }
 
 /**
+ * revokeLastInvited 把 `lastInvited` 里还没接听的占位格收回来，随后清空 `lastInvited`。
+ *
+ * 服务端拒掉「加人」这批（1202 满员 / 1407 本端不在通话里 / 1409 宿主拒绝）时用它——
+ * **只收这一批**，不扫全部未接听的人：群通话里可能还有别的人在响铃（上一轮邀请、
+ * 或最初呼叫时就没接的人），跟这次失败无关。已经接听的人不动（万一应答和拒绝报文岔开到达）。
+ * 与 iOS `IMCallController.revokeLastInvite()` 同形。
+ */
+export function revokeLastInvited(state: CallViewState): CallViewState {
+  if (state.lastInvited.length === 0) return state;
+  const known = new Set(state.participants.map((p) => p.uid));
+  const pending = new Set(
+    state.participants.filter((p) => !p.hasAccepted).map((p) => p.uid),
+  );
+  const toRemove = state.lastInvited.filter((uid) => known.has(uid) && pending.has(uid));
+  if (toRemove.length === 0) return { ...state, lastInvited: [] };
+  const removeSet = new Set(toRemove);
+  return {
+    ...state,
+    participants: state.participants.filter((p) => !removeSet.has(p.uid)),
+    lastInvited: [],
+  };
+}
+
+/**
  * applySpeakers 把主讲人列表叠加到成员上。
  *
  * **不在名单里的人要被清成「没在说话」**：`activeSpeakers` 是全量快照而不是增量，

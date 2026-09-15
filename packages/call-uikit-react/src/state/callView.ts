@@ -1,8 +1,8 @@
 import type { MediaType } from '@im-rtc/call-engine';
 
 import {
-  addInvited, applyNetwork, applySpeakers, newParticipant, removeParticipant, revealVideo, setVideo,
-  settleParticipant, withParticipant,
+  addInvited, applyNetwork, applySpeakers, newParticipant, removeParticipant, revealVideo,
+  revokeLastInvited, setVideo, settleParticipant, withParticipant,
 } from './participants.js';
 import { initialCallView } from './viewTypes.js';
 import type { CallViewState, ViewAction } from './viewTypes.js';
@@ -181,7 +181,8 @@ export function reduceCallView(state: CallViewState, action: ViewAction): CallVi
       return { ...initialCallView, connection: state.connection };
 
     case 'invited':
-      return addInvited(state, action.uids);
+      // **整批替换**而不是累加：只有最近这一批失败了才收，与 iOS `lastInvited` 同形。
+      return { ...addInvited(state, action.uids), lastInvited: action.uids };
 
     case 'userEnter':
     case 'userAccept':
@@ -201,6 +202,38 @@ export function reduceCallView(state: CallViewState, action: ViewAction): CallVi
 
     case 'inviteDenied':
       return { ...state, canInvite: false, hint: '你已不在通话中，无法添加成员' };
+
+    case 'inviteRevoked':
+      return revokeLastInvited(state);
+
+    /*
+      **1409：宿主的邀请鉴权回调拒了。** 同一个错误码在三个场合会出现（HOST_INTEGRATION_DESIGN
+      §3.4）：初始 `call()` 被拒、通话中 `inviteMore` 被拒、主动 `joinCall()` 被拒——
+      只有前两个走这条路，第三个自己有专属出口（见下）。
+
+      **怎么分辨「主动加入还没成」**：`joinCallRequested` 把 `phase` 打成 `connecting` 但
+      **不带 `roomId`**（要等 `callBegin` 才有）；`inviteMore` 只在通话已经 `connected`/
+      `connecting`（这时 `roomId` 早就有了）才可能被服务端接受再拒绝。
+      两者在“`connecting` 且 `roomId` 是空的”这一点上互斥，不需要另开一个标志位。
+      命中时什么都不做——`useCallActions.joinCall` 自己订阅 `error` 拿码，
+      经 `joinCallFailed` 走 `callEnd` 出口显示「无法加入该通话」，这里再冒一句
+      「对方暂时无法被邀请」就是同一次拒绝提示两遍。
+    */
+    case 'inviteRejectedByHost': {
+      if (state.phase === 'connecting' && state.roomId === '') return state;
+      const revoked = revokeLastInvited(state);
+      /*
+        初始 invite 被拒时 `phase` 还是 `outgoing`，接下来立刻是 `callEnd`（同一个 JS 执行栈内，
+        见 `frameLoop.ts` 的 `rollback`）——`CallOverlay` 到 `ended` 阶段换成 `CallEnded`，
+        那边不读 `hint`（`ActiveCall` 才读），所以单独记一份让它在收起之后也看得见。
+        通话中 `inviteMore` 被拒不动 `phase`，`hint` 在 `ActiveCall` 的状态行里已经够用，
+        不写 `endHint`——它只应该在真的要收场的那一次被点亮，其余时候维持 `initialCallView`
+        给的空串，不去主动清写别处可能已经合法置上的值。
+      */
+      return state.phase === 'outgoing'
+        ? { ...revoked, hint: '对方暂时无法被邀请', endHint: '对方暂时无法被邀请' }
+        : { ...revoked, hint: '对方暂时无法被邀请' };
+    }
 
     case 'userAudio':
       return withParticipant(state, action.uid, (p) => ({ ...p, hasAudio: action.available }));

@@ -70,12 +70,27 @@ export function subscribeEngine(engine: CallEngine, dispatch: (action: ViewActio
       dispatch({ type: 'connection', status: e.willReconnect ? 'reconnecting' : 'lost' })),
     engine.on('kickedOut', () => dispatch({ type: 'connection', status: 'lost' })),
     /*
-      加人的两条失败分支（交互稿 §05）：满员出 Toast；本端已不在通话里（1407）把入口藏掉。
+      加人 / 邀请鉴权的几条失败分支（交互稿 §05、HOST_INTEGRATION_DESIGN §3.4）：满员出 Toast；
+      本端已不在通话里（1407）把入口藏掉；宿主的邀请鉴权回调拒了（1409）出另一句 Toast。
+      三条都要把占位格收回来（`inviteRevoked`）——服务端拒掉这一批时不会有 `userReject` /
+      `userNoResponse`，那两条是给「真的响了铃的人」的，不收的话占位格会一直挂着「呼叫中…」。
+
+      **`sendFrame` 从不把服务端拒绝转成异常**（frameLoop.ts）：`inviteMore()` 头上原先有一段
+      `try/catch` 想在这里做同样的事，但从来没真的捕获到过网络层错误——这三条错误码只可能
+      经这里的 `error` 事件到达，catch 里的处理是死代码（2026-09-15 查实）。
+
       别的错误码这里不接——它们由宿主的日志 / 错误面板处理，界面上没有对应的态。
     */
     engine.on('error', (e) => {
-      if (e.code === ErrorCode.roomFull) dispatch({ type: 'hint', text: '通话已满员（最多 9 人）' });
-      else if (e.code === ErrorCode.notCallOwner) dispatch({ type: 'inviteDenied' });
+      if (e.code === ErrorCode.roomFull) {
+        dispatch({ type: 'inviteRevoked' });
+        dispatch({ type: 'hint', text: '通话已满员（最多 9 人）' });
+      } else if (e.code === ErrorCode.notCallOwner) {
+        dispatch({ type: 'inviteRevoked' });
+        dispatch({ type: 'inviteDenied' });
+      } else if (e.code === ErrorCode.inviteDenied) {
+        dispatch({ type: 'inviteRejectedByHost' });
+      }
     }),
   ];
   return () => {

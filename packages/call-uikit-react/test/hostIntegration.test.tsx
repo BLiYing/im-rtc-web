@@ -92,6 +92,14 @@ describe('joinCall()：主动加入进行中的群通话', () => {
     fireEvent.click(screen.getByTestId('join-call'));
     await flush();
     expect(screen.getByTestId('call-ended').textContent).toContain('无法加入该通话');
+    /*
+      **不能同时冒出「对方暂时无法被邀请」**：`FakeEngine.joinCall()` 的 `emit('error', …)`
+      同一份 1409 会被 `subscribeEngine` 的全局监听器与 `useCallActions.joinCall` 自己挂的临时
+      监听器同时收到——`callView.ts` 的 `inviteRejectedByHost` 靠「`connecting` 且没有
+      `roomId`」这个信号识别出这是主动加入，什么都不做，专属文案由这里的 `joinCallFailed` 单独出
+      （2026-09-15 补：Web 原先没有这条区分，`inviteMore` 相关的提示走的是从没被触发过的死代码）。
+    */
+    expect(screen.getByTestId('call-ended').textContent).not.toContain('对方暂时无法被邀请');
   });
 
   it('通话中再 joinCall：不动当前通话、不发 call.join，只提示（2026-09-15 代码审查）', async () => {

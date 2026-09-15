@@ -77,7 +77,12 @@ export class FakeEngine {
   forceEnd(): void {
     this.calls.push('forceEnd');
   }
-  /** 加人失败由测试控制：设 `inviteMoreError` 让它抛（服务端 1407 / 1202）。 */
+  /**
+   * `inviteMoreError` 只用来测「万一它意外抛出」的兜底路径（`useCallActions.inviteMore`
+   * 的 `try/catch` 就是为这个留的）。**真 engine 的 `inviteMore` 从不为服务端拒绝
+   * （1202 / 1407 / 1409）抛异常**——那些都经 `error` 事件到达（`FrameLoop.sendFrame`
+   * 同 `joinCallError` 那段注释的道理），测服务端拒绝请直接 `engine.emit('error', …)`。
+   */
   inviteMoreError: unknown = null;
   async inviteMore(calleeIds: string[]): Promise<void> {
     this.calls.push(`inviteMore:${calleeIds.join(',')}`);
