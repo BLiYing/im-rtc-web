@@ -29,8 +29,7 @@
       `.sdk-release/local/node_modules/<包名>`——不跑 install 就没有 peer 依赖可装，天然满足「不要装 peer 依赖」这条要求，
       落地结构等价于真实 `npm install` 后宿主 `node_modules` 里看到的样子。
     - `public`：`npm install --no-save --no-package-lock --omit=peer --prefix .sdk-release/public <包名>@<版本>`（版本读包的
-      `package.json`）。现在两个包都还没发布，这一档必现 404——脚本会识别 404/E404 并打印「还没发布到 npmjs，发布后这一档才会成功，
-      发布前想验证用 `pack-sdk.sh local`」，不是让人干瞪着一坨 npm 原始报错猜。
+      `package.json`）。包不存在时脚本会识别 404/E404 并打印「还没发布到 npmjs」，不是让人干瞪着一坨 npm 原始报错猜。
     - `.sdk-release/` 已加进 `.gitignore`。
   - **类型检查按包的 `.d.ts`**：`demo/tsconfig.sdk-local.json`、`demo/tsconfig.sdk-public.json`、`demo-react/` 同名两份——都
     `extends` 各自的 `tsconfig.json`、只覆盖 `paths`（指到 `.sdk-release/<档>/node_modules/<包名>/dist/index.d.ts`）。
@@ -39,7 +38,7 @@
     提示，不是业务日志，跟 CONVENTIONS §6 那套字段名 / 脱敏约束不相干）——不加的话 `demo/vite.config.ts` 在扫描范围内会被拦。
   - **`scripts/test.sh` 新增第 15 步「本地包档校验（IMRTC_SDK=local）」**（离线可跑，不碰 registry）：
     `pack-sdk.sh local` → 两个 Demo 按包类型检查 → 两个 Demo 在 `IMRTC_SDK=local` 下 `vite build` 成功。
-    默认 `source` 档原有 14 步不变；`public` 档要连网且包还没发布，不进 `test.sh`，发布后人工照「常用命令」自己跑。
+    默认 `source` 档原有 14 步不变；`public` 档要连网，不进 `test.sh`，发版后人工照「常用命令」自己跑。
   - `scripts/check-pack.sh` 不用改——它用 `require(...).name` 动态读包名，改名对它透明。
 - **验证（都真跑过）**：
   - 负向证明本地包档没用源码：`IMRTC_SDK=local` 下两个 Demo 的 build 产物（`demo/dist/assets/*.js`、`demo-react/dist/assets/*.js`）
@@ -51,9 +50,7 @@
 
 ## 下一步
 
-0. **两个包真发布到 npm 后**：跑一次 `./scripts/pack-sdk.sh public` 验证能装到（现在必现 404，是预期的、不是 bug）；
-   跑 `npm run typecheck:sdk-public`；再跑一次 `IMRTC_SDK=public npm run build -w demo` / `-w demo-react` 确认能建。
-   这几步现在都还没跑过（跑不了——包没发布），发布后补上，别当作「已验证」。
+0. ~~发布后验公网包~~：2026-09-17 两个包已发 npm 1.0.0（用户在终端用通行密钥发的——`npm publish` 要 2FA，Claude 这边没 TTY 发不了），`pack-sdk.sh public` + 两个 Demo 按包类型检查 + vite build 都过；仓外空工程只装 uikit 也带上 engine。
 2. 用户自测（服务端先重启）：发起人挂断后，被叫在选人页能选到他并邀请；他那边来电页不出现自己的格子。自测过了跑 `./scripts/test.sh` 再提交。
 3. API 命名对齐遗留：`engine.ts`（582 行）与 `media/webrtcAdapter.ts`（529 行）体量 WARN，再往里加东西前先拆；
    `destroy()` 之后哪些方法抛 2005 没和 iOS / Android 逐条对表；`openMicrophone` / `openCamera` 等四个开关只有 engine 层单测、没在真浏览器点过。
