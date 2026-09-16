@@ -7,16 +7,16 @@
 
 ## 当前焦点
 
-**2026-09-17：SDK 1.0.0 已公网发布（npmjs，MIT），手上没有在做的改动**（main 已推、工作区干净）。
-- 包 `im-rtc-call-engine` / `im-rtc-call-uikit-react`（原 `@im-rtc/*` 作用域被人占了才改名），帐号 `libeyond`。公网档 09-17 验过：`pack-sdk.sh public` + 两个 Demo 按包类型检查 + vite build；仓外空工程只装 uikit 也带上 engine。
-- 最近提交：§A 发布被拒收场 `a574b48`（真机 ✅ 09-17）· 来电铃声 + 回铃音 `9c6efac`（真机 ✅）· `inviter` `44d1529` · 选人页 `9f7c399` · API 命名对齐 `90d0668` · 1409 提示 `f150c89` · 宿主对接 `b348e37`。
-- 发布准备的实现细节（LICENSE 每包一份、`pack-sdk.sh` 两档怎么装、负向验证）在 archive 顶节。
+**2026-09-17 夜：补了三件（本地已提交、未推送），`test.sh` 15 步全绿，并在 Chrome 5179 上真实验过。** SDK 1.0.0 已公网发布，这些进下一个版本。
+- `b3fe407` engine 收 `call.ringing` 抛 `userRinging`，uikit 群通话里别人加的人也摆占位格——**三标签页真实验证**：alice 加 bob，carol 看到「呼叫中」，bob 拒接后「已拒绝」2 s 收掉。
+- `fd6a862` 会议房「还有 N 人未显示」+ 屏外报 none（M1）——**真实验证**：alice + 11 个假人，9 格 +「还有 3 人未显示」，第 13 人 1202。
+- `fbe06ae` 「对方网络不佳」横幅只在 1v1；服务端开始下发 `room.quality` 后客户端日志每 2 s 收到 level。
+- Chrome 扩展连 `127.0.0.1` 卡住、改 `localhost:5179` 就通了。
 
 ## 下一步
 
 1. **用户自测**（服务端先重启）：发起人挂断后，被叫在选人页能选到他并邀请；他那边来电页不出现自己的格子。
 2. **API 命名对齐遗留**：`destroy()` 之后哪些方法抛 2005 没和 iOS / Android 逐条对表；`openMicrophone` / `openCamera` 等四个开关没在真浏览器点过。
-3. **下个版本（协议批次，server 下一步 0）**：`call.ringing` 发给在场全员，uikit 消费它建占位格、按裁决帧收掉。
 4. **体量**：`engine.ts` 582、`media/webrtcAdapter.ts` 529 行 WARN，再往里加东西前先拆。
 5. 老漏洞：`demo-react/` 不在 `check-logging.sh` / `check-file-size.sh` 扫描范围（`for d in packages demo`）。
 6. 小瑕疵：铃声 `play()` 落定前被 `pause()` 打断会抛 `AbortError`，快速挂断时日志多一条误导性的「自动播放被拦下」。
