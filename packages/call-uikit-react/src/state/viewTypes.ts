@@ -83,6 +83,14 @@ export interface SelfState {
 /** ConnectionStatus 是信令连接的状态，驱动顶部的橙条。 */
 export type ConnectionStatus = 'ok' | 'reconnecting' | 'lost';
 
+/**
+ * RingtoneKind 是此刻该响哪种提示音，由 `ringtoneFor` 算出。
+ *
+ * `'none'` = 什么都不响；`'incoming'` = 来电铃声（循环）；`'ringback'` = 回铃音（循环）。
+ * 三端同名同义：iOS / Android 的等价判据也叫这三个值。
+ */
+export type RingtoneKind = 'none' | 'incoming' | 'ringback';
+
 /** CallViewState 是整个界面需要的全部数据。 */
 export interface CallViewState {
   readonly phase: CallPhase;

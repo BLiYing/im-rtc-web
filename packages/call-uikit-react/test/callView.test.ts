@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CallViewState, ViewAction } from '../src/state/callView.js';
-import { canShowInvite, defaultCameraOn, initialCallView, isCallVisible, reduceCallView } from '../src/state/callView.js';
+import {
+  canShowInvite, defaultCameraOn, initialCallView, isCallVisible, reduceCallView, ringtoneFor,
+} from '../src/state/callView.js';
 
 /** run 把一串动作依次喂进去，返回终态。 */
 function run(actions: ViewAction[], from: CallViewState = initialCallView): CallViewState {
@@ -267,5 +269,36 @@ describe('来电显示「谁把你拉进来的」', () => {
       mediaType: 'audio', isGroup: true, chatGroupId: '', userData: '',
     }]);
     expect(state.inviterUid).toBe('alice');
+  });
+});
+
+describe('ringtoneFor：此刻该响哪种提示音', () => {
+  it('incoming 阶段响来电铃声', () => {
+    const state: CallViewState = { ...initialCallView, phase: 'incoming' };
+    expect(ringtoneFor(state, false)).toBe('incoming');
+  });
+
+  it('outgoing 阶段响回铃音', () => {
+    const state: CallViewState = { ...initialCallView, phase: 'outgoing' };
+    expect(ringtoneFor(state, false)).toBe('ringback');
+  });
+
+  it('会议房没有振铃，phase 恰好是 incoming/outgoing 也不响', () => {
+    const state: CallViewState = { ...initialCallView, phase: 'incoming', isMeeting: true };
+    expect(ringtoneFor(state, false)).toBe('none');
+  });
+
+  it('muted 时一律不响，哪怕正在来电/呼出', () => {
+    const incomingState: CallViewState = { ...initialCallView, phase: 'incoming' };
+    const outgoingState: CallViewState = { ...initialCallView, phase: 'outgoing' };
+    expect(ringtoneFor(incomingState, true)).toBe('none');
+    expect(ringtoneFor(outgoingState, true)).toBe('none');
+  });
+
+  it('其余阶段（接通中 / 通话中 / 结束 / 空闲）都不响', () => {
+    for (const phase of ['idle', 'connecting', 'active', 'ended'] as const) {
+      const state: CallViewState = { ...initialCallView, phase };
+      expect(ringtoneFor(state, false)).toBe('none');
+    }
   });
 });

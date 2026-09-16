@@ -3,6 +3,7 @@ import type { CallEngine } from '@im-rtc/call-engine';
 import type { ReactNode } from 'react';
 import { createContext, useEffect, useMemo, useReducer, useRef } from 'react';
 
+import { DEFAULT_INCOMING_RINGTONE, DEFAULT_RINGBACK_TONE } from './audio/ringtoneAssets.js';
 import { endedHoldMs as holdMsFor } from './format/endReason.js';
 import type { CanInvite, InviteCandidate, InviteMemberProvider, PresentInvitePicker } from './invite/types.js';
 import { END_WATCHDOG_MS } from './redButtonWatchdog.js';
@@ -17,6 +18,7 @@ import { useCallActions } from './useCallActions.js';
 import type { PermissionPromptView } from './usePermissionGate.js';
 import { usePermissionGate } from './usePermissionGate.js';
 import { useRingingPreview } from './useRingingPreview.js';
+import { useRingtone } from './useRingtone.js';
 import { useVideoRevealFallback } from './useVideoRevealFallback.js';
 
 export type { CallActions } from './useCallActions.js';
@@ -72,6 +74,12 @@ export interface CallContextValue {
   readonly invite: InviteConfig;
   /** 来电先出横幅（true）还是直接进来电页（false）。见 `CallProviderProps.bannerFirst`。 */
   readonly bannerFirst: boolean;
+  /** 来电铃声的 URL（已按 `CallProviderProps.incomingRingtone` 落回内置默认）。 */
+  readonly incomingRingtone: string;
+  /** 回铃音的 URL（已按 `CallProviderProps.ringbackTone` 落回内置默认）。 */
+  readonly ringbackTone: string;
+  /** 来电铃声 / 回铃音是否静音；见 `CallProviderProps.ringtoneMuted`。 */
+  readonly ringtoneMuted: boolean;
 }
 
 export const CallContext = createContext<CallContextValue | null>(null);
@@ -114,6 +122,21 @@ export interface CallProviderProps {
    */
   readonly bannerFirst?: boolean;
   /**
+   * 来电铃声的 URL，不传用内置默认（`ringtoneAssets.ts` 的 `DEFAULT_INCOMING_RINGTONE`，
+   * 4s 可循环 mp3）。与 iOS / Android Kit 配置里的 `incomingRingtone` 同名同义。
+   */
+  readonly incomingRingtone?: string;
+  /**
+   * 回铃音（拨出去等待接听时的提示音）的 URL，不传用内置默认
+   * （`DEFAULT_RINGBACK_TONE`，5s 一周期 mp3）。三端同名同义。
+   */
+  readonly ringbackTone?: string;
+  /**
+   * 来电铃声 / 回铃音是否静音，默认 false。true 时两个音都不响，
+   * 界面（来电页 / 来电横幅 / 呼出中）照常显示，只是没有声音。
+   */
+  readonly ringtoneMuted?: boolean;
+  /**
    * 红键按下后等结束事件的最长时间，到点这一屏还在就本地收场并调 `engine.forceEnd()`
    * （见 `redButtonWatchdog.ts`）。默认 3000，与 iOS / Android 同数；测试可调短。
    */
@@ -129,6 +152,7 @@ export function CallProvider({
   inviteCandidates = NO_CANDIDATES, inviteMemberProvider, presentInvitePicker, canInvite,
   allowManualUidInput = false,
   permissionQuery = browserPermissionQuery, bannerFirst = true,
+  incomingRingtone = DEFAULT_INCOMING_RINGTONE, ringbackTone = DEFAULT_RINGBACK_TONE, ringtoneMuted = false,
   endWatchdogMs = END_WATCHDOG_MS,
 }: CallProviderProps): ReactNode {
   const [state, dispatch] = useReducer(reduceCallView, initialCallView);
@@ -136,6 +160,7 @@ export function CallProvider({
   const gate = usePermissionGate(engine, dispatch, permissionQuery);
   const { actions, publishFor, joinCall } = useCallActions({ engine, state, dispatch, cids, gate, endWatchdogMs });
   useRingingPreview({ engine, state, dispatch, query: permissionQuery, pageShown: showsIncomingPage(state, bannerFirst) });
+  useRingtone({ engine, state, muted: ringtoneMuted, incomingRingtone, ringbackTone });
 
   useEffect(() => subscribeEngine(engine, dispatch), [engine]);
   useVideoRevealFallback(state.participants, dispatch);
@@ -278,8 +303,14 @@ export function CallProvider({
     [inviteMemberProvider, presentInvitePicker, canInvite, allowManualUidInput],
   );
   const value = useMemo<CallContextValue>(
-    () => ({ state, engine, actions, joinCall, prompt: gate.prompt, candidates: inviteCandidates, invite, bannerFirst }),
-    [state, engine, actions, joinCall, gate.prompt, inviteCandidates, invite, bannerFirst],
+    () => ({
+      state, engine, actions, joinCall, prompt: gate.prompt, candidates: inviteCandidates, invite, bannerFirst,
+      incomingRingtone, ringbackTone, ringtoneMuted,
+    }),
+    [
+      state, engine, actions, joinCall, gate.prompt, inviteCandidates, invite, bannerFirst,
+      incomingRingtone, ringbackTone, ringtoneMuted,
+    ],
   );
   return <CallContext.Provider value={value}>{children}</CallContext.Provider>;
 }

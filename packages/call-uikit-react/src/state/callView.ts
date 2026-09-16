@@ -5,11 +5,11 @@ import {
   revokeLastInvited, setVideo, settleParticipant, withParticipant,
 } from './participants.js';
 import { initialCallView } from './viewTypes.js';
-import type { CallViewState, ViewAction } from './viewTypes.js';
+import type { CallViewState, RingtoneKind, ViewAction } from './viewTypes.js';
 
 export { initialCallView } from './viewTypes.js';
 export type {
-  CallPhase, CallViewState, ConnectionStatus, RemoteParticipant, SelfState, SettledOutcome, ViewAction,
+  CallPhase, CallViewState, ConnectionStatus, RemoteParticipant, RingtoneKind, SelfState, SettledOutcome, ViewAction,
 } from './viewTypes.js';
 
 /**
@@ -320,6 +320,22 @@ export function showsIncomingPage(state: CallViewState, bannerFirst: boolean): b
 /** isCallVisible 判断此刻界面上该不该有通话 UI。 */
 export function isCallVisible(state: CallViewState): boolean {
   return state.phase !== 'idle';
+}
+
+/**
+ * ringtoneFor 决定此刻该响来电铃声、回铃音，还是不响（`useRingtone` 的判据）。
+ *
+ * 三端同名同义（`ringtoneFor`）。规则按优先级：
+ * - `muted`（宿主传的 `ringtoneMuted`，或本端已手动静音）为 true → 一律不响；
+ * - 会议房（`isMeeting`）没有振铃这回事 → 不响；
+ * - `incoming` 阶段响来电铃声，`outgoing` 阶段响回铃音；
+ * - 其余阶段（接通中 / 通话中 / 结束 / 空闲）都不响。
+ */
+export function ringtoneFor(state: CallViewState, muted: boolean): RingtoneKind {
+  if (muted || state.isMeeting) return 'none';
+  if (state.phase === 'incoming') return 'incoming';
+  if (state.phase === 'outgoing') return 'ringback';
+  return 'none';
 }
 
 /**

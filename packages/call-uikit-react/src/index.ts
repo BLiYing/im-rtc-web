@@ -47,13 +47,14 @@ export { TopBanner } from './components/TopBanner.js';
 
 export {
   canShowInvite, defaultCameraOn, initialCallView, inviteSlotsLeft, isCallVisible, reduceCallView,
-  showsIncomingPage,
+  ringtoneFor, showsIncomingPage,
 } from './state/callView.js';
 export type {
   CallPhase,
   CallViewState,
   ConnectionStatus,
   RemoteParticipant,
+  RingtoneKind,
   SelfState,
   SettledOutcome,
   ViewAction,
