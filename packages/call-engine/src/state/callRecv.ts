@@ -44,6 +44,9 @@ export function reduceRecv(
       return handleInviteOk(ctx, data);
     case FrameType.callConnected:
       return handleConnected(ctx, data);
+    case FrameType.callRinging:
+      // 服务端发给通话里的所有人（协议 §4.2，2026-09-17 起），界面据此给正在响铃的人摆占位格。
+      return out(ctx, [], [{ cb: 'onUserRinging', args: { uid: str(data, 'uid') } }]);
     case FrameType.callAccepted:
       return out(ctx, [], [{ cb: 'onUserAccept', args: { uid: str(data, 'uid') } }]);
     case FrameType.callRejected:
@@ -67,7 +70,7 @@ export function reduceRecv(
         },
       ]);
     default:
-      // 其余（call.ringing、各种 .ok）不改状态也不抛回调。
+      // 其余（各种 .ok）不改状态也不抛回调。
       return out(ctx);
   }
 }

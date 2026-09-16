@@ -43,6 +43,22 @@ export function addInvited(state: CallViewState, uids: readonly string[]): CallV
 }
 
 /**
+ * markRinging：某人的设备开始响铃（`userRinging`）。**不是本端加的人也摆占位格**——
+ * 协议 2026-09-17 起 `call.ringing` 发给通话里的所有人，A 加了 B，C 这边也要看得见 B 在响，
+ * 否则 C 只会凭空收到「B 没接听」，还会再邀请一次。
+ *
+ * 只在群通话里摆（1v1 的对方本来就是大画面）；已经接听的人不动；
+ * 标了终局还没收掉的人（被重新邀请了）清掉终局，收格子的计时器随之撤掉。
+ */
+export function markRinging(state: CallViewState, uid: string): CallViewState {
+  if (!state.isGroup || state.phase === 'idle' || state.phase === 'ended' || state.phase === 'incoming') return state;
+  const existing = state.participants.find((p) => p.uid === uid);
+  if (existing === undefined) return addInvited(state, [uid]);
+  if (existing.hasAccepted || existing.settled === '') return state;
+  return { ...state, participants: state.participants.map((p) => (p.uid === uid ? { ...p, settled: '' } : p)) };
+}
+
+/**
  * settleParticipant 给邀请中的格子标上终局。**先标不删**：
  * 拒接就跟没发生过一样地消失，主叫会以为自己没点到；停 2s 让人看见「已拒绝」再收。
  * 已接听的人收到终局（理论上不会）就直接忽略。

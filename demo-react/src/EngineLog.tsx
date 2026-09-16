@@ -23,7 +23,7 @@ const WATCHED: EngineEventName[] = [
   'callReceived', 'callBegin', 'callEnd',
   'callCancelled', 'callRejected', 'callBusy', 'callNoAnswer', 'handledOnOtherDevice',
   'roomJoined', 'roomLeft', 'roomClosed',
-  'userEnter', 'userLeave', 'userAccept', 'userReject', 'userNoResponse',
+  'userEnter', 'userLeave', 'userRinging', 'userAccept', 'userReject', 'userNoResponse',
   // 音频与视频**两条都要在**：只显示视频那条的话，语音通话看起来像什么都没发生。
   'userAudioAvailable', 'userVideoAvailable', 'firstVideoFrame',
 ];

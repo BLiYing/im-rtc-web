@@ -260,6 +260,8 @@ export type ViewAction =
   | { readonly type: 'cameraBlocked' }
   /** 本端往群通话里又拉了一批人，先摆上占位格。 */
   | { readonly type: 'invited'; readonly uids: readonly string[] }
+  /** 某人的设备开始响铃（不一定是本端加的人）：摆占位格。 */
+  | { readonly type: 'userRinging'; readonly uid: string }
   /** 某人给出了终局裁决（拒接 / 无应答 / 不在线），格子先标上终局、稍后再收。 */
   | { readonly type: 'userSettled'; readonly uid: string; readonly outcome: SettledOutcome }
   /** 终局停够了，把格子收掉。 */

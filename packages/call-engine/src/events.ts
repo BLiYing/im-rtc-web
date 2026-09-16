@@ -122,6 +122,12 @@ export interface EngineEvents {
   // ── 成员 ────────────────────────────────────────────────
   userEnter: { uid: string };
   userLeave: { uid: string };
+  /**
+   * 某人的设备开始响铃（协议 `call.ringing`）。**通话里的人都收到**，不含正在响铃的人自己——
+   * 群通话里别人加了人，你也能给他摆「呼叫中」占位格，随后由 `userAccept` / `userReject` /
+   * `userNoResponse` 收掉。1v1 主叫也会收到（可据此把「正在呼叫…」改成「等待对方接听」）。
+   */
+  userRinging: { uid: string };
   userAccept: { uid: string };
   userReject: { uid: string };
   userNoResponse: { uid: string };
@@ -179,6 +185,7 @@ export const MACHINE_EVENT_NAMES: Readonly<Record<string, EngineEventName>> = {
   onHandledOnOtherDevice: 'handledOnOtherDevice',
   onUserEnter: 'userEnter',
   onUserLeave: 'userLeave',
+  onUserRinging: 'userRinging',
   onUserAccept: 'userAccept',
   onUserReject: 'userReject',
   onUserNoResponse: 'userNoResponse',

@@ -1,7 +1,7 @@
 import type { MediaType } from 'im-rtc-call-engine';
 
 import {
-  addInvited, applyNetwork, applySpeakers, newParticipant, removeParticipant, revealVideo,
+  addInvited, applyNetwork, applySpeakers, markRinging, newParticipant, removeParticipant, revealVideo,
   revokeLastInvited, setVideo, settleParticipant, withParticipant,
 } from './participants.js';
 import { initialCallView } from './viewTypes.js';
@@ -185,6 +185,9 @@ export function reduceCallView(state: CallViewState, action: ViewAction): CallVi
     case 'invited':
       // **整批替换**而不是累加：只有最近这一批失败了才收，与 iOS `lastInvited` 同形。
       return { ...addInvited(state, action.uids), lastInvited: action.uids };
+
+    case 'userRinging':
+      return markRinging(state, action.uid);
 
     case 'userEnter':
     case 'userAccept':

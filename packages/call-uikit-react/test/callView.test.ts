@@ -221,6 +221,50 @@ describe('群通话里的终局裁决', () => {
 });
 
 /*
+  协议 2026-09-17 起 call.ringing 发给通话里的所有人：别人加的人也要摆占位格，
+  否则 C 只会凭空收到「B 没接听」，还会再邀请一次正在响铃的 B。
+*/
+describe('userRinging：别人加的人也摆占位格', () => {
+  const inGroup: ViewAction[] = [
+    { type: 'callReceived', callId: 'c-1', caller: 'alice', calleeIds: ['carol'], mediaType: 'video', isGroup: true },
+    { type: 'callBegin', callId: 'c-1', roomId: 'r-1', mediaType: 'video', isGroup: true, role: 'callee', nowMs: 0 },
+    { type: 'userAccept', uid: 'alice' },
+  ];
+
+  it('群通话里某人开始响铃：摆一个没接听的占位格，接听后转正', () => {
+    const ringing = run([...inGroup, { type: 'userRinging', uid: 'dave' }]);
+    expect(ringing.participants.find((p) => p.uid === 'dave')?.hasAccepted).toBe(false);
+    const accepted = run([{ type: 'userAccept', uid: 'dave' }], ringing);
+    expect(accepted.participants.find((p) => p.uid === 'dave')?.hasAccepted).toBe(true);
+  });
+
+  it('不占 lastInvited：不是本端加的，1202 / 1407 收回时不该收它', () => {
+    const state = run([...inGroup, { type: 'userRinging', uid: 'dave' }]);
+    expect(state.lastInvited).toEqual([]);
+  });
+
+  it('重复的 userRinging 不重复摆；已接听的人不动', () => {
+    const state = run([...inGroup, { type: 'userRinging', uid: 'dave' }, { type: 'userRinging', uid: 'dave' },
+      { type: 'userRinging', uid: 'alice' }]);
+    expect(state.participants.filter((p) => p.uid === 'dave')).toHaveLength(1);
+    expect(state.participants.find((p) => p.uid === 'alice')?.hasAccepted).toBe(true);
+  });
+
+  it('标了终局还没收掉又被重新邀请：清掉终局', () => {
+    const state = run([...inGroup, { type: 'userRinging', uid: 'dave' },
+      { type: 'userSettled', uid: 'dave', outcome: 'rejected' }, { type: 'userRinging', uid: 'dave' }]);
+    expect(state.participants.find((p) => p.uid === 'dave')?.settled).toBe('');
+  });
+
+  it('1v1 与来电页不摆（1v1 的对方本来就是大画面）', () => {
+    const ringingPage = run([{ ...incoming, isGroup: true } as ViewAction]);
+    expect(run([{ type: 'userRinging', uid: 'dave' }], ringingPage)).toBe(ringingPage);
+    const oneToOne = run([{ type: 'callPlaced', calleeIds: ['bob'], mediaType: 'video', isGroup: false }]);
+    expect(run([{ type: 'userRinging', uid: 'dave' }], oneToOne)).toBe(oneToOne);
+  });
+});
+
+/*
   还在响铃的来电结束时**直接回 idle**，不留结束画面——
   否则来电浮层会当场变成通话页（那一排接通后才有的按钮全出来），停一两秒再消失。
 */

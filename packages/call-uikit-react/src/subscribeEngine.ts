@@ -27,6 +27,8 @@ export function subscribeEngine(engine: CallEngine, dispatch: (action: ViewActio
     engine.on('callEnd', (e) => dispatch({ type: 'callEnd', reason: e.reason, durationSec: e.durationSec })),
     engine.on('userEnter', (e) => dispatch({ type: 'userEnter', uid: e.uid })),
     engine.on('userLeave', (e) => dispatch({ type: 'userLeave', uid: e.uid })),
+    // 通话里任何人加的人开始响铃都会来（协议 call.ringing 发在场全员），不只是本端加的。
+    engine.on('userRinging', (e) => dispatch({ type: 'userRinging', uid: e.uid })),
     engine.on('userAccept', (e) => dispatch({ type: 'userAccept', uid: e.uid })),
     /*
       拒接与无应答要在格子上写明终局再收掉——直接收的话，从主叫的角度看，
