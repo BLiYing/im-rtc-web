@@ -1,4 +1,4 @@
-import type { Layer } from '@im-rtc/call-engine';
+import type { Layer } from 'im-rtc-call-engine';
 
 /**
  * 九宫格布局与**层上界**的计算。

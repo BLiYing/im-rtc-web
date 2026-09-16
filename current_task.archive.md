@@ -3,6 +3,55 @@
 > 2026-09-05 从 `current_task.md` 整体搬来。之后的历史看 `git log`。
 
 
+## 2026-09-16 夜（SDK 改名 / IMRTC_SDK 三档开关前）：静默失败审计 §A + 来电铃声 + 重新邀请发起人 + API 命名对齐
+
+2026-09-16 深夜被「SDK 改名 + npm 公开发布准备」挤下 `current_task.md` 前的原文，照录。
+
+### 当时的「当前焦点」
+
+**2026-09-16（第三轮，已提交（`git log` 里标题为「call: 发布 / 订阅被拒要收场」那笔），未上真端）：静默失败审计 §A——发布 / 订阅被拒要收场。** `./scripts/test.sh` 14 步全绿（engine 393 条）。
+- `frameLoop.ts` 的 `rollback` 改收整帧：`room.publish` 被拒且通话机非 idle → `forceEnd(now, CallEndReason.error)`；否则内部事件 `publish_failed{cid}`；`room.subscribe` 被拒 → `subscribe_failed{track_id}`。
+- `MachineInput` 的 internal 加可选 `args`；`engineMachine.ts` 用 `ROOM_FAILURES` 把四条失败统一路由给房间机；`roomMachine.ts` 新增 `dropFailedPublish` / `dropFailedSubscribe`；`state/forceEnd.ts` 加可选 reason 覆盖。
+- 用例：`failureRecovery.test.ts`「发布被拒要收场」两条、`roomMachine.test.ts`「房间帧被拒的回滚」两条。负向验证：撤掉 `frameLoop.ts` 后两条端到端用例变红。
+
+**2026-09-16（第二轮，已提交 `9c6efac`，真机验收通过）：来电铃声 + 回铃音。** `./scripts/test.sh` 14 步全绿（uikit 17 文件 195 条，含新增 11 条）。
+- **素材走 base64 常量**：`packages/call-uikit-react/src/audio/ringtoneAssets.ts`（61KB，32 行）。**不是懒**——本包的构建只有 `tsc -b`，
+  没开 `allowArbitraryExtensions`、`tsc` 也不拷非 TS 文件，`import ring from './x.mp3'` 在当前配置下**直接不成立**；
+  加打包步骤要动 `files` / `exports` / demo-react 的 alias-to-src，风险比 61KB 常量大。体量门禁按行数算，单行 base64 不触红线。
+- 纯判据 `ringtoneFor(state, muted)` 在 `state/callView.ts`（`RingtoneKind` 在 `viewTypes.ts`），三端同名同义：
+  `muted` / `isMeeting` → `'none'`；`incoming` → `'incoming'`；`outgoing` → `'ringback'`；其余 `'none'`。
+- 播放 `src/useRingtone.ts`（骨架复刻 `useRingingPreview.ts`），在 `CallProvider` 里与它并排调用；`new Audio()` + `loop`，
+  **不接进 `engine.attachView` 体系**（那是远端轨道的）。起停靠 effect 依赖 `[kind, …]` 驱动，cleanup 里 `pause()` + `currentTime = 0`。
+- 三个可选 prop 照 `bannerFirst` 五步走：`incomingRingtone` / `ringbackTone` / `ringtoneMuted`（默认 false）。
+  **Web 上 `ringtoneMuted` 改了立刻生效**（响铃中也会停），iOS / Android 要等下一次起铃——那是各端配置机制本来就有的差别，同 `bannerFirst`。
+- **自动播放策略是硬限制**：来电时通常没有用户手势，`play()` 会被拒。只 `logger.warn`，静音继续通话，不做用户可见错误态。
+  `test/setup.ts` 里 stub 了 `HTMLMediaElement.prototype.play`/`pause`/`load`（jsdom 25 的 `play()` 不返回 Promise，`.catch()` 会 TypeError）。
+- 小瑕疵（未修）：`play()` 落定前被 cleanup 的 `pause()` 打断会抛 `AbortError`，被同一个 `.catch` 接住 → 快速挂断时日志里会多一条
+  「自动播放被拦下」的**误导性**记录。行为无害，只是日志会骗人。
+
+**2026-09-16（第一轮，已提交 `44d1529`）：离场的发起人可以被重新邀请。** 服务端去掉了 `invite_more` 对发起人的 `bad_params`（见 server current_task）。本仓：
+- `InvitePicker.tsx` 去掉「暂时无法邀请」分支与手输 uid 时对发起人的排除，离场的人（含发起人）照常可选。
+- `callView.ts` 的 `callReceived` 加可选 `selfUid`（`subscribeEngine.ts` 传 `engine.uid`）：发起人就是自己时不给自己摆格子。
+  来电页显示 `participants[0]`，被重新邀请的发起人看到的是通话里某个被叫的名字。`engine.ts` 的 `inviteMore` 注释跟改。
+- 测试：`interactions.test.tsx` 改为断言离场的发起人可选并能邀请；`callView.test.ts` 新增「caller 就是自己不摆格子」。
+  只跑了 `tsc -b`、demo-react 类型检查与 `callView` / `interactions` / `hostIntegration` 三个文件（68 条过），`test.sh` 全量没跑。
+
+- **协议新增 `call.incoming.inviter`**（同批已提交 `44d1529`，四端同改）：「谁把你拉进来的」，首次邀请就是 `caller`，群通话里被别人加进来时是那个人；旧服务端不带就回落 `caller`（engine 兜好，宿主不用判空）。
+  `events.ts` 的 `callReceived` 加 `inviter`、`callRecv.ts` 解析并回落；`CallViewState.inviterUid`（`viewTypes.ts` / `callView.ts` / `subscribeEngine.ts`）；来电横幅 `IncomingCall.tsx` 与来电页 `ActiveCall.tsx` 显示它，九宫格与 `callerUid` 仍用 caller。
+  新增 engine `callMachine.test.ts` 两条（带 inviter / 回落）、uikit `callView.test.ts` 两条；server 仓的 `call_fsm.json` 另加了两条向量用例，本仓 `callMachine.test.ts` 自动跑到。
+  跑了 `tsc -b`、两个 Demo 的类型检查（自画 UI + 引 uikit）、engine `callMachine`（32 条）与 uikit 5 个文件（115 条）。
+
+**同日已提交 `9f7c399`**：选人页列出全部成员（在通话里统一置灰「已在通话中」）、搜索框「放大镜 + 输入框」一行（`iconShapes.tsx` 的 `magnifyingglass`，Android 同一份路径）。
+
+### 当时的「下一步」
+
+0. **§A 发布被拒收场：用故障注入上真端走一遍**（先 `FAULT_INJECTION=1 ./scripts/dev.sh`）：通话接通后 `curl -X POST $B/v1/dev/faults -d '{"action":"reject","uid":"<本端uid>","frame_type":"room.publish","code":1302}'`，再开一次麦 / 摄像头 → 本端收场、结束原因 error、对端收到挂断。过了把 CLIENT_PARITY 那一行 🟡 转 ✅。代码已提交，真机验收后续再做（2026-09-16 用户定）。
+1. 用户自测（服务端先重启）：发起人挂断后，被叫在选人页能选到他并邀请；他那边来电页不出现自己的格子。自测过了跑 `./scripts/test.sh` 再提交。
+2. API 命名对齐遗留：`engine.ts`（582 行）与 `media/webrtcAdapter.ts`（529 行）体量 WARN，再往里加东西前先拆；
+   `destroy()` 之后哪些方法抛 2005 没和 iOS / Android 逐条对表；`openMicrophone` / `openCamera` 等四个开关只有 engine 层单测、没在真浏览器点过。
+
+---
+
 ## 2026-09-15 深夜（选人页优化前）：四端 API 命名对齐（已提交 `90d0668`）
 
 2026-09-15 夜从 current_task.md 移出，原文照录。

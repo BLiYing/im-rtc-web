@@ -6,8 +6,8 @@
     "jsx": "react-jsx",
     "types": ["vite/client", "node"],
     "paths": {
-      "@im-rtc/call-engine": ["../packages/call-engine/src/index.ts"],
-      "@im-rtc/call-uikit-react": ["../packages/call-uikit-react/src/index.ts"],
+      "im-rtc-call-engine": ["../packages/call-engine/src/index.ts"],
+      "im-rtc-call-uikit-react": ["../packages/call-uikit-react/src/index.ts"],
       "@demo/synthetic": ["../demo/src/syntheticMedia.ts"],
       "@demo/connection-guard": ["../demo/src/connectionGuard.ts"]
     }

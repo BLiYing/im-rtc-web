@@ -1,5 +1,5 @@
-import { CallEngine, WebRTCAdapter, setLogLevel } from '@im-rtc/call-engine';
-import type { EngineEventName } from '@im-rtc/call-engine';
+import { CallEngine, WebRTCAdapter, setLogLevel } from 'im-rtc-call-engine';
+import type { EngineEventName } from 'im-rtc-call-engine';
 
 import { createMeetingRoom, demoLogin, fetchRoomToken } from './api.js';
 import { guardConnection } from './connectionGuard.js';

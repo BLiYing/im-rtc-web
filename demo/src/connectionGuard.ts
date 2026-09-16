@@ -1,4 +1,4 @@
-import type { CallEngine } from '@im-rtc/call-engine';
+import type { CallEngine } from 'im-rtc-call-engine';
 
 /**
  * 宿主该怎么伺候一条信令连接 —— **这一整个文件都是「宿主该写的代码」的示范**。

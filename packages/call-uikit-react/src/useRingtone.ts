@@ -1,5 +1,5 @@
-import type { CallEngine } from '@im-rtc/call-engine';
-import { logger } from '@im-rtc/call-engine';
+import type { CallEngine } from 'im-rtc-call-engine';
+import { logger } from 'im-rtc-call-engine';
 import { useEffect } from 'react';
 
 import { DEFAULT_INCOMING_RINGTONE, DEFAULT_RINGBACK_TONE } from './audio/ringtoneAssets.js';

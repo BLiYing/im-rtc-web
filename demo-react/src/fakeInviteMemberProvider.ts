@@ -1,4 +1,4 @@
-import type { InviteMemberProvider } from '@im-rtc/call-uikit-react';
+import type { InviteMemberProvider } from 'im-rtc-call-uikit-react';
 
 import { DEMO_CONTACTS } from './contacts.js';
 

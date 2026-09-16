@@ -1,8 +1,8 @@
 {
-  "name": "@im-rtc/call-uikit-react",
+  "name": "im-rtc-call-uikit-react",
   "version": "1.0.0",
   "description": "im-rtc 的 React 通话界面：来电浮层、1v1、九宫格、小窗",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/BLiYing/im-rtc-web.git",
@@ -25,7 +25,7 @@
     "node": ">=18"
   },
   "publishConfig": {
-    "access": "restricted"
+    "access": "public"
   },
   "scripts": {
     "build": "tsc -b",
@@ -33,7 +33,7 @@
     "prepublishOnly": "tsc -b"
   },
   "dependencies": {
-    "@im-rtc/call-engine": "1.0.0"
+    "im-rtc-call-engine": "1.0.0"
   },
   "peerDependencies": {
     "react": "^18.3.0 || ^19.0.0",

@@ -1,4 +1,4 @@
-import { setLogLevel } from '@im-rtc/call-engine';
+import { setLogLevel } from 'im-rtc-call-engine';
 import { useCallback, useRef, useState } from 'react';
 
 import type { DemoSettings } from './settingsStore.js';

@@ -1,5 +1,5 @@
-import type { MediaType } from '@im-rtc/call-engine';
-import { ErrorCode, isRtcError } from '@im-rtc/call-engine';
+import type { MediaType } from 'im-rtc-call-engine';
+import { ErrorCode, isRtcError } from 'im-rtc-call-engine';
 
 /**
  * 权限申请的决策逻辑（交互稿 §01–§02），**纯函数 + 一个可注入的查询器**。

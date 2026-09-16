@@ -1,4 +1,4 @@
-import type { MediaType } from '@im-rtc/call-engine';
+import type { MediaType } from 'im-rtc-call-engine';
 import type { ReactNode } from 'react';
 
 import { useCall } from '../useCall.js';

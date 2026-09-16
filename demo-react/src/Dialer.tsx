@@ -1,4 +1,4 @@
-import { useCall } from '@im-rtc/call-uikit-react';
+import { useCall } from 'im-rtc-call-uikit-react';
 import type { ReactNode } from 'react';
 import { useState } from 'react';
 

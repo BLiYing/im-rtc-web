@@ -1,4 +1,4 @@
-import { SDK_VERSION, VideoProfiles } from '@im-rtc/call-engine';
+import { SDK_VERSION, VideoProfiles } from 'im-rtc-call-engine';
 import type { ReactNode } from 'react';
 
 import type { DemoSettings, VideoProfileKey } from './settingsStore.js';

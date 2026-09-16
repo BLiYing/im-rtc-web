@@ -1,4 +1,4 @@
-import type { CallEngine, EngineEventName, EngineEvents, Layer, MediaType } from '@im-rtc/call-engine';
+import type { CallEngine, EngineEventName, EngineEvents, Layer, MediaType } from 'im-rtc-call-engine';
 
 /**
  * FakeEngine 是 uikit 用到的那一小片 engine 接口。

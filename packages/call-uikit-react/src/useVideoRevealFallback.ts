@@ -1,4 +1,4 @@
-import { logger } from '@im-rtc/call-engine';
+import { logger } from 'im-rtc-call-engine';
 import { useEffect, useRef } from 'react';
 
 import type { RemoteParticipant, ViewAction } from './state/viewTypes.js';

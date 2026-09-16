@@ -1,5 +1,5 @@
 /**
- * `@im-rtc/call-uikit-react` —— im-rtc 的 React 通话界面。
+ * `im-rtc-call-uikit-react` —— im-rtc 的 React 通话界面。
  *
  * **它只消费 engine 的公开事件表**（`events.ts` = 设计文档 §7.5），没有任何私有通道。
  * 想自画 UI 的宿主拿到的信息与这里完全一致——这是产品边界，不是巧合。

@@ -29,3 +29,6 @@ yarn-error.log*
 
 # CodeGraph 本地索引缓存，不进版本库
 .codegraph/
+
+# scripts/pack-sdk.sh 的产物（本地打的包 / 从 registry 装的包），不进版本库
+.sdk-release/

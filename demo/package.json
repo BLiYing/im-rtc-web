@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@im-rtc/call-engine": "*"
+    "im-rtc-call-engine": "*"
   },
   "devDependencies": {
     "@types/node": "^26.4.1",

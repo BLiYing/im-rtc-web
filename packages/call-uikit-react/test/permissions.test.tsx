@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ErrorCode, RtcError } from '@im-rtc/call-engine';
+import { ErrorCode, RtcError } from 'im-rtc-call-engine';
 
 import { CallProvider } from '../src/CallProvider.js';
 import { CallOverlay } from '../src/components/CallOverlay.js';

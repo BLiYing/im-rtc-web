@@ -1,5 +1,5 @@
-import type { CallEngine, CallOptions, MediaType } from '@im-rtc/call-engine';
-import { logger } from '@im-rtc/call-engine';
+import type { CallEngine, CallOptions, MediaType } from 'im-rtc-call-engine';
+import { logger } from 'im-rtc-call-engine';
 import type { MutableRefObject } from 'react';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 

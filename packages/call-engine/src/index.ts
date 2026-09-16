@@ -1,5 +1,5 @@
 /**
- * `@im-rtc/call-engine` —— im-rtc 的无 UI 核心。
+ * `im-rtc-call-engine` —— im-rtc 的无 UI 核心。
  *
  * **框架无关**：本包禁止依赖 react 或任何 UI 库，且必须能在无 DOM 的环境构造
  * （一致性向量测试就跑在 Node 里）。DOM / WebRTC 的接触点收敛在 media/ 与 devices/。

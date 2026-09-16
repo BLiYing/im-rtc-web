@@ -1,6 +1,6 @@
-import type { CallEngine } from '@im-rtc/call-engine';
-import { CallEngine as Engine, VideoProfiles, WebRTCAdapter, setLogLevel, setLogSink } from '@im-rtc/call-engine';
-import { CallOverlay, CallProvider } from '@im-rtc/call-uikit-react';
+import type { CallEngine } from 'im-rtc-call-engine';
+import { CallEngine as Engine, VideoProfiles, WebRTCAdapter, setLogLevel, setLogSink } from 'im-rtc-call-engine';
+import { CallOverlay, CallProvider } from 'im-rtc-call-uikit-react';
 import { SyntheticMediaSource, browserMediaSource } from '@demo/synthetic';
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -205,7 +205,7 @@ export function App(): ReactNode {
     <>
       <h1>im-rtc · 引 uikit 的 Demo</h1>
       <p className="lead">
-        通话界面全部来自 <code>@im-rtc/call-uikit-react</code>，这一页只写了登录、拨号与记录——
+        通话界面全部来自 <code>im-rtc-call-uikit-react</code>，这一页只写了登录、拨号与记录——
         也就是<b>宿主本来就该自己写的那部分</b>。
       </p>
 

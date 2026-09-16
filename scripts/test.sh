@@ -96,6 +96,22 @@ run_step "vitest（demo-react）" npx vitest run --root demo-react
 # 漏写 files 字段会把源码、测试、tsconfig 全发出去，而那件事在本地跑测试是看不出来的。
 run_step "npm 打包体检" ./scripts/check-pack.sh
 
+# 本地包档校验（离线可跑，不碰 npm registry）：pack-sdk.sh local 把两个包按「真实
+# npm install 之后宿主会看到的样子」解包进 .sdk-release/local/node_modules，
+# 再让两个 Demo 分别按包的 .d.ts 类型检查、并且真的 vite build 一次。
+# 只测过「源码档能跑」不能说明「发出去的包能用」——engine.ts 漏导出一个类型、
+# uikit 漏进 dist 一个文件，这类问题只有脱离 src 别名之后才会暴露。
+# public 档要连网、且包还没发布，不进 test.sh；发布后由人工按 current_task.md 里的
+# 命令自己跑一次。
+verify_local_sdk_pack() {
+  ./scripts/pack-sdk.sh local || return 1
+  npx tsc --noEmit -p demo/tsconfig.sdk-local.json || return 1
+  npx tsc --noEmit -p demo-react/tsconfig.sdk-local.json || return 1
+  IMRTC_SDK=local npm run build -w demo || return 1
+  IMRTC_SDK=local npm run build -w demo-react || return 1
+}
+run_step "本地包档校验（IMRTC_SDK=local）" verify_local_sdk_pack
+
 echo ""
 echo "════════════════════════════════════════════════"
 if [ ${#failed[@]} -eq 0 ]; then

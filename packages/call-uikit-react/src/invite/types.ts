@@ -1,4 +1,4 @@
-import type { MediaType } from '@im-rtc/call-engine';
+import type { MediaType } from 'im-rtc-call-engine';
 
 /**
  * 「按通话向宿主要候选人」的类型（HOST_INTEGRATION_DESIGN §3.4，Web 命名对应 §3.4 表格）。

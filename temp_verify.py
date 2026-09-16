@@ -91,12 +91,12 @@ def check_manifests(rep: Report) -> None:
     lock = read_json(ROOT / "package-lock.json")
     rep.check("engine package.json = 1.0.0", engine.get("version") == VERSION, str(engine.get("version")))
     rep.check("uikit package.json = 1.0.0", uikit.get("version") == VERSION, str(uikit.get("version")))
-    dep = dig(uikit, "dependencies", "@im-rtc/call-engine")
+    dep = dig(uikit, "dependencies", "im-rtc-call-engine")
     rep.check("uikit 依赖 engine 1.0.0", dep == VERSION, str(dep))
     pkgs = dig(lock, "packages")
     rep.check("lockfile engine = 1.0.0", dig(pkgs, "packages/call-engine", "version") == VERSION)
     rep.check("lockfile uikit = 1.0.0", dig(pkgs, "packages/call-uikit-react", "version") == VERSION)
-    lock_dep = dig(pkgs, "packages/call-uikit-react", "dependencies", "@im-rtc/call-engine")
+    lock_dep = dig(pkgs, "packages/call-uikit-react", "dependencies", "im-rtc-call-engine")
     rep.check("lockfile uikit 依赖 engine 1.0.0", lock_dep == VERSION, str(lock_dep))
 
 

@@ -1,4 +1,4 @@
-import { VideoProfiles } from '@im-rtc/call-engine';
+import { VideoProfiles } from 'im-rtc-call-engine';
 import { describe, expect, it } from 'vitest';
 
 import type { KeyValueStore } from '../src/settingsStore.js';

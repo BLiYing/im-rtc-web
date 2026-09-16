@@ -1,4 +1,4 @@
-import type { MediaSource } from '@im-rtc/call-engine';
+import type { MediaSource } from 'im-rtc-call-engine';
 
 /**
  * 合成音视频源：用 canvas 与 AudioContext 造轨道，**不碰摄像头与麦克风**。

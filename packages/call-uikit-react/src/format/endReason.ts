@@ -1,4 +1,4 @@
-import type { CallEndReasonValue } from '@im-rtc/call-engine';
+import type { CallEndReasonValue } from 'im-rtc-call-engine';
 
 import { formatDuration } from './duration.js';
 

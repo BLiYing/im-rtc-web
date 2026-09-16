@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "im-rtc-call-engine": ["../.sdk-release/local/node_modules/im-rtc-call-engine/dist/index.d.ts"],
+      "im-rtc-call-uikit-react": [
+        "../.sdk-release/local/node_modules/im-rtc-call-uikit-react/dist/index.d.ts"
+      ],
+      "@demo/synthetic": ["../demo/src/syntheticMedia.ts"],
+      "@demo/connection-guard": ["../demo/src/connectionGuard.ts"]
+    }
+  }
+}

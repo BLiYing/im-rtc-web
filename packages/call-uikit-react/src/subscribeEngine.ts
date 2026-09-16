@@ -1,5 +1,5 @@
-import type { CallEngine } from '@im-rtc/call-engine';
-import { ErrorCode } from '@im-rtc/call-engine';
+import type { CallEngine } from 'im-rtc-call-engine';
+import { ErrorCode } from 'im-rtc-call-engine';
 
 import type { ViewAction } from './state/viewTypes.js';
 

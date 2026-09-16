@@ -35,6 +35,10 @@ sources() {
 is_console_exempt() {
   case "$1" in
     */src/logger.ts) return 0 ;;
+    # 构建配置，不是业务代码：IMRTC_SDK 开关（scripts/lib/sdkAlias.ts）在这里打一行
+    # 「Demo 用的 SDK：源码/本地包/公网包」的启动提示，不经 engine 的 logger——
+    # 这条日志活在 vite 进程里，跟通话业务、脱敏、字段名那套约束（CONVENTIONS §6）不相干。
+    */vite.config.ts|*/vitest.config.ts) return 0 ;;
   esac
   return 1
 }

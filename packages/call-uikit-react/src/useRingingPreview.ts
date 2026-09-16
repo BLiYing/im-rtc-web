@@ -1,5 +1,5 @@
-import type { CallEngine } from '@im-rtc/call-engine';
-import { logger } from '@im-rtc/call-engine';
+import type { CallEngine } from 'im-rtc-call-engine';
+import { logger } from 'im-rtc-call-engine';
 import { useEffect, useRef } from 'react';
 
 import type { PermissionQuery } from './state/permissions.js';

@@ -1,55 +1,75 @@
 # Current Task — im-rtc-web（TS engine + React uikit + Demo）
 
-> **活快照**：就地覆盖、不追加。历史见 `git log` 与 [current_task.archive.md](current_task.archive.md)（新的在上，顶节「2026-09-15 深夜（选人页优化前）：四端 API 命名对齐」）。
+> **活快照**：就地覆盖、不追加。历史见 `git log` 与 [current_task.archive.md](current_task.archive.md)（新的在上，顶节「2026-09-16 夜（SDK 改名 / IMRTC_SDK 三档开关前）」）。
 > 规范 [CONVENTIONS.md](CONVENTIONS.md) · 分期 server `docs/design/RTC_CALL_DESIGN.md` §10 ·
 > 界面以设计稿 **v3.1** 为准：`../im-rtc-server/docs/design/sketches/RTC_CALL_UI_SPEC.html` / `RTC_CALL_UX_FLOWS.html`。
 > ✅ 状态只写在 `../im-rtc-server/docs/CLIENT_PARITY.md`。
 
 ## 当前焦点
 
-**2026-09-16（第三轮，已提交（`git log` 里标题为「call: 发布 / 订阅被拒要收场」那笔），未上真端）：静默失败审计 §A——发布 / 订阅被拒要收场。** `./scripts/test.sh` 14 步全绿（engine 393 条）。
-- `frameLoop.ts` 的 `rollback` 改收整帧：`room.publish` 被拒且通话机非 idle → `forceEnd(now, CallEndReason.error)`；否则内部事件 `publish_failed{cid}`；`room.subscribe` 被拒 → `subscribe_failed{track_id}`。
-- `MachineInput` 的 internal 加可选 `args`；`engineMachine.ts` 用 `ROOM_FAILURES` 把四条失败统一路由给房间机；`roomMachine.ts` 新增 `dropFailedPublish` / `dropFailedSubscribe`；`state/forceEnd.ts` 加可选 reason 覆盖。
-- 用例：`failureRecovery.test.ts`「发布被拒要收场」两条、`roomMachine.test.ts`「房间帧被拒的回滚」两条。负向验证：撤掉 `frameLoop.ts` 后两条端到端用例变红。
+**2026-09-16（第四轮，已提交（标题「构建: SDK 公网发布准备」，未推送），代码审查零问题，未上真端）：SDK 改名 + npm 公开发布准备 + `IMRTC_SDK` 三档开关。** `./scripts/test.sh` 15 步全绿（engine 393 / uikit 195 / demo-react 17）。
 
-**2026-09-16（第二轮，已提交 `9c6efac`，真机验收通过）：来电铃声 + 回铃音。** `./scripts/test.sh` 14 步全绿（uikit 17 文件 195 条，含新增 11 条）。
-- **素材走 base64 常量**：`packages/call-uikit-react/src/audio/ringtoneAssets.ts`（61KB，32 行）。**不是懒**——本包的构建只有 `tsc -b`，
-  没开 `allowArbitraryExtensions`、`tsc` 也不拷非 TS 文件，`import ring from './x.mp3'` 在当前配置下**直接不成立**；
-  加打包步骤要动 `files` / `exports` / demo-react 的 alias-to-src，风险比 61KB 常量大。体量门禁按行数算，单行 base64 不触红线。
-- 纯判据 `ringtoneFor(state, muted)` 在 `state/callView.ts`（`RingtoneKind` 在 `viewTypes.ts`），三端同名同义：
-  `muted` / `isMeeting` → `'none'`；`incoming` → `'incoming'`；`outgoing` → `'ringback'`；其余 `'none'`。
-- 播放 `src/useRingtone.ts`（骨架复刻 `useRingingPreview.ts`），在 `CallProvider` 里与它并排调用；`new Audio()` + `loop`，
-  **不接进 `engine.attachView` 体系**（那是远端轨道的）。起停靠 effect 依赖 `[kind, …]` 驱动，cleanup 里 `pause()` + `currentTime = 0`。
-- 三个可选 prop 照 `bannerFirst` 五步走：`incomingRingtone` / `ringbackTone` / `ringtoneMuted`（默认 false）。
-  **Web 上 `ringtoneMuted` 改了立刻生效**（响铃中也会停），iOS / Android 要等下一次起铃——那是各端配置机制本来就有的差别，同 `bannerFirst`。
-- **自动播放策略是硬限制**：来电时通常没有用户手势，`play()` 会被拒。只 `logger.warn`、静音继续通话，不做用户可见错误态。
-  `test/setup.ts` 里 stub 了 `HTMLMediaElement.prototype.play`/`pause`/`load`（jsdom 25 的 `play()` 不返回 Promise，`.catch()` 会 TypeError）。
-- 小瑕疵（未修）：`play()` 落定前被 cleanup 的 `pause()` 打断会抛 `AbortError`，被同一个 `.catch` 接住 → 快速挂断时日志里会多一条
-  「自动播放被拦下」的**误导性**记录。行为无害，只是日志会骗人。
-
-**2026-09-16（第一轮，已提交 `44d1529`）：离场的发起人可以被重新邀请。** 服务端去掉了 `invite_more` 对发起人的 `bad_params`（见 server current_task）。本仓：
-- `InvitePicker.tsx` 去掉「暂时无法邀请」分支与手输 uid 时对发起人的排除，离场的人（含发起人）照常可选。
-- `callView.ts` 的 `callReceived` 加可选 `selfUid`（`subscribeEngine.ts` 传 `engine.uid`）：发起人就是自己时不给自己摆格子。
-  来电页显示 `participants[0]`，被重新邀请的发起人看到的是通话里某个被叫的名字。`engine.ts` 的 `inviteMore` 注释跟改。
-- 测试：`interactions.test.tsx` 改为断言离场的发起人可选并能邀请；`callView.test.ts` 新增「caller 就是自己不摆格子」。
-  只跑了 `tsc -b`、demo-react 类型检查与 `callView` / `interactions` / `hostIntegration` 三个文件（68 条过），`test.sh` 全量没跑。
-
-- **协议新增 `call.incoming.inviter`**（同批已提交 `44d1529`，四端同改）：「谁把你拉进来的」，首次邀请就是 `caller`，群通话里被别人加进来时是那个人；旧服务端不带就回落 `caller`（engine 兜好，宿主不用判空）。
-  `events.ts` 的 `callReceived` 加 `inviter`、`callRecv.ts` 解析并回落；`CallViewState.inviterUid`（`viewTypes.ts` / `callView.ts` / `subscribeEngine.ts`）；来电横幅 `IncomingCall.tsx` 与来电页 `ActiveCall.tsx` 显示它，九宫格与 `callerUid` 仍用 caller。
-  新增 engine `callMachine.test.ts` 两条（带 inviter / 回落）、uikit `callView.test.ts` 两条；server 仓的 `call_fsm.json` 另加了两条向量用例，本仓 `callMachine.test.ts` 自动跑到。
-  跑了 `tsc -b`、两个 Demo 的类型检查（自画 UI + 引 uikit）、engine `callMachine`（32 条）与 uikit 5 个文件（115 条）。
-
-**同日已提交 `9f7c399`**：选人页列出全部成员（在通话里统一置灰「已在通话中」）、搜索框「放大镜 + 输入框」一行（`iconShapes.tsx` 的 `magnifyingglass`，Android 同一份路径）。
+- **包改名为不带作用域**：engine 包名改成 `im-rtc-call-engine`，uikit 包名改成 `im-rtc-call-uikit-react`
+  （原先各自挂在 `im-rtc` 这个 npm 作用域下，但该作用域被别人占了，公开发布只能用不带作用域的包名；版本仍 1.0.0）。
+  全仓 grep 旧的作用域包名清零（`current_task.archive.md` 除外，历史不改）；
+  两个包 `package.json`、两个 Demo 的 import / tsconfig paths / vite alias、`temp_verify.py`、`CLAUDE.md` / `CONVENTIONS.md` / `README.md` 都跟着改了名。
+  `npm install` 重建过 `package-lock.json` 与 `node_modules` 软链（`node_modules/im-rtc-call-engine` → `packages/call-engine`）。
+- **`publishConfig.access` 两个包都改成 `public`**（原先 `restricted`）。**`license` 定了 MIT**（用户拍板）：
+  两个包 `package.json` 的 `license` 从 `UNLICENSED` 改成 `"MIT"`；仓根新增 `LICENSE`（MIT，Copyright (c) 2026 BLiYing），
+  另外复制进 `packages/call-engine/LICENSE`、`packages/call-uikit-react/LICENSE`——**必须每个包自己目录下都有一份**，
+  npm 只自动打包"包自己目录里"的 LICENSE，monorepo 根那份不会跟着 `npm pack` 进去。`npm pack --dry-run` 已确认两个包的
+  清单里都多了 `LICENSE`（218 / 202 个文件），`check-pack.sh` 照常 ✓ 干净（它的坏文件正则不认 LICENSE，不会误报）。
+- **新增 `IMRTC_SDK=source|local|public` 开关**（环境变量，默认 `source`，即现状：别名直接指到 `src`）：
+  - `scripts/lib/sdkAlias.ts`：两个 `vite.config.ts` 共用的解析逻辑（避免各写一份走样）。`source` 档指到 `packages/<pkg>/src/index.ts`；
+    `local` / `public` 档指到 `.sdk-release/<档>/node_modules/<包名>` 的**包根目录**（让 vite 按包的 `exports` 字段解析，和真实宿主一样）；
+    目录不存在直接抛错，提示先跑 `pack-sdk.sh`。两个 `vite.config.ts` 都加了 `resolve.dedupe: ['react', 'react-dom']`，
+    启动时打一行 `console.log`（`[demo]` / `[demo-react]` 前缀）：「Demo 用的 SDK：源码 / 本地包 <路径>（<包名@版本>…）/ 公网包 <包名@版本>…」。
+  - **新脚本 `scripts/pack-sdk.sh local|public`**：
+    - `local`：`npx tsc -b` build 两个包 → `npm pack --pack-destination` 打 tgz → **手工 `tar` 解包**（不跑 `npm install`）进
+      `.sdk-release/local/node_modules/<包名>`——不跑 install 就没有 peer 依赖可装，天然满足「不要装 peer 依赖」这条要求，
+      落地结构等价于真实 `npm install` 后宿主 `node_modules` 里看到的样子。
+    - `public`：`npm install --no-save --no-package-lock --omit=peer --prefix .sdk-release/public <包名>@<版本>`（版本读包的
+      `package.json`）。现在两个包都还没发布，这一档必现 404——脚本会识别 404/E404 并打印「还没发布到 npmjs，发布后这一档才会成功，
+      发布前想验证用 `pack-sdk.sh local`」，不是让人干瞪着一坨 npm 原始报错猜。
+    - `.sdk-release/` 已加进 `.gitignore`。
+  - **类型检查按包的 `.d.ts`**：`demo/tsconfig.sdk-local.json`、`demo/tsconfig.sdk-public.json`、`demo-react/` 同名两份——都
+    `extends` 各自的 `tsconfig.json`、只覆盖 `paths`（指到 `.sdk-release/<档>/node_modules/<包名>/dist/index.d.ts`）。
+    `npm run typecheck:sdk-local` / `typecheck:sdk-public`（根 `package.json` 新脚本）各一条命令跑两个 Demo。
+  - **`scripts/check-logging.sh`** 给 `*/vite.config.ts`、`*/vitest.config.ts` 加了 console 豁免（这俩文件打的是构建期一次性
+    提示，不是业务日志，跟 CONVENTIONS §6 那套字段名 / 脱敏约束不相干）——不加的话 `demo/vite.config.ts` 在扫描范围内会被拦。
+  - **`scripts/test.sh` 新增第 15 步「本地包档校验（IMRTC_SDK=local）」**（离线可跑，不碰 registry）：
+    `pack-sdk.sh local` → 两个 Demo 按包类型检查 → 两个 Demo 在 `IMRTC_SDK=local` 下 `vite build` 成功。
+    默认 `source` 档原有 14 步不变；`public` 档要连网且包还没发布，不进 `test.sh`，发布后人工照「常用命令」自己跑。
+  - `scripts/check-pack.sh` 不用改——它用 `require(...).name` 动态读包名，改名对它透明。
+- **验证（都真跑过）**：
+  - 负向证明本地包档没用源码：`IMRTC_SDK=local` 下两个 Demo 的 build 产物（`demo/dist/assets/*.js`、`demo-react/dist/assets/*.js`）
+    `grep -c "packages/call-engine/src\|packages/call-uikit-react/src"` 都是 0。
+  - 负向证明类型检查真的在读包：临时从 `.sdk-release/local/node_modules/im-rtc-call-engine/dist/index.d.ts` 删掉
+    `export { WebRTCAdapter } ...` 这一行 → `npx tsc --noEmit -p demo/tsconfig.sdk-local.json` 立刻报
+    `TS2305: has no exported member 'WebRTCAdapter'` → 重新 `./scripts/pack-sdk.sh local` 后恢复绿。
+  - `npm pack --dry-run` 两个包清单只有 `dist/` + `package.json` + `LICENSE`（218 / 202 个文件，`dist/` 各 216 / 200 个），没有 `src/`、`test/`。
 
 ## 下一步
 
-0. **§A 发布被拒收场：用故障注入上真端走一遍**（先 `FAULT_INJECTION=1 ./scripts/dev.sh`）：通话接通后 `curl -X POST $B/v1/dev/faults -d '{"action":"reject","uid":"<本端uid>","frame_type":"room.publish","code":1302}'`，再开一次麦 / 摄像头 → 本端收场、结束原因 error、对端收到挂断。过了把 CLIENT_PARITY 那一行 🟡 转 ✅。代码已提交，真机验收后续再做（2026-09-16 用户定）。
-1. 用户自测（服务端先重启）：发起人挂断后，被叫在选人页能选到他并邀请；他那边来电页不出现自己的格子。自测过了跑 `./scripts/test.sh` 再提交。
-2. API 命名对齐遗留：`engine.ts`（582 行）与 `media/webrtcAdapter.ts`（529 行）体量 WARN，再往里加东西前先拆；
+0. **两个包真发布到 npm 后**：跑一次 `./scripts/pack-sdk.sh public` 验证能装到（现在必现 404，是预期的、不是 bug）；
+   跑 `npm run typecheck:sdk-public`；再跑一次 `IMRTC_SDK=public npm run build -w demo` / `-w demo-react` 确认能建。
+   这几步现在都还没跑过（跑不了——包没发布），发布后补上，别当作「已验证」。
+1. **§A 发布被拒收场：用故障注入上真端走一遍**（先 `FAULT_INJECTION=1 ./scripts/dev.sh`）：通话接通后
+   `curl -X POST $B/v1/dev/faults -d '{"action":"reject","uid":"<本端uid>","frame_type":"room.publish","code":1302}'`，
+   再开一次麦 / 摄像头 → 本端收场、结束原因 error、对端收到挂断。过了把 CLIENT_PARITY 那一行 🟡 转 ✅（2026-09-16 用户定，延后到真机验收）。
+2. 用户自测（服务端先重启）：发起人挂断后，被叫在选人页能选到他并邀请；他那边来电页不出现自己的格子。自测过了跑 `./scripts/test.sh` 再提交。
+3. API 命名对齐遗留：`engine.ts`（582 行）与 `media/webrtcAdapter.ts`（529 行）体量 WARN，再往里加东西前先拆；
    `destroy()` 之后哪些方法抛 2005 没和 iOS / Android 逐条对表；`openMicrophone` / `openCamera` 等四个开关只有 engine 层单测、没在真浏览器点过。
 
 ## 已知坑 / 限制
 
+- **`IMRTC_SDK` 三档只影响两个 Demo 的 `vite.config.ts`，不影响 `packages/` 本身**：`tsc -b`、`vitest run --root packages/*`
+  永远编译 / 跑的是源码，与这个开关无关；开关管的是「Demo 怎么导入 SDK」，不是「SDK 怎么被测」。
+- `.sdk-release/local|public/node_modules/<包名>` 不存在时两个 `vite.config.ts` 直接抛错（不是静默回落到 source）——
+  先跑 `./scripts/pack-sdk.sh local` 或 `public`。`pack-sdk.sh` 每次都会 `rm -rf` 重建对应档，不是增量装，不用自己先清。
+- **`demo-react/` 不在 `check-logging.sh` / `check-file-size.sh` 的扫描范围内**（老漏洞，未修，这次顺手确认过）：
+  `for d in packages demo` 只扫这两个目录。`demo-react/vite.config.ts` 的 `console.log` 因此天然不会被拦；
+  `demo/vite.config.ts` 在扫描范围内，全靠新增的 `*/vite.config.ts` 豁免才没被拦——以后改 `check-logging.sh` 的豁免表时留意别删掉这条。
 - **`callCancelled` 的公开事件字段是 `uid`，但线路帧 / 状态机内部回调参数仍是 `by`**（一致性向量
   钉死，四端共用）：新加 callMachine 相关代码或读 `call_fsm.json` 时**不要**假设两边字段名一致，
   翻译只发生在 `engineBus.ts` 的 `emitMachine` 里那一条特例分支。
@@ -104,11 +124,26 @@
 - 浏览器实测：两个标签页各登一个用户并**勾上「合成音视频源」**（Browser 面板里拿不到真麦克风）。
   ```bash
   ./scripts/install-hooks.sh                       # 新 clone 跑一次
-  ./scripts/test.sh                                # 唯一测试入口（14 步）
+  ./scripts/test.sh                                # 唯一测试入口（15 步，含 IMRTC_SDK=local 校验）
   npx vitest run --root packages/call-engine       # 只跑 engine 测试
   npx vitest run --root packages/call-uikit-react  # 只跑 uikit 测试（jsdom）
   npm test                                         # = 上面两条；根目录不能裸跑 vitest
-  npm run dev                                      # 自画 UI 的 Demo（:5178），前台
-  npm run dev:react                                # 引 uikit 的 Demo（:5179），前台
+  npm run dev                                      # 自画 UI 的 Demo（:5178），前台，IMRTC_SDK 默认 source
+  npm run dev:react                                # 引 uikit 的 Demo（:5179），前台，IMRTC_SDK 默认 source
   ./scripts/dev.sh [start|stop|status|logs] [demo|react]   # 后台起停，先杀后起、幂等，日志进 dev-logs/
+  ```
+- **`IMRTC_SDK` 三档怎么用**（验证「发出去的包本身能用」，Demo 在后两档里等于一个第三方宿主）：
+  ```bash
+  # source（默认）：不用做什么，改 packages/*/src 立刻在 Demo 里看到效果。
+
+  # local：验证「打出来的 tgz 能用」，不用发布、不用联网。
+  ./scripts/pack-sdk.sh local                       # build 两个包 → npm pack → 解包进 .sdk-release/local
+  npm run typecheck:sdk-local                       # 两个 Demo 按包的 .d.ts 类型检查
+  IMRTC_SDK=local npm run dev -w demo               # 或 dev -w demo-react；启动日志会打一行「本地包 <路径>」
+  IMRTC_SDK=local npm run build -w demo-react        # 验证能 build（test.sh 第 15 步已经跑这个）
+
+  # public：验证「发布到 npm 之后能用」，需要联网；两个包发布前必现 404（预期行为）。
+  ./scripts/pack-sdk.sh public                      # npm install --omit=peer 从 registry 装
+  npm run typecheck:sdk-public
+  IMRTC_SDK=public npm run dev -w demo-react
   ```

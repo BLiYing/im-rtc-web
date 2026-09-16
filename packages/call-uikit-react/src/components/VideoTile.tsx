@@ -1,4 +1,4 @@
-import type { Layer } from '@im-rtc/call-engine';
+import type { Layer } from 'im-rtc-call-engine';
 import type { CSSProperties, ReactNode } from 'react';
 import { useEffect, useRef } from 'react';
 

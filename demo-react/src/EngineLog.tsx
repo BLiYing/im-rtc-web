@@ -1,5 +1,5 @@
-import type { EngineEventName } from '@im-rtc/call-engine';
-import { useCall } from '@im-rtc/call-uikit-react';
+import type { EngineEventName } from 'im-rtc-call-engine';
+import { useCall } from 'im-rtc-call-uikit-react';
 import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 

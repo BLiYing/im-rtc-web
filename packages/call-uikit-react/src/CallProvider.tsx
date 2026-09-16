@@ -1,5 +1,5 @@
-import { logger } from '@im-rtc/call-engine';
-import type { CallEngine } from '@im-rtc/call-engine';
+import { logger } from 'im-rtc-call-engine';
+import type { CallEngine } from 'im-rtc-call-engine';
 import type { ReactNode } from 'react';
 import { createContext, useEffect, useMemo, useReducer, useRef } from 'react';
 

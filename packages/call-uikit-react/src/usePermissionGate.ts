@@ -1,5 +1,5 @@
-import type { CallEngine } from '@im-rtc/call-engine';
-import { logger } from '@im-rtc/call-engine';
+import type { CallEngine } from 'im-rtc-call-engine';
+import { logger } from 'im-rtc-call-engine';
 import { useCallback, useMemo, useState } from 'react';
 
 import type { DeviceKind, PermissionFailure, PermissionQuery } from './state/permissions.js';

@@ -1,4 +1,4 @@
-import type { CallEndReasonValue, CallRoleName, MediaType } from '@im-rtc/call-engine';
+import type { CallEndReasonValue, CallRoleName, MediaType } from 'im-rtc-call-engine';
 
 /**
  * 通话界面视图模型的**类型与初始值**。reducer 在 `callView.ts`，成员相关的叠加在 `participants.ts`。

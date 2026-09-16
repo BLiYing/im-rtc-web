@@ -1,4 +1,4 @@
-import type { CallEngine } from '@im-rtc/call-engine';
+import type { CallEngine } from 'im-rtc-call-engine';
 
 import { inviteSlotsLeft } from '../state/callView.js';
 import type { CallViewState } from '../state/viewTypes.js';

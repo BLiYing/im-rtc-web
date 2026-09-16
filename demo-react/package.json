@@ -9,8 +9,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@im-rtc/call-engine": "*",
-    "@im-rtc/call-uikit-react": "*"
+    "im-rtc-call-engine": "*",
+    "im-rtc-call-uikit-react": "*"
   },
   "devDependencies": {
     "vite": "^6.0.7"

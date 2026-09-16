@@ -8,7 +8,7 @@
       "node"
     ],
     "paths": {
-      "@im-rtc/call-engine": [
+      "im-rtc-call-engine": [
         "../packages/call-engine/src/index.ts"
       ]
     }

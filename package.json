@@ -15,7 +15,11 @@
     "test:uikit": "vitest run --root packages/call-uikit-react",
     "typecheck": "tsc -b --pretty",
     "dev": "npm run dev -w demo",
-    "dev:react": "npm run dev -w demo-react"
+    "dev:react": "npm run dev -w demo-react",
+    "pack-sdk:local": "./scripts/pack-sdk.sh local",
+    "pack-sdk:public": "./scripts/pack-sdk.sh public",
+    "typecheck:sdk-local": "tsc --noEmit -p demo/tsconfig.sdk-local.json && tsc --noEmit -p demo-react/tsconfig.sdk-local.json",
+    "typecheck:sdk-public": "tsc --noEmit -p demo/tsconfig.sdk-public.json && tsc --noEmit -p demo-react/tsconfig.sdk-public.json"
   },
   "devDependencies": {
     "@testing-library/dom": "^10.4.1",

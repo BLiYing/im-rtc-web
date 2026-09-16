@@ -6,8 +6,8 @@
 ## 1. 分层与包划分
 
 ```
-@im-rtc/call-engine        框架无关。禁止 import react / react-dom / 任何 UI 库。
-@im-rtc/call-uikit-react   UI。依赖 engine，只通过公开事件获取信息。
+im-rtc-call-engine        框架无关。禁止 import react / react-dom / 任何 UI 库。
+im-rtc-call-uikit-react   UI。依赖 engine，只通过公开事件获取信息。
 demo                       示例站点。依赖两者，不含 SDK 逻辑。
 ```
 

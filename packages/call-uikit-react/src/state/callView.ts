@@ -1,4 +1,4 @@
-import type { MediaType } from '@im-rtc/call-engine';
+import type { MediaType } from 'im-rtc-call-engine';
 
 import {
   addInvited, applyNetwork, applySpeakers, newParticipant, removeParticipant, revealVideo,

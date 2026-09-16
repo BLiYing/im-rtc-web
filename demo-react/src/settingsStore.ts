@@ -1,5 +1,5 @@
-import type { LogLevel } from '@im-rtc/call-engine';
-import { VideoProfiles } from '@im-rtc/call-engine';
+import type { LogLevel } from 'im-rtc-call-engine';
+import { VideoProfiles } from 'im-rtc-call-engine';
 
 /** VideoProfileKey 是 engine 导出的采集档位的键（p360 / p720 / p1080）。 */
 export type VideoProfileKey = keyof typeof VideoProfiles;
