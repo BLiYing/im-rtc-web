@@ -15,7 +15,7 @@ export function subscribeEngine(engine: CallEngine, dispatch: (action: ViewActio
   const off = [
     engine.on('callReceived', (e) =>
       // 名单里含自己，摆格子之前先去掉——「自己」不是远端成员。
-      dispatch({ type: 'callReceived', callId: e.callId, caller: e.caller,
+      dispatch({ type: 'callReceived', callId: e.callId, caller: e.caller, inviter: e.inviter, selfUid: engine.uid,
         calleeIds: e.calleeIds.filter((uid) => uid !== engine.uid),
         mediaType: e.mediaType, isGroup: e.isGroup,
         chatGroupId: e.chatGroupId, userData: e.userData })),

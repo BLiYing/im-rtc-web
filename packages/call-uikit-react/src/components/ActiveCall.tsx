@@ -132,7 +132,7 @@ function AudioWithPreview({ state, seconds }: { readonly state: CallViewState; r
   return (
     <div ref={stage.ref} style={{ ...styles.stage, flexDirection: 'column' }}>
       <AudioStage
-        name={state.peerUid || peer?.uid || '通话中'}
+        name={(state.phase === 'incoming' ? state.inviterUid : '') || state.peerUid || peer?.uid || '通话中'}
         status={statusLine(state, seconds)}
         isRinging={state.phase === 'outgoing'}
         networkLevel={peer?.networkLevel ?? 0}

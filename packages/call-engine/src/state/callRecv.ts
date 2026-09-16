@@ -163,6 +163,9 @@ function handleIncoming(
 ): MachineOutput<CallContext> {
   if (ctx.state !== 'idle') return out(ctx);
   const mediaType = str(data, 'media_type') === 'video' ? 'video' : 'audio';
+  const caller = str(data, 'caller');
+  // inviter 是「谁把你拉进来的」（invite_more 时不是发起人）；旧服务端不带它，回落 caller。
+  const inviter = str(data, 'inviter') || caller;
   const next: CallContext = {
     ...ctx,
     state: 'ringing',
@@ -181,7 +184,8 @@ function handleIncoming(
       cb: 'onCallReceived',
       args: {
         call_id: next.callId,
-        caller: str(data, 'caller'),
+        caller,
+        inviter,
         // **原样带上**：群通话里被叫要靠它摆占位格（见 events.ts 的字段注释）。
         callee_ids: strArray(data, 'callee_ids'),
         media_type: mediaType,

@@ -7,19 +7,23 @@
 
 ## 当前焦点
 
-**2026-09-16：群通话「添加成员」选人页（用户自测通过，已提交）。** 提交前按用户要求没跑全量；只跑了 `npx tsc -b`、`npx tsc --noEmit -p demo-react`、
-`npx vitest run --root packages/call-uikit-react test/interactions.test.tsx`（31 条全过）。上一轮四端 API 命名对齐已提交 `90d0668`，细节在 archive 顶节。
+**2026-09-16（续）：离场的发起人可以被重新邀请（未提交）。** 服务端去掉了 `invite_more` 对发起人的 `bad_params`（见 server current_task）。本仓：
+- `InvitePicker.tsx` 去掉「暂时无法邀请」分支与手输 uid 时对发起人的排除，离场的人（含发起人）照常可选。
+- `callView.ts` 的 `callReceived` 加可选 `selfUid`（`subscribeEngine.ts` 传 `engine.uid`）：发起人就是自己时不给自己摆格子。
+  来电页显示 `participants[0]`，被重新邀请的发起人看到的是通话里某个被叫的名字。`engine.ts` 的 `inviteMore` 注释跟改。
+- 测试：`interactions.test.tsx` 改为断言离场的发起人可选并能邀请；`callView.test.ts` 新增「caller 就是自己不摆格子」。
+  只跑了 `tsc -b`、demo-react 类型检查与 `callView` / `interactions` / `hostIntegration` 三个文件（68 条过），`test.sh` 全量没跑。
 
-- **列表全部列出**（用户 09-16 拍板，推翻设计稿「选人页不列发起人」）：`InvitePicker.tsx` 不再按自己 / 发起人过滤，也不再显示「是你」「发起人」；
-  在通话里的人（`ctx.participantUids`，含自己）统一置灰「已在通话中」。**唯一例外是离场的发起人**：置灰「暂时无法邀请」——服务端 `InviteMore` 对 `callee_ids` 含发起人回 `bad_params`
-  （发起人不在成员表里，拉不回来），选了只会失败。这句文案是我定的，用户没拍板。Demo `fakeInviteMemberProvider.ts` 原先自己剔发起人，一并放开。
-- **搜索框**：`styles.ts` 的 `sheetSearch` 改成 label 外壳（一行 flex：放大镜 + 输入框，点放大镜也聚焦），输入框样式拆到 `sheetSearchInput`；上一轮 `width: calc(100% - 28px)` 的补丁随之去掉。
-  新图标 `iconShapes.tsx` 的 `magnifyingglass`（圆心 10.5、半径 6.5 + 斜柄到 20,20），Android `ic_im_magnifyingglass.xml` 是同一份路径。
-- 测试：「被叫也能加人」改断言离场发起人置灰「暂时无法邀请」且不含「发起人」；新增「发起人还在通话里 → 已在通话中」。
+- **协议新增 `call.incoming.inviter`**（未提交，四端同改）：「谁把你拉进来的」，首次邀请就是 `caller`，群通话里被别人加进来时是那个人；旧服务端不带就回落 `caller`（engine 兜好，宿主不用判空）。
+  `events.ts` 的 `callReceived` 加 `inviter`、`callRecv.ts` 解析并回落；`CallViewState.inviterUid`（`viewTypes.ts` / `callView.ts` / `subscribeEngine.ts`）；来电横幅 `IncomingCall.tsx` 与来电页 `ActiveCall.tsx` 显示它，九宫格与 `callerUid` 仍用 caller。
+  新增 engine `callMachine.test.ts` 两条（带 inviter / 回落）、uikit `callView.test.ts` 两条；server 仓的 `call_fsm.json` 另加了两条向量用例，本仓 `callMachine.test.ts` 自动跑到。
+  跑了 `tsc -b`、两个 Demo 的类型检查（自画 UI + 引 uikit）、engine `callMachine`（32 条）与 uikit 5 个文件（115 条）。
+
+**同日已提交 `9f7c399`**：选人页列出全部成员（在通话里统一置灰「已在通话中」）、搜索框「放大镜 + 输入框」一行（`iconShapes.tsx` 的 `magnifyingglass`，Android 同一份路径）。
 
 ## 下一步
 
-1. 「暂时无法邀请」（离场的发起人）文案待用户确认；要让离场的发起人能被邀回得改服务端 call 状态机，另立项。
+1. 用户自测（服务端先重启）：发起人挂断后，被叫在选人页能选到他并邀请；他那边来电页不出现自己的格子。自测过了跑 `./scripts/test.sh` 再提交。
 2. API 命名对齐遗留：`engine.ts`（582 行）与 `media/webrtcAdapter.ts`（529 行）体量 WARN，再往里加东西前先拆；
    `destroy()` 之后哪些方法抛 2005 没和 iOS / Android 逐条对表；`openMicrophone` / `openCamera` 等四个开关只有 engine 层单测、没在真浏览器点过。
 

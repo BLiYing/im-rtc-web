@@ -355,7 +355,7 @@ export class CallEngine {
    * 名单里同样不能有自己，见 {@link rejectsSelf}。
    *
    * **通话里的任何人都能发**（2026-09-15 起，原先仅主叫）；还在响铃 / 已离场的人发会被服务端拒成
-   * `1407 not_call_owner`（交互稿 §05）。房间满了回 `1202 room_full`；名单里含发起人回 `bad_params`（离场后拉不回来）。
+   * `1407 not_call_owner`（交互稿 §05）。房间满了回 `1202 room_full`；离场的发起人也能被重新邀请。
    */
   async inviteMore(calleeIds: string[]): Promise<void> {
     this.assertNotDestroyed();

@@ -38,6 +38,7 @@ export function reduceCallView(state: CallViewState, action: ViewAction): CallVi
         role: 'callee',
         peerUid: action.isGroup ? '' : action.caller,
         callerUid: action.caller,
+        inviterUid: action.inviter ?? action.caller,
         /*
           主叫先摆上（他一定在通话里），其余被邀请的人摆成「还在响铃」的占位格。
 
@@ -45,7 +46,8 @@ export function reduceCallView(state: CallViewState, action: ViewAction): CallVi
           `calleeIds` 里已经由 subscribeEngine 去掉了自己。
         */
         participants: [
-          newParticipant(action.caller, true),
+          // 离场后被重新邀请回来的发起人收到的 caller 就是他自己：「自己」不是远端成员，不摆格子。
+          ...(action.caller === action.selfUid ? [] : [newParticipant(action.caller, true)]),
           ...action.calleeIds.filter((uid) => uid !== action.caller).map((uid) => newParticipant(uid, false)),
         ],
         self: { ...initialCallView.self, cameraOn: defaultCameraOn(action.mediaType, action.isGroup) },

@@ -134,7 +134,7 @@ export function InvitePicker({ onClose }: InvitePickerProps): ReactNode {
       || query.trim() === '' || c.uid.includes(query.trim()) || (c.name ?? '').includes(query.trim()));
   const typedUid = query.trim();
   const canTypeIn = invite.allowManualUidInput && items.length === 0 && listState === 'ready'
-    && typedUid !== '' && typedUid !== ctx.callerUid && !inCall.has(typedUid) && !picked.includes(typedUid);
+    && typedUid !== '' && !inCall.has(typedUid) && !picked.includes(typedUid);
 
   const toggle = (uid: string, selectable: boolean): void => {
     if (!selectable) return;
@@ -187,11 +187,8 @@ export function InvitePicker({ onClose }: InvitePickerProps): ReactNode {
             ))}
             {shown.map((c) => {
               const already = inCall.has(c.uid);
-              // 离场的发起人服务端拉不回来（invite_more 回 bad_params），只能置灰。
-              const callerLeft = !already && c.uid === ctx.callerUid;
-              const selectable = !already && !callerLeft && c.selectable !== false;
+              const selectable = !already && c.selectable !== false;
               const sub = already ? '已在通话中'
-                : callerLeft ? '暂时无法邀请'
                 : c.selectable === false ? (c.unselectableReason ?? '')
                   : c.subtitle ?? (c.isOnline === false ? '离线 · 仍可邀请' : c.isOnline === true ? '在线' : '');
               return (

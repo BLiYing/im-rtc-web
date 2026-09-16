@@ -270,3 +270,25 @@ describe('chatGroupId / userData 的回落（HOST_INTEGRATION_DESIGN §3.3）', 
     expect(Object.hasOwn(invite?.data ?? {}, 'timeout_sec')).toBe(false);
   });
 });
+
+describe('call.incoming 的 inviter', () => {
+  const incomingData = (extra: Record<string, unknown>): Record<string, unknown> => ({
+    call_id: 'c-1', room_id: 'r-1', caller: 'alice', callee_ids: ['me'],
+    media_type: 'audio', is_group: true, ...extra,
+  });
+
+  it('带 inviter 时原样抛出——群通话里加你进来的不一定是发起人', () => {
+    const result = reduceCall(initialCallContext, {
+      kind: 'recv', type: 'call.incoming', data: incomingData({ inviter: 'bob' }),
+    });
+    expect(result.emit[0]?.args['inviter']).toBe('bob');
+    expect(result.emit[0]?.args['caller']).toBe('alice');
+  });
+
+  it('旧服务端不带 inviter 时回落成 caller，宿主不用自己判空', () => {
+    const result = reduceCall(initialCallContext, {
+      kind: 'recv', type: 'call.incoming', data: incomingData({}),
+    });
+    expect(result.emit[0]?.args['inviter']).toBe('alice');
+  });
+});

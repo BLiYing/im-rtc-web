@@ -101,8 +101,13 @@ export interface CallViewState {
   readonly role: CallRoleName;
   /** 1v1 的对端 uid；群通话为空串。 */
   readonly peerUid: string;
-  /** 发起人 uid，只在被叫侧有值（主叫侧就是自己）。选人页靠它认出离场的发起人：服务端拉不回来，只能置灰。 */
+  /** 发起人 uid，只在被叫侧有值（主叫侧就是自己）。邀请上下文的 `callerUid` 从这里取。 */
   readonly callerUid: string;
+  /**
+   * 这次邀请是谁发的——「谁把你拉进来的」，来电横幅 / 来电页显示的就是他。
+   * 首次邀请等于 `callerUid`；群通话里被别人加进来时是那个人。
+   */
+  readonly inviterUid: string;
   readonly participants: readonly RemoteParticipant[];
   readonly self: SelfState;
   /** 是否收进小窗。 */
@@ -191,6 +196,7 @@ export const initialCallView: CallViewState = {
   role: '',
   peerUid: '',
   callerUid: '',
+  inviterUid: '',
   participants: [],
   self: { micOn: true, cameraOn: false, cameraBlocked: false, cameraOptedOut: false, speaking: false, volume: 0 },
   isMinimized: false,
@@ -219,7 +225,9 @@ export const initialCallView: CallViewState = {
  * 不消费的事件也拖进类型里，看不出「界面到底用了哪几个事件」。
  */
 export type ViewAction =
-  | { readonly type: 'callReceived'; readonly callId: string; readonly caller: string;
+  | { readonly type: 'callReceived'; readonly callId: string; readonly caller: string; readonly selfUid?: string;
+      /** 谁把你拉进来的；不传就按 `caller` 算。 */
+      readonly inviter?: string;
       /** 这通电话邀了谁，**已去掉自己**。群通话靠它摆占位格。 */
       readonly calleeIds: readonly string[];
       readonly mediaType: MediaType; readonly isGroup: boolean;

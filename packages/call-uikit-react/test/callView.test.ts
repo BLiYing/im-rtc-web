@@ -239,3 +239,33 @@ describe('来电的结束出口', () => {
     expect(state.endReason).toBe('hangup');
   });
 });
+
+describe('离场后被重新邀请回来的发起人', () => {
+  it('来电的 caller 就是自己时不给自己摆格子', () => {
+    const state = run([{
+      type: 'callReceived', callId: 'c-1', caller: 'alice', selfUid: 'alice', calleeIds: ['bob', 'carol'],
+      mediaType: 'video', isGroup: true,
+    }]);
+    expect(state.participants.map((p) => p.uid)).toEqual(['bob', 'carol']);
+    expect(state.callerUid).toBe('alice');
+  });
+});
+
+describe('来电显示「谁把你拉进来的」', () => {
+  it('带 inviter 时记下它，caller 仍是发起人', () => {
+    const state = run([{
+      type: 'callReceived', callId: 'c-1', caller: 'alice', inviter: 'bob', calleeIds: ['carol'],
+      mediaType: 'audio', isGroup: true, chatGroupId: '', userData: '',
+    }]);
+    expect(state.inviterUid).toBe('bob');
+    expect(state.callerUid).toBe('alice');
+  });
+
+  it('旧服务端不带 inviter 时回落成 caller', () => {
+    const state = run([{
+      type: 'callReceived', callId: 'c-1', caller: 'alice', calleeIds: ['carol'],
+      mediaType: 'audio', isGroup: true, chatGroupId: '', userData: '',
+    }]);
+    expect(state.inviterUid).toBe('alice');
+  });
+});

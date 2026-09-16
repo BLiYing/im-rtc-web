@@ -19,7 +19,8 @@ import { styles } from '../styles.js';
  */
 export function IncomingCall(): ReactNode {
   const { state, actions } = useCall();
-  const caller = state.participants[0]?.uid ?? state.peerUid;
+  // 显示「谁把你拉进来的」：群通话里加你进来的不一定是发起人（离场后被拉回来的发起人就是自己）。
+  const caller = state.inviterUid || state.participants[0]?.uid || state.peerUid;
   /*
     来电屏是**最不能显示成一串 uid** 的一屏，但它也是最可能解析不出来的一屏：
     陌生人来电时宿主本机没有对方的名片。解析不到就退化成 uid（宿主可自行兜底），
