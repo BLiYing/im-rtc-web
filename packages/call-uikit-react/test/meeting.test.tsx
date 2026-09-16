@@ -221,3 +221,27 @@ describe('进房抛错要把界面收回来', () => {
     expect(engine.calls).toContain('publishCam');
   });
 });
+
+/*
+  M1 止血（MEETING_ROOM_DESIGN §4.5）：会议房超过一屏（自己 + 8 位远端）时，
+  多出来的人原先无声消失。现在右下角说一句「还有 N 人未显示」，看不见的人视频报 none。
+*/
+describe('会议房超过一屏', () => {
+  it('第 10、11 个人没有格子：出「还有 2 人未显示」，并给他们报 none；人少下来胶囊消失', async () => {
+    const engine = setup();
+    await enterMeeting(engine);
+    act(() => {
+      for (let i = 1; i <= 10; i++) engine.emit('userEnter', { uid: `u${i}` });
+    });
+    expect(screen.getByTestId('hidden-count').textContent).toBe('还有 2 人未显示');
+    expect(engine.layers).toContainEqual({ uid: 'u9', layer: 'none' });
+    expect(engine.layers).toContainEqual({ uid: 'u10', layer: 'none' });
+    expect(engine.layers).not.toContainEqual({ uid: 'u1', layer: 'none' });
+
+    act(() => {
+      engine.emit('userLeave', { uid: 'u1' });
+      engine.emit('userLeave', { uid: 'u2' });
+    });
+    expect(screen.queryByTestId('hidden-count')).toBeNull();
+  });
+});

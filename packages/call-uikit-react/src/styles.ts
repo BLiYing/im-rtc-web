@@ -71,6 +71,12 @@ export const styles = {
     justifyContent: 'center', alignContent: 'center',
   } satisfies CSSProperties,
 
+  /** 「还有 N 人未显示」胶囊：舞台右下角，**不可点**（M1 只是提示，见 `hiddenCountText`）。 */
+  hiddenPill: {
+    position: 'absolute', right: 20, bottom: 20, padding: '4px 10px', borderRadius: 999,
+    background: 'rgba(0,0,0,0.6)', color: callColors.fg, fontSize: 12, pointerEvents: 'none',
+  } satisfies CSSProperties,
+
   tile: {
     position: 'relative', background: callColors.tile, borderRadius: callMetrics.tileRadius, overflow: 'hidden',
     minHeight: 0,

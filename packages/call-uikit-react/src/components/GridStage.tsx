@@ -1,6 +1,7 @@
+import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 
-import { cellSide, gridDimensions, tileLayer, visibleTiles } from '../layout/grid.js';
+import { cellSide, gridDimensions, hiddenCountText, tileLayer, visibleTiles } from '../layout/grid.js';
 import { useCall } from '../useCall.js';
 import { useElementSize } from '../useElementSize.js';
 import { styles } from '../styles.js';
@@ -45,7 +46,7 @@ export function GridStage(): ReactNode {
   return (
     <div style={styles.stage} ref={stage.ref} data-testid="grid-stage">
       {offscreen.map((p) => (
-        <RemoteAudioSink key={p.uid} uid={p.uid} />
+        <OffscreenMember key={p.uid} uid={p.uid} hasVideo={p.hasVideo} />
       ))}
       <div
         style={{
@@ -82,6 +83,26 @@ export function GridStage(): ReactNode {
           />
         ))}
       </div>
+      {offscreen.length > 0 && (
+        <div style={styles.hiddenPill} data-testid="hidden-count">
+          {hiddenCountText(offscreen.length)}
+        </div>
+      )}
     </div>
   );
+}
+
+/**
+ * OffscreenMember：没有格子的人——**声音照接，视频报 `none`**（MEETING_ROOM_DESIGN §4.3，M1 止血）。
+ *
+ * 看不见的人原先照常按默认层收视频，白白吃下行。`none` = 暂停下发、保留订阅，翻回来不重协商。
+ * `hasVideo` 进依赖的理由同 VideoTile：人先进来、轨道后到，轨道到了那一刻要再报一次。
+ * 他回到屏幕上时 VideoTile 挂载会按格子大小重报层，不用这里撤。
+ */
+function OffscreenMember({ uid, hasVideo }: { readonly uid: string; readonly hasVideo: boolean }): ReactNode {
+  const { engine } = useCall();
+  useEffect(() => {
+    void engine.setRemoteLayer(uid, 'none');
+  }, [engine, uid, hasVideo]);
+  return <RemoteAudioSink uid={uid} />;
 }

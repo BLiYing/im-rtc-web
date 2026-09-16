@@ -120,6 +120,17 @@ export function tileLayer(count: number): Layer {
 export const focusedLayer: Layer = 'h';
 
 /**
+ * hiddenCountText 是「还有 N 人未显示」胶囊的文案（MEETING_ROOM_DESIGN §4.5，M1 止血）；没人被截掉时是空串。
+ *
+ * 会议房原先超过 9 人时多出来的人**无声消失**：不提示、不报错（2026-09-09 真机，11 人只画了 9 格）。
+ * 翻页（M2）做出来之前先说一句。**只是提示、点了不响应**——成员列表是 M2 的内容，不能让它看起来可以点。
+ * 三端同一句文案。
+ */
+export function hiddenCountText(hidden: number): string {
+  return hidden > 0 ? `还有 ${hidden} 人未显示` : '';
+}
+
+/**
  * visibleTiles 截掉超出一屏的**远端**格子（本端那一格由组件自己加，见 `MAX_REMOTE_TILES`）。
  *
  * 截断而不是缩到看不清：9 个 3×3 已经是「能看清是谁」的下限，
