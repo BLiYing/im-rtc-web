@@ -14,7 +14,8 @@ import { isNetworkPoor } from './Icon.js';
  */
 export function TopBanner(): ReactNode {
   const { state } = useCall();
-  const poorPeer = state.participants.find((p) => isNetworkPoor(p.networkLevel));
+  // **只在 1v1 出**（网络质量交互只做 1v1）：群通话里「对方」指谁说不清，格子上的角标已经够了。
+  const poorPeer = state.isGroup ? undefined : state.participants.find((p) => isNetworkPoor(p.networkLevel));
   const [showPoor, setShowPoor] = useState(false);
 
   // 某人网络刚变差那一刻出横幅，2s 后收成角标；恢复后再变差会再出一次。

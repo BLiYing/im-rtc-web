@@ -344,6 +344,16 @@ describe('顶部横幅', () => {
     expect(screen.queryByTestId('banner-network')).toBeNull();
     expect(screen.getByTestId('net-bob')).toBeTruthy();
   });
+
+  it('群通话里不出「对方网络不佳」横幅（只做 1v1），格子角标照常', () => {
+    const engine = setup();
+    connectAs(engine, 'callee', true);
+    act(() => {
+      engine.emit('networkQuality', { entries: [{ uid: 'bob', level: 5 }] });
+    });
+    expect(screen.queryByTestId('banner-network')).toBeNull();
+    expect(screen.getByTestId('net-bob')).toBeTruthy();
+  });
 });
 
 describe('通话中打开摄像头', () => {
