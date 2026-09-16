@@ -7,7 +7,7 @@
 
 ## 当前焦点
 
-**2026-09-16（第二轮，未提交）：来电铃声 + 回铃音。** `./scripts/test.sh` 14 步全绿（uikit 17 文件 195 条，含新增 11 条）。
+**2026-09-16（第二轮，已提交 `9c6efac`，真机验收通过）：来电铃声 + 回铃音。** `./scripts/test.sh` 14 步全绿（uikit 17 文件 195 条，含新增 11 条）。
 - **素材走 base64 常量**：`packages/call-uikit-react/src/audio/ringtoneAssets.ts`（61KB，32 行）。**不是懒**——本包的构建只有 `tsc -b`，
   没开 `allowArbitraryExtensions`、`tsc` 也不拷非 TS 文件，`import ring from './x.mp3'` 在当前配置下**直接不成立**；
   加打包步骤要动 `files` / `exports` / demo-react 的 alias-to-src，风险比 61KB 常量大。体量门禁按行数算，单行 base64 不触红线。
