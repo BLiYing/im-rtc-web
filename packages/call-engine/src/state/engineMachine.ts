@@ -55,6 +55,8 @@ const ROOM_ACTS = new Set([
   'update_layer',
   'restart_pub_ice',
 ]);
+/** ROOM_FAILURES 是帧循环把「房间帧没送到」翻译成的内部事件，全归房间机。 */
+const ROOM_FAILURES = new Set(['join_failed', 'leave_failed', 'publish_failed', 'subscribe_failed']);
 
 /**
  * reduceEngine 是 engine 状态的唯一入口。
@@ -73,7 +75,7 @@ function reduceInput(ctx: EngineContext, input: MachineInput): MachineOutput<Eng
   if (input.kind === 'recv' && input.type === 'sys.hello.ok') {
     return handleHelloOk(ctx, input.data);
   }
-  if (input.kind === 'internal') return handleInternal(ctx, input.name);
+  if (input.kind === 'internal') return handleInternal(ctx, input);
   if (input.kind === 'recv') return routeFrame(ctx, input);
   return routeAct(ctx, input);
 }
@@ -157,7 +159,11 @@ function dropLostSession(ctx: EngineContext): MachineOutput<EngineContext> {
   return { state: { ...ctx, room: room.state, call }, send: [...room.send], emit };
 }
 
-function handleInternal(ctx: EngineContext, name: string): MachineOutput<EngineContext> {
+function handleInternal(
+  ctx: EngineContext,
+  input: Extract<MachineInput, { kind: 'internal' }>,
+): MachineOutput<EngineContext> {
+  const { name } = input;
   /*
     **服务端那一侧已经不可能再恢复这条会话了**（§1.4 的恢复窗口过了）。
 
@@ -191,9 +197,9 @@ function handleInternal(ctx: EngineContext, name: string): MachineOutput<EngineC
     // 交给通话机回 idle；它抛的 onCallEnd 会顺带把房间也清掉（见 liftCall）。
     return liftCall(ctx, reduceCall(ctx.call, { kind: 'internal', name }));
   }
-  // 房间那两条失败回滚都归房间机；不显式路由的话它们会落到通话机去，被静默丢掉。
-  if (name === 'join_failed' || name === 'leave_failed') {
-    const room = reduceRoom(ctx.room, { kind: 'internal', name });
+  // 房间那几条失败回滚都归房间机；不显式路由的话它们会落到通话机去，被静默丢掉。
+  if (ROOM_FAILURES.has(name)) {
+    const room = reduceRoom(ctx.room, input);
     return { state: { ...ctx, room: room.state }, send: [...room.send], emit: [...room.emit] };
   }
   // 其余内部事件（media_ready）交给通话机。

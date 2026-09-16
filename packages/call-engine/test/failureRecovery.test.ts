@@ -259,3 +259,87 @@ describe('重复 login 要就地拒掉', () => {
     await expect(second).resolves.toMatchObject({ uid: 'alice' });
   });
 });
+
+/*
+  静默失败审计 §A：这张回滚表原先不认 room.publish / room.subscribe。发布被拒之后那条轨道永远停在
+  publishing——publish.ok 不来、pub offer 永不产出。界面显示已接通、计时器在走，对方全程听不见看不见，零提示。
+  2026-09-16 拍板：**通话里被拒就结束本端通话**（reason=error）；没有通话的会议房只回滚那一条。
+*/
+describe('发布被拒要收场', () => {
+  async function connectedCall(h: Harness): Promise<void> {
+    h.event('call.incoming', {
+      call_id: 'c-1', room_id: 'r-1', caller: 'bob', callee_ids: ['alice'],
+      media_type: 'audio', is_group: false, timeout_sec: 30, user_data: '',
+    });
+    await flush(4);
+    const accepting = h.engine.accept();
+    await flush(4);
+    h.reply('call.accept', 'call.accept.ok');
+    await accepting;
+    h.event('call.connected', {
+      call_id: 'c-1', room_id: 'r-1', room_token: 'rt-1', media_type: 'audio',
+      is_group: false, connected_at_ms: 1, accepted_by: 'alice',
+    });
+    await flush(4);
+    h.reply('room.join', 'room.join.ok', {
+      room_id: 'r-1', participant_id: 'p-1', participants: [], tracks: [],
+    });
+    await flush(6);
+  }
+
+  it('通话里 room.publish 被拒：原错误码照报，发 hangup，只抛一次 callEnd{error}', async () => {
+    const h = await setup();
+    await connectedCall(h);
+    expect(h.engine.state.room.state).toBe('joined');
+
+    void h.engine.publishMicrophone();
+    await flush(4);
+    expect(h.latest().frames().some((f) => f.type === 'room.publish')).toBe(true);
+
+    h.rejectRequest('room.publish', ErrorCode.publishDenied);
+    await flush(6);
+
+    expect(h.errors.map((e) => e.code)).toContain(ErrorCode.publishDenied);
+    expect(h.latest().frames().at(-1)?.type, '对端还在等，要告诉服务端我走了').toBe('call.hangup');
+    expect(h.callEnds, '不能留在一通对方听不见的通话里').toEqual([{ reason: 'error' }]);
+    expect(h.engine.state.call.state).toBe('idle');
+    expect(h.engine.state.room.state).toBe('idle');
+
+    // 服务端随后那条 call.ended 不能再抛一次。
+    h.event('call.ended', {
+      call_id: 'c-1', room_id: 'r-1', reason: 'hangup', duration_sec: 3, ended_by: 'alice',
+    });
+    await flush(4);
+    expect(h.callEnds).toHaveLength(1);
+  });
+
+  it('没有通话的会议房：只摘掉那条 publishing，人留在房里，之后还能再发布', async () => {
+    const h = await setup();
+    const joining = h.engine.joinRoom('r-1', 'tk');
+    await flush(4);
+    h.reply('room.join', 'room.join.ok', {
+      room_id: 'r-1', participant_id: 'p-1', participants: [], tracks: [],
+    });
+    await joining;
+    await flush(4);
+
+    void h.engine.publishCamera(false);
+    await flush(4);
+    const cid = h.latest().frames().filter((f) => f.type === 'room.publish').at(-1)?.data['cid'];
+    expect(h.engine.state.room.publish[cid as string]).toBe('publishing');
+
+    h.rejectRequest('room.publish', ErrorCode.publishDenied);
+    await flush(6);
+
+    expect(h.engine.state.room.state).toBe('joined');
+    expect(h.engine.state.room.publish[cid as string], '不能永远停在 publishing').toBeUndefined();
+    expect(h.roomLefts).toEqual([]);
+    expect(h.callEnds).toEqual([]);
+    expect(h.errors.map((e) => e.code)).toEqual([ErrorCode.publishDenied]);
+
+    const before = h.latest().frames().filter((f) => f.type === 'room.publish').length;
+    void h.engine.publishCamera(false);
+    await flush(4);
+    expect(h.latest().frames().filter((f) => f.type === 'room.publish')).toHaveLength(before + 1);
+  });
+});

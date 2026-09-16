@@ -5,6 +5,8 @@ import type { MediaAdapter } from './media/mediaAdapter.js';
 import type { MediaBridge } from './media/mediaBridge.js';
 import type { MediaPlaneDeps } from './media/mediaPlane.js';
 import { addRemoteCandidate } from './media/mediaPlane.js';
+import { CallEndReason } from './reasons.js';
+import type { CallEndReasonValue } from './reasons.js';
 import { toFrameProps } from './signaling/caseMapping.js';
 import type { Connection } from './signaling/connection.js';
 import type { FrameSender } from './signaling/frameSender.js';
@@ -123,8 +125,8 @@ export class FrameLoop {
    * 拨出中还没拿到 call_id 的，此刻发不了 cancel：本地照样收场，
    * 那条 invite.ok 迟到时由通话机的 idle 分支补发（`callRecv.ts` 的 `handleLateFrame`）。
    */
-  forceEnd(nowMs: number = Date.now()): void {
-    const plan = planForceEnd(this.ctx, nowMs);
+  forceEnd(nowMs: number = Date.now(), reason?: CallEndReasonValue): void {
+    const plan = planForceEnd(this.ctx, nowMs, reason);
     if (plan.emit.length === 0) {
       logger.info('强制收场：没有进行中的通话或房间', {});
       return;
@@ -235,7 +237,7 @@ export class FrameLoop {
     if (connection === null) {
       const err = new RtcError(ErrorCode.notLoggedIn, { forType: frame.type });
       this.deps.bus.emitError(err);
-      await this.rollback(frame.type);
+      await this.rollback(frame);
       return;
     }
     const startedMs = Date.now();
@@ -248,7 +250,7 @@ export class FrameLoop {
       noteSlowRequest(frame.type, startedMs, true);
       // 请求失败不该中断整个事件流：转成 error 事件交给宿主。
       this.deps.bus.emitError(err);
-      await this.rollback(frame.type);
+      await this.rollback(frame);
     }
   }
 
@@ -260,7 +262,8 @@ export class FrameLoop {
    * 真正的原因早淹在上一条 error 里了。四端同一张表（Android 的
    * `IMCallEngine.onRequestFailed`、iOS 的 `IMFrameLoop.sendFrame`）。
    */
-  private async rollback(type: string): Promise<void> {
+  private async rollback(frame: OutgoingFrame): Promise<void> {
+    const { type } = frame;
     /*
       呼叫 / 接听 / 主动加入被拒都要退回 idle。
 
@@ -294,6 +297,33 @@ export class FrameLoop {
     */
     if (type === 'room.leave') {
       await this.dispatch({ kind: 'internal', name: 'leave_failed' });
+      return;
+    }
+    /*
+      **发布被拒：通话里直接收掉整通（reason=error），没有通话才只回滚那一条**（静默失败审计 §A）。
+
+      原先这张表不认 `room.publish`，那条轨道永远停在 `publishing`：publish.ok 不来 →
+      pub offer 永不产出 → 上行从未协商。界面显示已接通、计时器在走、按钮显示没静音，
+      **对方全程听不见看不见，零提示**。留在通话里只报错也不够——Kit 并不展示这类错误，
+      而服务端会拒的几种情形（房间已不在、同一路重复发布、请求超时）重试都救不回来。
+      收场走 forceEnd：挂断帧不排队、callEnd 只抛一次，各端 Kit 本来就认它。
+    */
+    if (type === 'room.publish') {
+      if (this.ctx.call.state !== 'idle') {
+        logger.warn('发布被拒，结束本端通话', { [LogField.callId]: this.ctx.call.callId });
+        this.forceEnd(Date.now(), CallEndReason.error);
+        return;
+      }
+      await this.dispatch({ kind: 'internal', name: 'publish_failed', args: { cid: frame.data['cid'] } });
+      return;
+    }
+    // 订阅被拒只摘记账，不收场：最常见的 1301 是订阅与对方停推赛跑输了，通话本身没事。
+    if (type === 'room.subscribe') {
+      await this.dispatch({
+        kind: 'internal',
+        name: 'subscribe_failed',
+        args: { track_id: frame.data['track_id'] },
+      });
     }
   }
 

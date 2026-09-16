@@ -7,6 +7,11 @@
 
 ## 当前焦点
 
+**2026-09-16（第三轮，已提交（`git log` 里标题为「call: 发布 / 订阅被拒要收场」那笔），未上真端）：静默失败审计 §A——发布 / 订阅被拒要收场。** `./scripts/test.sh` 14 步全绿（engine 393 条）。
+- `frameLoop.ts` 的 `rollback` 改收整帧：`room.publish` 被拒且通话机非 idle → `forceEnd(now, CallEndReason.error)`；否则内部事件 `publish_failed{cid}`；`room.subscribe` 被拒 → `subscribe_failed{track_id}`。
+- `MachineInput` 的 internal 加可选 `args`；`engineMachine.ts` 用 `ROOM_FAILURES` 把四条失败统一路由给房间机；`roomMachine.ts` 新增 `dropFailedPublish` / `dropFailedSubscribe`；`state/forceEnd.ts` 加可选 reason 覆盖。
+- 用例：`failureRecovery.test.ts`「发布被拒要收场」两条、`roomMachine.test.ts`「房间帧被拒的回滚」两条。负向验证：撤掉 `frameLoop.ts` 后两条端到端用例变红。
+
 **2026-09-16（第二轮，已提交 `9c6efac`，真机验收通过）：来电铃声 + 回铃音。** `./scripts/test.sh` 14 步全绿（uikit 17 文件 195 条，含新增 11 条）。
 - **素材走 base64 常量**：`packages/call-uikit-react/src/audio/ringtoneAssets.ts`（61KB，32 行）。**不是懒**——本包的构建只有 `tsc -b`，
   没开 `allowArbitraryExtensions`、`tsc` 也不拷非 TS 文件，`import ring from './x.mp3'` 在当前配置下**直接不成立**；
@@ -38,6 +43,7 @@
 
 ## 下一步
 
+0. **§A 发布被拒收场：用故障注入上真端走一遍**（先 `FAULT_INJECTION=1 ./scripts/dev.sh`）：通话接通后 `curl -X POST $B/v1/dev/faults -d '{"action":"reject","uid":"<本端uid>","frame_type":"room.publish","code":1302}'`，再开一次麦 / 摄像头 → 本端收场、结束原因 error、对端收到挂断。过了把 CLIENT_PARITY 那一行 🟡 转 ✅。代码已提交，真机验收后续再做（2026-09-16 用户定）。
 1. 用户自测（服务端先重启）：发起人挂断后，被叫在选人页能选到他并邀请；他那边来电页不出现自己的格子。自测过了跑 `./scripts/test.sh` 再提交。
 2. API 命名对齐遗留：`engine.ts`（582 行）与 `media/webrtcAdapter.ts`（529 行）体量 WARN，再往里加东西前先拆；
    `destroy()` 之后哪些方法抛 2005 没和 iOS / Android 逐条对表；`openMicrophone` / `openCamera` 等四个开关只有 engine 层单测、没在真浏览器点过。

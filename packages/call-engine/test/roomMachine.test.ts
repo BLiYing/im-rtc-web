@@ -175,3 +175,49 @@ function stripSend(frames: readonly OutgoingFrame[]): { type: string; data: unkn
 function stripEmit(events: readonly EmittedEvent[]): { cb: string; args: unknown }[] {
   return events.map((e) => ({ cb: e.cb, args: e.args }));
 }
+
+/*
+  订阅被拒（最常见的是 1301：与对方停推赛跑输了）不摘记账的话，R3 会把之后每次重订都当成「换层」，
+  只发 room.update_layer，再也发不出 room.subscribe。发布被拒只回滚那一条（会议房）。
+*/
+describe('房间帧被拒的回滚', () => {
+  const joined: EngineContext = {
+    ...initialEngineContext,
+    room: { ...initialEngineContext.room, state: 'joined', roomId: 'r-1', didJoin: true },
+  };
+
+  it('subscribe_failed 摘掉 subscribing 与层记账，重订重新发 room.subscribe', () => {
+    const subscribing = reduceEngine(joined, {
+      kind: 'act', op: 'subscribe', args: { track_id: 't-9', max_layer: 'h' },
+    }).state;
+    expect(subscribing.room.subscribe['t-9']).toBe('subscribing');
+
+    const rolled = reduceEngine(subscribing, {
+      kind: 'internal', name: 'subscribe_failed', args: { track_id: 't-9' },
+    });
+    expect(rolled.state.room.subscribe['t-9']).toBeUndefined();
+    expect(rolled.state.room.layers['t-9']).toBeUndefined();
+    expect(rolled.emit).toEqual([]);
+
+    const again = reduceEngine(rolled.state, {
+      kind: 'act', op: 'subscribe', args: { track_id: 't-9', max_layer: 'h' },
+    });
+    expect(again.send.map((f) => f.type)).toEqual(['room.subscribe']);
+  });
+
+  it('只动 publishing / subscribing 的那一条：已发布、已订阅的不碰', () => {
+    const ctx: EngineContext = {
+      ...joined,
+      room: { ...joined.room, publish: { 'c-1': 'published' }, subscribe: { 't-1': 'subscribed' } },
+    };
+    const input: MachineInput[] = [
+      { kind: 'internal', name: 'publish_failed', args: { cid: 'c-1' } },
+      { kind: 'internal', name: 'subscribe_failed', args: { track_id: 't-1' } },
+    ];
+    for (const i of input) {
+      const out = reduceEngine(ctx, i);
+      expect(out.state.room.publish).toEqual({ 'c-1': 'published' });
+      expect(out.state.room.subscribe).toEqual({ 't-1': 'subscribed' });
+    }
+  });
+});

@@ -30,10 +30,18 @@ import type { MachineOutput, OutgoingFrame } from './types.js';
  * 随后会因为 idle 被丢掉，没有更准的值可用。起点优先用**本端**进来那一刻（`callStartedAtMs`），
  * 没记到才退回整通电话的 `connected_at_ms`——中途被拉进来的人用后者会偏大
  * （2026-09-15 10:05 iOS frank 待了约 6 秒，本地写成 124 秒）。
+ *
+ * `reason` 不给就按此刻状态挑（红键）；给了就用它——`room.publish` 被拒时帧循环传 `error`，
+ * 那不是用户挂的，写成 hangup 是撒谎。
  */
-export function forceEnd(ctx: EngineContext, nowMs: number): MachineOutput<EngineContext> {
+export function forceEnd(
+  ctx: EngineContext,
+  nowMs: number,
+  reasonOverride?: CallEndReasonValue,
+): MachineOutput<EngineContext> {
   if (ctx.call.state !== 'idle') {
-    const { frames, reason } = endFrames(ctx.call);
+    const { frames, reason: byState } = endFrames(ctx.call);
+    const reason = reasonOverride ?? byState;
     const startedAtMs = ctx.callStartedAtMs > 0 ? ctx.callStartedAtMs : ctx.call.connectedAtMs;
     return {
       state: { room: clearedRoom('idle'), call: initialCallContext, callStartedAtMs: 0 },

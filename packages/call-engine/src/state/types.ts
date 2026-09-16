@@ -41,8 +41,15 @@ export type MachineInput =
       readonly type: string;
       readonly data: Readonly<Record<string, unknown>>;
     }
-  /** engine 内部事件，既不来自信令也不来自宿主（如媒体就绪）。 */
-  | { readonly kind: 'internal'; readonly name: string };
+  /**
+   * engine 内部事件，既不来自信令也不来自宿主（如媒体就绪）。
+   * `args` 只有「哪一条被拒了」这类需要带标识的才有（`publish_failed` 的 cid、`subscribe_failed` 的 track_id）。
+   */
+  | {
+      readonly kind: 'internal';
+      readonly name: string;
+      readonly args?: Readonly<Record<string, unknown>>;
+    };
 
 /** str 从线路数据里安全取一个字符串字段。 */
 export function str(data: Readonly<Record<string, unknown>>, key: string): string {
