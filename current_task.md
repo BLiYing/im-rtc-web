@@ -54,9 +54,6 @@
 0. **两个包真发布到 npm 后**：跑一次 `./scripts/pack-sdk.sh public` 验证能装到（现在必现 404，是预期的、不是 bug）；
    跑 `npm run typecheck:sdk-public`；再跑一次 `IMRTC_SDK=public npm run build -w demo` / `-w demo-react` 确认能建。
    这几步现在都还没跑过（跑不了——包没发布），发布后补上，别当作「已验证」。
-1. **§A 发布被拒收场：用故障注入上真端走一遍**（先 `FAULT_INJECTION=1 ./scripts/dev.sh`）：通话接通后
-   `curl -X POST $B/v1/dev/faults -d '{"action":"reject","uid":"<本端uid>","frame_type":"room.publish","code":1302}'`，
-   再开一次麦 / 摄像头 → 本端收场、结束原因 error、对端收到挂断。过了把 CLIENT_PARITY 那一行 🟡 转 ✅（2026-09-16 用户定，延后到真机验收）。
 2. 用户自测（服务端先重启）：发起人挂断后，被叫在选人页能选到他并邀请；他那边来电页不出现自己的格子。自测过了跑 `./scripts/test.sh` 再提交。
 3. API 命名对齐遗留：`engine.ts`（582 行）与 `media/webrtcAdapter.ts`（529 行）体量 WARN，再往里加东西前先拆；
    `destroy()` 之后哪些方法抛 2005 没和 iOS / Android 逐条对表；`openMicrophone` / `openCamera` 等四个开关只有 engine 层单测、没在真浏览器点过。
