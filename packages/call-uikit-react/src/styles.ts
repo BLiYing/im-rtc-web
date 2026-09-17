@@ -71,6 +71,51 @@ export const styles = {
     justifyContent: 'center', alignContent: 'center',
   } satisfies CSSProperties,
 
+  /**
+   * 分页画廊的手势层：`GridStage` 外面套一层**有盒子**的容器，指针事件才接得到。
+   *
+   * 不能用 `display:contents`——那种元素没有盒子，`onPointerDown` 永远不会触发。
+   * `touchAction: 'pan-y'` 让横向滑动归我们、纵向仍交给页面滚动。
+   */
+  stageSwipe: { flex: 1, minHeight: 0, display: 'flex', touchAction: 'pan-y' } satisfies CSSProperties,
+
+  /**
+   * 会议分页画廊的页码：**舞台底部居中**，取代了 M1 那枚「还有 N 人未显示」胶囊
+   * （MEETING_ROOM_DESIGN §4.5）。不可点——翻页靠左右滑。
+   */
+  pagePill: {
+    position: 'absolute', left: 0, right: 0, bottom: 20, display: 'flex', justifyContent: 'center',
+    pointerEvents: 'none',
+  } satisfies CSSProperties,
+  pagePillText: {
+    padding: '4px 12px', borderRadius: 999, background: 'rgba(0,0,0,0.6)', color: callColors.fg,
+    fontSize: 12, fontVariantNumeric: 'tabular-nums',
+  } satisfies CSSProperties,
+
+  /** 演讲者视图：主画面吃满，底部一条 4 格（§4.4）。 */
+  speakerStage: {
+    flex: 1, minHeight: 0, padding: '0 12px 12px', display: 'flex', flexDirection: 'column',
+    gap: callMetrics.tileGap, position: 'relative',
+  } satisfies CSSProperties,
+  speakerMain: { flex: 1, minHeight: 0 } satisfies CSSProperties,
+  speakerStrip: {
+    flex: 'none', height: 84, display: 'grid', gridAutoFlow: 'column', gridAutoColumns: '84px',
+    gap: callMetrics.tileGap, justifyContent: 'center',
+  } satisfies CSSProperties,
+  /** 主画面左上角的 📌：**点它取消钉住**（§4.4）。 */
+  pinBadge: {
+    position: 'absolute', left: 22, top: 10, zIndex: 1, height: 28, padding: '0 10px',
+    borderRadius: 999, border: 'none', cursor: 'pointer', font: 'inherit', fontSize: 12,
+    display: 'flex', alignItems: 'center', gap: 4,
+    background: 'rgba(0,0,0,0.6)', color: callColors.fg,
+  } satisfies CSSProperties,
+
+  /** 成员列表的一行状态角标（麦克风 / 摄像头）。关着的那个变暗。 */
+  memberStatus: {
+    marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, color: callColors.fgDim,
+  } satisfies CSSProperties,
+  memberStatusOff: { opacity: 0.35 } satisfies CSSProperties,
+
   /** 「还有 N 人未显示」胶囊：舞台右下角，**不可点**（M1 只是提示，见 `hiddenCountText`）。 */
   hiddenPill: {
     position: 'absolute', right: 20, bottom: 20, padding: '4px 10px', borderRadius: 999,

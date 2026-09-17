@@ -223,25 +223,162 @@ describe('进房抛错要把界面收回来', () => {
 });
 
 /*
-  M1 止血（MEETING_ROOM_DESIGN §4.5）：会议房超过一屏（自己 + 8 位远端）时，
-  多出来的人原先无声消失。现在右下角说一句「还有 N 人未显示」，看不见的人视频报 none。
+  M2 分页画廊（MEETING_ROOM_DESIGN §4.1 / §4.4 / §4.6）。
+
+  M1 那枚「还有 N 人未显示」胶囊**由页码取代**（§4.5）：看得见的人有格子，
+  看不见的人报 `none`（引擎在会议房里会把它翻译成「五秒后退订」）。
 */
-describe('会议房超过一屏', () => {
-  it('第 10、11 个人没有格子：出「还有 2 人未显示」，并给他们报 none；人少下来胶囊消失', async () => {
+describe('会议房分页画廊', () => {
+  /** fill 让 n 个远端进房。 */
+  function fill(engine: FakeEngine, n: number): void {
+    act(() => {
+      for (let i = 1; i <= n; i++) engine.emit('userEnter', { uid: `u${i}` });
+    });
+  }
+
+  /** swipe 在舞台上左右滑一下：dx < 0 = 看下一页。 */
+  function swipe(dx: number): void {
+    const stage = screen.getByTestId('meeting-stage');
+    act(() => {
+      fireEvent.pointerDown(stage, { clientX: 200, clientY: 100 });
+      fireEvent.pointerUp(stage, { clientX: 200 + dx, clientY: 100 });
+    });
+  }
+
+  it('9 人以内不分页，和群通话完全一样', async () => {
     const engine = setup();
     await enterMeeting(engine);
-    act(() => {
-      for (let i = 1; i <= 10; i++) engine.emit('userEnter', { uid: `u${i}` });
-    });
-    expect(screen.getByTestId('hidden-count').textContent).toBe('还有 2 人未显示');
+    fill(engine, 8);
+    expect(screen.queryByTestId('page-indicator'), '一页装得下就不该有页码').toBeNull();
+    expect(screen.queryByTestId('meeting-stage'), '也不该挂手势层').toBeNull();
+    expect(screen.getByTestId('tile-u8')).toBeTruthy();
+  });
+
+  it('超过一屏：页码取代胶囊，页外的人报 none', async () => {
+    const engine = setup();
+    await enterMeeting(engine);
+    fill(engine, 10);
+
+    expect(screen.queryByTestId('hidden-count'), 'M1 的胶囊已经退役').toBeNull();
+    expect(screen.getByTestId('page-indicator').textContent).toBe('1 / 2');
+    expect(screen.getByTestId('tile-u8')).toBeTruthy();
+    expect(screen.queryByTestId('tile-u9'), '第二页的人这一屏上没有格子').toBeNull();
     expect(engine.layers).toContainEqual({ uid: 'u9', layer: 'none' });
     expect(engine.layers).toContainEqual({ uid: 'u10', layer: 'none' });
     expect(engine.layers).not.toContainEqual({ uid: 'u1', layer: 'none' });
+  });
+
+  it('左滑翻到第二页：新页的人有格子，第一页的人改报 none', async () => {
+    const engine = setup();
+    await enterMeeting(engine);
+    fill(engine, 10);
+    swipe(-120);
+
+    expect(screen.getByTestId('page-indicator').textContent).toBe('2 / 2');
+    expect(screen.getByTestId('tile-u9')).toBeTruthy();
+    expect(screen.queryByTestId('tile-u1')).toBeNull();
+    expect(engine.layers).toContainEqual({ uid: 'u1', layer: 'none' });
+
+    // 右滑回来。
+    swipe(120);
+    expect(screen.getByTestId('page-indicator').textContent).toBe('1 / 2');
+    expect(screen.getByTestId('tile-u1')).toBeTruthy();
+  });
+
+  it('滑得不够远不翻页——点一下不该翻页', async () => {
+    const engine = setup();
+    await enterMeeting(engine);
+    fill(engine, 10);
+    swipe(-10);
+    expect(screen.getByTestId('page-indicator').textContent).toBe('1 / 2');
+  });
+
+  it('人走光之后页码收得回来，不会停在一个不存在的页上', async () => {
+    const engine = setup();
+    await enterMeeting(engine);
+    fill(engine, 10);
+    swipe(-120);
+    expect(screen.getByTestId('page-indicator').textContent).toBe('2 / 2');
+
+    act(() => {
+      engine.emit('userLeave', { uid: 'u9' });
+      engine.emit('userLeave', { uid: 'u10' });
+    });
+    expect(screen.queryByTestId('page-indicator'), '只剩 8 个远端，不再分页').toBeNull();
+    expect(screen.getByTestId('tile-u1')).toBeTruthy();
+  });
+});
+
+describe('会议房：钉住与演讲者视图', () => {
+  it('双击一格进演讲者视图，点 📌 回画廊', async () => {
+    const engine = setup();
+    await enterMeeting(engine);
+    act(() => {
+      for (let i = 1; i <= 5; i++) engine.emit('userEnter', { uid: `u${i}` });
+    });
+
+    act(() => {
+      fireEvent.doubleClick(screen.getByTestId('tile-u2'));
+    });
+    expect(screen.getByTestId('speaker-stage')).toBeTruthy();
+    // 主画面报 h（§4.4）。
+    expect(engine.layers).toContainEqual({ uid: 'u2', layer: 'h' });
+    // 底部条只有 4 格（自己 + 3 位），第 5 个人没上去，要报 none。
+    expect(engine.layers).toContainEqual({ uid: 'u5', layer: 'none' });
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('unpin'));
+    });
+    expect(screen.queryByTestId('speaker-stage')).toBeNull();
+    expect(screen.getByTestId('grid-stage')).toBeTruthy();
+  });
+
+  it('钉住的人走了，自动回到画廊', async () => {
+    const engine = setup();
+    await enterMeeting(engine);
+    act(() => {
+      engine.emit('userEnter', { uid: 'u1' });
+      engine.emit('userEnter', { uid: 'u2' });
+    });
+    act(() => {
+      fireEvent.doubleClick(screen.getByTestId('tile-u1'));
+    });
+    expect(screen.getByTestId('speaker-stage')).toBeTruthy();
 
     act(() => {
       engine.emit('userLeave', { uid: 'u1' });
-      engine.emit('userLeave', { uid: 'u2' });
     });
-    expect(screen.queryByTestId('hidden-count')).toBeNull();
+    expect(screen.queryByTestId('speaker-stage'), '不能一直盯着一个不在房里的人').toBeNull();
+  });
+});
+
+describe('会议房：只读成员列表', () => {
+  it('标题栏的 👥 打开列表：自己在第一行，其余按进房顺序，带麦克风 / 摄像头状态', async () => {
+    const engine = setup();
+    await enterMeeting(engine);
+    act(() => {
+      engine.emit('userEnter', { uid: 'u1' });
+      engine.emit('userEnter', { uid: 'u2' });
+      engine.emit('userAudioAvailable', { uid: 'u2', available: false });
+    });
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('members-button'));
+    });
+    const list = screen.getByTestId('member-list');
+    expect(list.textContent).toContain('成员（3）');
+
+    const rows = [...list.querySelectorAll('[data-testid^="member-"]')]
+      .map((el) => el.getAttribute('data-testid'))
+      .filter((id): id is string =>
+        id !== null && !id.endsWith('-mic') && !id.endsWith('-cam') && id !== 'member-list-close');
+    expect(rows, '自己第一行，其余按进房顺序').toEqual(['member-self', 'member-u1', 'member-u2']);
+    expect(screen.getByTestId('member-u2-mic').getAttribute('data-on')).toBe('false');
+    expect(screen.getByTestId('member-u1-mic').getAttribute('data-on')).toBe('true');
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-list-close'));
+    });
+    expect(screen.queryByTestId('member-list')).toBeNull();
   });
 });

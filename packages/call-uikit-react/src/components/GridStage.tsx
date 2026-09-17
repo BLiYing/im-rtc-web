@@ -1,11 +1,12 @@
-import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 
 import { cellSide, gridDimensions, hiddenCountText, tileLayer, visibleTiles } from '../layout/grid.js';
+import type { RemoteParticipant } from '../state/viewTypes.js';
 import { useCall } from '../useCall.js';
 import { useElementSize } from '../useElementSize.js';
 import { styles } from '../styles.js';
 import { callMetrics } from '../theme.js';
+import { OffscreenMembers } from './OffscreenMembers.js';
 import { VideoTile } from './VideoTile.js';
 
 /**
@@ -14,13 +15,37 @@ import { VideoTile } from './VideoTile.js';
  * **网格里没有加号格**（v3.3 撤掉）。加人入口只有标题栏右上角那一颗
  * （`canShowInvite` 同一条判据）：网格里再放一个是同一个动作的第二个入口，
  * 而它还会占掉一个格位——三个人的通话看起来像四个人，行列也跟着多排一格。
+ *
+ * # 它只回答「给定这一页，格子怎么排」
+ *
+ * 会议的分页是**外层容器**的事（`MeetingStage`）：那边算好这一页有谁、页码怎么显示，
+ * 再把这几个人交给这里画（MEETING_ROOM_DESIGN §3 的门控表）。
+ * 所有 props 省略时行为与群通话完全一致，所以那条路径一行都没有变。
  */
-export function GridStage(): ReactNode {
+export interface GridStageProps {
+  /** 这一页要画的远端。**省略 = 状态里的全部**（群通话，自己截断到 8 个）。 */
+  readonly participants?: readonly RemoteParticipant[];
+  /**
+   * 恒按这么多格算行列。
+   *
+   * 会议分页固定 3×3：**最后一页不满时格子和满页一样大**，不放大（§4.1）——
+   * 放大的话层会从 l 跳到 m、还要多等一次关键帧，翻页时整屏重排。
+   */
+  readonly fixedTileCount?: number;
+  /** 没画格子、只报 `none` 的人。省略 = 自己从状态里算（群通话截断掉的那些）。 */
+  readonly offscreen?: readonly RemoteParticipant[];
+  /** 双击一格。会议里 = 钉住进演讲者视图（§4.4）。 */
+  readonly onTileActivate?: (uid: string) => void;
+  /** 舞台右下角那枚胶囊。省略 = 「还有 N 人未显示」（M1 止血）。 */
+  readonly badge?: ReactNode;
+}
+
+export function GridStage(props: GridStageProps = {}): ReactNode {
   const { state } = useCall();
   const stage = useElementSize<HTMLDivElement>();
-  const tiles = visibleTiles(state.participants);
+  const tiles = props.participants ?? visibleTiles(state.participants);
   // 本端一格 + 远端。
-  const tileCount = tiles.length + 1;
+  const tileCount = props.fixedTileCount ?? tiles.length + 1;
   /*
     行列**跟着容器形状走**，不是只看人数：竖屏（手机、窄窗口）上两个人要上下摞，
     横屏上才是左右排。量不到尺寸时（jsdom、首帧）按正方形容器算，
@@ -31,22 +56,13 @@ export function GridStage(): ReactNode {
   const side = tileCount > 1 ? cellSide({ cols, rows }, stage.width, stage.height, callMetrics.tileGap) : 0;
   const layer = tileLayer(tileCount);
 
-  /*
-    **超出一屏的人只是没有格子，不是不在通话里——声音必须接上。**
-
-    浏览器只播挂在媒体元素上的流（`engine.attachView(uid, el)`），没有元素的人
-    就是**彻底静音**。原先九宫格只为前 8 位远端渲染 VideoTile，会议房（服务端不设
-    人数上限）进到第 10 个人时，第 9、10 位在场却完全听不见，界面上还没有任何提示。
-    小窗（MiniWindow）与语音页（AudioStage）本来就为没画格子的人补了 sink，
-    只有这里漏了。iOS / Android 没有这个坑——那两端的远端音频由音频设备直接播，不绑视图。
-  */
-  const offscreen = state.participants.slice(tiles.length);
+  // 超出一屏的人只是没有格子，不是不在通话里——见 `OffscreenMembers`。
+  const offscreen = props.offscreen ?? state.participants.slice(tiles.length);
+  const badge = props.badge ?? defaultBadge(offscreen.length);
 
   return (
     <div style={styles.stage} ref={stage.ref} data-testid="grid-stage">
-      {offscreen.map((p) => (
-        <OffscreenMember key={p.uid} uid={p.uid} hasVideo={p.hasVideo} />
-      ))}
+      <OffscreenMembers members={offscreen} />
       <div
         style={{
           ...styles.grid,
@@ -79,33 +95,23 @@ export function GridStage(): ReactNode {
             settled={p.settled}
             networkLevel={p.networkLevel}
             layer={layer}
+            {...(props.onTileActivate === undefined
+              ? {}
+              : { onActivate: props.onTileActivate })}
           />
         ))}
       </div>
-      {offscreen.length > 0 && (
-        <div style={styles.hiddenPill} data-testid="hidden-count">
-          {hiddenCountText(offscreen.length)}
-        </div>
-      )}
+      {badge}
     </div>
   );
 }
 
-/**
- * OffscreenMember：没有格子的人——**只报 `none`，什么都不画**（MEETING_ROOM_DESIGN §4.3）。
- *
- * 看不见的人原先照常按默认层收视频，白白吃下行。`none` 在通话房里 = 暂停下发、保留订阅；
- * 在会议房里引擎还会把它翻译成「五秒后退订」（`roomPaging.ts`），翻回来只换层、不重协商。
- * `hasVideo` 进依赖的理由同 VideoTile：人先进来、轨道后到，轨道到了那一刻要再报一次。
- * 他回到屏幕上时 VideoTile 挂载会按格子大小重报层，不用这里撤。
- *
- * **不再挂隐藏的 `<audio>`**：远端音频从 2.0.0 起由引擎自己播（`RemoteAudioPlayer`），
- * 与画面挂在哪无关。原先那个 `RemoteAudioSink` 组件因此退役。
- */
-function OffscreenMember({ uid, hasVideo }: { readonly uid: string; readonly hasVideo: boolean }): ReactNode {
-  const { engine } = useCall();
-  useEffect(() => {
-    void engine.setRemoteLayer(uid, 'none');
-  }, [engine, uid, hasVideo]);
-  return null;
+/** defaultBadge 是群通话那枚「还有 N 人未显示」胶囊；没人被截掉时不画。 */
+function defaultBadge(hidden: number): ReactNode {
+  if (hidden <= 0) return null;
+  return (
+    <div style={styles.hiddenPill} data-testid="hidden-count">
+      {hiddenCountText(hidden)}
+    </div>
+  );
 }

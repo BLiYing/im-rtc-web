@@ -94,25 +94,26 @@ function pageIn(ctx: RoomContext, trackId: string, maxLayer: Layer): MachineOutp
     ]);
   }
 
-  const room = freeSlot(kept);
-  if (countLiveVideo(room.ctx) >= MAX_SUBSCRIBED_VIDEO) {
-    /*
-      腾不出位置：**只可能是调用方一次要看超过 16 路视频**。
+  /*
+    **先问腾不腾得出位置，再动手**：本地拒绝要求不发帧、状态不变，
+    所以不能先把强制退订发出去再反悔。
 
-      翻页翻不出这种局面（一页 8 路，迟滞里的旧页会在上面被强制退掉）。
-      所以这是界面那边的 bug，不是引擎该悄悄吞掉的事——本地拒绝，
-      让它经 `setRemoteLayer` 的 error 事件露出来。
+    排着迟滞的那些都还占着 m-line，它们是唯一能腾出来的位置。全退了还满，
+    就**只可能是调用方一次要看超过 16 路视频**——翻页翻不出这种局面（一页 8 路），
+    那是界面那边的 bug，不该由引擎悄悄吞掉。
 
-      **不排队**：排队要有一个「什么时候轮到你」的触发点，而这里没有——
-      订阅位是靠翻页腾出来的，队列只会安静地越积越长，
-      表现成「第 17 个人的画面永远不出来，也没有任何报错」。
-    */
+    **不排队**：排队要有一个「什么时候轮到你」的触发点，而这里没有——
+    订阅位是靠翻页腾出来的，队列只会安静地越积越长，
+    表现成「第 17 个人的画面永远不出来，也没有任何报错」。
+  */
+  if (countLiveVideo(kept) - kept.pendingUnsubscribe.length >= MAX_SUBSCRIBED_VIDEO) {
     return {
-      ...roomOut(room.ctx, room.send),
+      ...roomOut(ctx),
       reject: { code: ErrorCode.invalidState, name: errorName(ErrorCode.invalidState) },
     };
   }
 
+  const room = freeSlot(kept);
   return roomOut(
     {
       ...room.ctx,

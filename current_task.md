@@ -13,7 +13,14 @@
 - 会议房按页订阅（`state/roomPaging.ts`）：`auto_subscribe='audio'` 时 `setRemoteLayer` 就是订阅意图——`l/m/h` = 订阅或换层，`none` = 先停包再等 5 s 退订；翻回来只换层不重协商；同时订阅的视频封顶 16 路，满了先退最早翻走的那一条，一条都腾不出来才本地拒绝。定时器在 `state/unsubscribeTimers.ts`，按 `pendingUnsubscribe` **整体对账**。
 - **远端音频由 Engine 自己播**（`media/remoteAudio.ts`）：每条音频轨一个隐藏 `<audio>`，`attachView` 只管画面，`ViewRegistry` 不再把音频塞进 uid 的 `MediaStream`。uikit 的 `RemoteAudioSink` 已删。进房 / 接听那一次点击顺手 `unlock()` 解自动播放。
 - 新测 `test/roomPaging.test.ts`（10 条）、`test/remoteAudio.test.ts`（11 条）；向量新增两组用例跟着跑。
-- **没做**：uikit 的分页画廊、钉住、成员列表（下一段）；`useCallActions` 进会议房还是发 `'all'`，等 Kit 那一段改成 `'audio'`。
+- uikit（同一轮，第四段）：**分页画廊 + 钉住 + 只读成员列表**。
+  - `components/MeetingStage.tsx` 是 `GridStage` 的**外层容器**（组件本身只多了几个可选 prop，省略时行为与群通话一模一样）：算这一页有谁、画页码、处理左右滑。≤ 9 人不分页、不挂手势层。
+  - 第一页发言人优先 + 防抖是纯函数 `layout/firstPage.ts`（1.5 s 晋升 / 10 s 驻留 / 2 s 限频），节拍在 `useMeetingOrder.ts`（500ms，**不能只靠事件驱动**：一直说话时成员表不变，事件就不来了）。
+  - 双击格子钉住 → `components/SpeakerStage.tsx`（主画面 h、底部 4 格 l），点 📌 取消；钉住的人走了自动回画廊。
+  - 只读成员列表 `components/MemberList.tsx`（自己 → 进房顺序 + 麦克风 / 摄像头角标），从标题栏的「👥 N」打开——会议房用的正是加人按钮那个位置。
+  - `RemoteAudioSink` 退役后，「页外的人没有格子」不再需要任何元素：`components/OffscreenMembers.tsx` 只报 `none`，画廊与演讲者视图共用。
+  - `joinMeeting` 改发 `auto_subscribe: 'audio'`。
+  - 新测 `test/firstPage.test.ts`（15 条）；`test/meeting.test.tsx` 的 M1 胶囊那一组改写成 M2 的分页 / 钉住 / 成员列表（18 条）。
 
 **2026-09-17 夜：信令层一次性定时器抽成 `signaling/oneShotTimer.ts`（队列 5 的定时器样板，不导出）**：`Reconnector` / `ResumeDeadline` 改用它；`Heartbeat`（周期）、`TokenExpiryTimer`（注入定时器 + 32 位分段）、`PendingRequests`（按 req 多只）形状不同，没动。行为不变。
 

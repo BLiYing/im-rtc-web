@@ -227,7 +227,13 @@ export function useCallActions({ engine, state, dispatch, cids, gate, endWatchdo
           收掉界面等于把一场还在进行的会议从屏幕上抹掉。推流失败由 publishFor 自己出提示。
         */
         try {
-          await engine.joinRoom(roomId, roomToken);
+          /*
+            **会议房发 `'audio'`**（MEETING_ROOM_DESIGN §4.3）：音频由服务端自动订上，
+            页外的人说话照样听得见；视频一条都不自动订，由分页画廊按当前页
+            `setRemoteLayer` 订与退。发 `'all'` 的话 25 人会议一进房就订满 24 路视频，
+            sub offer 直接撞上 64 KiB 的帧上限——那正是 M2 要解决的那堵墙。
+          */
+          await engine.joinRoom(roomId, roomToken, 'audio');
         } catch (err) {
           dispatch({ type: 'dismiss' });
           throw err; // 调用方（宿主的拨号面板）还要把这条错误显示出来

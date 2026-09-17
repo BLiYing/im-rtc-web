@@ -44,6 +44,12 @@ export interface VideoTileProps {
   readonly localCid?: string;
   /** 头像大小，默认 44。 */
   readonly avatarSize?: number;
+  /**
+   * 双击这一格。会议里 = 钉住进演讲者视图（MEETING_ROOM_DESIGN §4.4）。
+   *
+   * **省略时这一格完全不可交互**，与加这个 prop 之前一模一样：群通话的格子没有双击动作。
+   */
+  readonly onActivate?: (uid: string) => void;
   readonly style?: CSSProperties;
 }
 
@@ -69,7 +75,7 @@ export const VideoTile = memo(function VideoTile(props: VideoTileProps): ReactNo
   const {
     uid, label, hasVideo, isVideoPending = false, hasAudio = true, isSpeaking = false, volume = 0,
     showsSpeaking = true, isRinging = false, settled = '',
-    networkLevel = 0, layer, localCid, avatarSize = 44, style,
+    networkLevel = 0, layer, localCid, avatarSize = 44, style, onActivate,
   } = props;
   const { engine } = useCall();
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -126,8 +132,27 @@ export const VideoTile = memo(function VideoTile(props: VideoTileProps): ReactNo
     浏览器可能压根不交给合成器、回调就不来——藏起来等于自己把判据掐死。
   */
   const showsAvatar = !hasVideo || isVideoPending;
+  /*
+    **双击才算**，不是单击：会议画廊里单击要留给「显示 / 隐藏控制条」那一套手势，
+    而钉住是一个明确的、不该被误触发的动作（§4.4）。
+    键盘等价物给 Enter / 空格——只在真的可交互时才挂 role 与 tabIndex，
+    否则群通话的每一格都会变成一个读屏器念得出来的「按钮」。
+  */
+  const interactive = onActivate !== undefined && uid !== '';
+  const activation = interactive
+    ? {
+        role: 'button' as const,
+        tabIndex: 0,
+        onDoubleClick: () => onActivate(uid),
+        onKeyDown: (event: { key: string; preventDefault: () => void }) => {
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          event.preventDefault();
+          onActivate(uid);
+        },
+      }
+    : {};
   return (
-    <div style={tileStyle} data-testid={`tile-${testUid}`}>
+    <div style={tileStyle} data-testid={`tile-${testUid}`} {...activation}>
       <video
         ref={videoRef}
         autoPlay

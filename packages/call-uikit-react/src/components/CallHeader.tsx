@@ -21,9 +21,18 @@ export interface CallHeaderProps {
   readonly onInvite: () => void;
   /** 给不给「收进小窗」。**来电页不给**：小窗上没有接听键，收进去就接不了（与 iOS 一致）。 */
   readonly showsMinimize?: boolean;
+  /**
+   * 打开成员列表（MEETING_ROOM_DESIGN §4.6 的「👥 N」）。**只有会议房给**。
+   *
+   * 它与「添加成员」共用右上角那一个位置：会议房没有加人这回事
+   * （`canShowInvite` 明确排除了 `isMeeting`），两颗按钮不会同时出现。
+   */
+  readonly onMembers?: () => void;
 }
 
-export function CallHeader({ title, subtitle, networkLevel, onInvite, showsMinimize = true }: CallHeaderProps): ReactNode {
+export function CallHeader({
+  title, subtitle, networkLevel, onInvite, showsMinimize = true, onMembers,
+}: CallHeaderProps): ReactNode {
   const { state, actions, engine, invite } = useCall();
   /*
     **按钮显隐规则不以 chatGroupId 非空为条件**（HOST_INTEGRATION_DESIGN §3.4）：临时拉的
@@ -51,6 +60,12 @@ export function CallHeader({ title, subtitle, networkLevel, onInvite, showsMinim
       {showInvite ? (
         <button type="button" style={styles.headerButton} aria-label="添加成员" data-testid="invite-button" onClick={onInvite}>
           <Icon name="person-add" size={18} />
+        </button>
+      ) : onMembers !== undefined ? (
+        <button type="button" style={styles.headerButton} aria-label="成员列表" data-testid="members-button" onClick={onMembers}>
+          <span style={{ fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
+            👥{state.participants.length + 1}
+          </span>
         </button>
       ) : <span />}
     </div>

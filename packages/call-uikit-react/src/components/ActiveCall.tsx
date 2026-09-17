@@ -17,6 +17,8 @@ import { ControlBar } from './ControlBar.js';
 import { GridStage } from './GridStage.js';
 import { IncomingControls, incomingInviteText } from './IncomingControls.js';
 import { InvitePicker } from './InvitePicker.js';
+import { MeetingStage } from './MeetingStage.js';
+import { MemberList } from './MemberList.js';
 import { PipView } from './PipView.js';
 import { TopBanner } from './TopBanner.js';
 import { VideoStage } from './VideoStage.js';
@@ -56,6 +58,9 @@ export function ActiveCall(): ReactNode {
   const { state, engine, actions, invite } = useCall();
   const seconds = useElapsed(state.beganAtMs);
   const [picker, setPicker] = useState(false);
+  // 成员列表是会议房专有的半屏面板（§4.6）。与选人页一样归这一层管——
+  // 它们都是「盖在通话页上的一张纸」，舞台组件不该知道有这种东西。
+  const [members, setMembers] = useState(false);
   /**
    * handleInvite 决定「添加成员」按钮按下去之后**该不该把 InvitePicker 弹出来**。
    *
@@ -104,10 +109,12 @@ export function ActiveCall(): ReactNode {
           networkLevel={state.isGroup ? 0 : (peer?.networkLevel ?? 0)}
           onInvite={handleInvite}
           showsMinimize={!incoming}
+          {...(state.isMeeting && !incoming ? { onMembers: () => setMembers(true) } : {})}
         />
       </div>
 
-      {layout === 'grid' && <GridStage />}
+      {/* 会议房走分页画廊；群通话还是老的九宫格，一行都没变（§3 的门控表）。 */}
+      {layout === 'grid' && (state.isMeeting ? <MeetingStage /> : <GridStage />)}
       {layout === 'video' && peer !== undefined && (
         <VideoStage peer={peer} controlsVisible={hide.visible} onStageTap={hide.toggle} />
       )}
@@ -117,6 +124,7 @@ export function ActiveCall(): ReactNode {
         {incoming ? <IncomingControls /> : <ControlBar onVideo={layout === 'video'} visible={hide.visible} />}
       </div>
       {picker && <InvitePicker onClose={() => setPicker(false)} />}
+      {members && <MemberList members={state.participants} onClose={() => setMembers(false)} />}
     </div>
   );
 }
