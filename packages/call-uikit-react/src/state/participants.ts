@@ -127,6 +127,11 @@ export function revokeLastInvited(state: CallViewState): CallViewState {
  *
  * **不在名单里的人要被清成「没在说话」**：`activeSpeakers` 是全量快照而不是增量，
  * 只加不减的话高亮会一直亮着不灭。
+ *
+ * **没变的部分保留原引用**（服务端 300ms 一次全量快照，多数帧里大多数人的
+ * isSpeaking/volume 都没变）：单个成员没变就还是原来那个对象，整份名单没变就
+ * 还是原来那个数组，`self` 没变就还是原来那个对象，**全部没变就直接返回原 `state`**——
+ * `useReducer` 拿到同一个 state 引用会整体跳过这次渲染，九宫格才不用每 300ms 全部重画一遍。
  */
 export function applySpeakers(
   state: CallViewState,
@@ -135,15 +140,25 @@ export function applySpeakers(
 ): CallViewState {
   const volumes = new Map(speakers.map((s) => [s.uid, s.volume]));
   const selfVolume = selfUid === '' ? undefined : volumes.get(selfUid);
-  return {
-    ...state,
+  const selfSpeaking = selfVolume !== undefined;
+  const selfVolumeOrZero = selfVolume ?? 0;
+  const self = state.self.speaking === selfSpeaking && state.self.volume === selfVolumeOrZero
+    ? state.self
     // 本端也在这份名单里（服务端不区分谁是谁），但它没有对应的 participant。
-    self: { ...state.self, speaking: selfVolume !== undefined, volume: selfVolume ?? 0 },
-    participants: state.participants.map((p) => {
-      const volume = volumes.get(p.uid);
-      return { ...p, isSpeaking: volume !== undefined, volume: volume ?? 0 };
-    }),
-  };
+    : { ...state.self, speaking: selfSpeaking, volume: selfVolumeOrZero };
+
+  let participantsChanged = false;
+  const participants = state.participants.map((p) => {
+    const volume = volumes.get(p.uid);
+    const isSpeaking = volume !== undefined;
+    const volumeOrZero = volume ?? 0;
+    if (p.isSpeaking === isSpeaking && p.volume === volumeOrZero) return p;
+    participantsChanged = true;
+    return { ...p, isSpeaking, volume: volumeOrZero };
+  });
+
+  if (!participantsChanged && self === state.self) return state;
+  return { ...state, self, participants: participantsChanged ? participants : state.participants };
 }
 
 /** applyNetwork 叠加网络质量。 */

@@ -1,6 +1,6 @@
 import type { Layer } from 'im-rtc-call-engine';
 import type { CSSProperties, ReactNode } from 'react';
-import { useEffect, useRef } from 'react';
+import { memo, useEffect, useRef } from 'react';
 
 import { avatarGradient, avatarInitial } from '../format/avatar.js';
 import { useDisplayName, useParticipantProfile } from '../profile.js';
@@ -52,8 +52,20 @@ export interface VideoTileProps {
  *
  * **画面只经 `engine.attachView` 挂载**（CONVENTIONS §1）：uikit 不碰
  * `RTCPeerConnection`，也不自己拼 `MediaStream`。换媒体实现时这个组件一行不用改。
+ *
+ * **包了 `React.memo`**：除 `style` 外全部是原始值 props。九宫格 / 会议房一屏最多 9 格，
+ * 原先 `activeSpeakers` 每 300ms 重建所有 participant 对象，逼着**每一格**都跟着重渲染；
+ * 现在 `applySpeakers`（`state/participants.ts`）没变的成员保留原对象引用，
+ * 这里配合 memo 才真正省下没变化的那些格子的渲染。
+ *
+ * **注意它自己也读 `useCall()`（context）**：调用 `engine`。React 的 context 传播不认 memo——
+ * 只要 `CallProvider` 的 `state` 变了（哪怕变的是别人那一格），这个组件照样会重新执行一次
+ * （见 `CallProvider.tsx` 顶部注释）。memo 在这条路径上挡不住重渲染，**它真正挡住的是**：
+ * 父组件（`GridStage`）因为自己的本地状态（比如 `useElementSize` 量到新尺寸）重渲染、
+ * 而这一格的 props 其实没变的那些场合，以及——更关键的——**让它下面不读 context 的叶子
+ * （`SpeechIcon` / `NetworkBars`）在 props 没变时真正跳过重渲染**，那才是大头。
  */
-export function VideoTile(props: VideoTileProps): ReactNode {
+export const VideoTile = memo(function VideoTile(props: VideoTileProps): ReactNode {
   const {
     uid, label, hasVideo, isVideoPending = false, hasAudio = true, isSpeaking = false, volume = 0,
     showsSpeaking = true, isRinging = false, settled = '',
@@ -177,4 +189,4 @@ export function VideoTile(props: VideoTileProps): ReactNode {
       </div>
     </div>
   );
-}
+});

@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import type { ReactNode } from 'react';
 
 import { callColors, callMetrics } from '../theme.js';
@@ -53,33 +54,38 @@ export function Icon({ name, size = callMetrics.icon }: IconProps): ReactNode {
  * 输入是 `networkQuality` 的 level（0~6，协议 §3.5 的表）：1~2 三根亮、3~4 两根、
  * 5~6 一根；**0 = 未知时什么都不画**——画三根全灰会让人以为网断了。
  * 与 iOS 的 `IMNetworkBars` 同一套分档。
+ *
+ * **包了 `React.memo`**：`level` / `size` 都是原始值，且它不读 `useCall()`——
+ * `networkQuality` 与 `activeSpeakers` 同样按周期推送，没变化的格子靠这个真正跳过重渲染。
  */
-export function NetworkBars({ level, size = 14 }: { readonly level: number; readonly size?: number }): ReactNode {
-  if (level <= 0) return null;
-  const lit = barsLit(level);
-  const color = level >= 5 ? callColors.warning : 'currentColor';
-  const bars = [
-    { x: 3, y: 14, h: 6 },
-    { x: 10.2, y: 9, h: 11 },
-    { x: 17.4, y: 4, h: 16 },
-  ];
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
-      {bars.map((bar, i) => (
-        <rect
-          key={bar.x}
-          x={bar.x}
-          y={bar.y}
-          width={3.6}
-          height={bar.h}
-          rx={1}
-          fill={color}
-          opacity={i < lit ? 1 : 0.35}
-        />
-      ))}
-    </svg>
-  );
-}
+export const NetworkBars = memo(
+  function NetworkBars({ level, size = 14 }: { readonly level: number; readonly size?: number }): ReactNode {
+    if (level <= 0) return null;
+    const lit = barsLit(level);
+    const color = isNetworkBad(level) ? callColors.warning : 'currentColor';
+    const bars = [
+      { x: 3, y: 14, h: 6 },
+      { x: 10.2, y: 9, h: 11 },
+      { x: 17.4, y: 4, h: 16 },
+    ];
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        {bars.map((bar, i) => (
+          <rect
+            key={bar.x}
+            x={bar.x}
+            y={bar.y}
+            width={3.6}
+            height={bar.h}
+            rx={1}
+            fill={color}
+            opacity={i < lit ? 1 : 0.35}
+          />
+        ))}
+      </svg>
+    );
+  },
+);
 
 /** barsLit 把 level 翻成亮几根。 */
 export function barsLit(level: number): number {
@@ -101,4 +107,9 @@ export function networkText(level: number): string {
 /** isNetworkPoor 判断要不要出「对方网络不佳」的提示（3 以上）。 */
 export function isNetworkPoor(level: number): boolean {
   return level >= 3;
+}
+
+/** isNetworkBad 判断网络胶囊 / 图标该不该换成警示色（5 以上：很差 / 正在重连）。 */
+export function isNetworkBad(level: number): boolean {
+  return level >= 5;
 }

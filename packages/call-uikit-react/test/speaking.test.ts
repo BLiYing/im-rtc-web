@@ -51,4 +51,40 @@ describe('applySpeakers', () => {
     expect(state.self.speaking).toBe(false);
     expect(state.participants.every((p) => !p.isSpeaking)).toBe(true);
   });
+
+  /*
+   * 引用稳定性（perf）：服务端 300ms 一次全量快照，多数帧里大多数人都没变化——
+   * 保留原引用是 GridStage 每 300ms 全量重渲染的唯一止血办法（React.memo 靠它才有用）。
+   */
+  describe('引用稳定性', () => {
+    it('整份快照什么都没变就返回同一个 state（useReducer 靠它 bail out）', () => {
+      const before = applySpeakers(room(['bob', 'carol']), [{ uid: 'bob', volume: 40 }], 'alice');
+      const after = applySpeakers(before, [{ uid: 'bob', volume: 40 }], 'alice');
+      expect(after).toBe(before);
+    });
+
+    it('没变的成员保留原对象引用，变了的成员才换新对象', () => {
+      const before = applySpeakers(room(['bob', 'carol']),
+        [{ uid: 'bob', volume: 40 }, { uid: 'carol', volume: 10 }], 'alice');
+      const after = applySpeakers(before, [{ uid: 'bob', volume: 40 }, { uid: 'carol', volume: 55 }], 'alice');
+
+      expect(after.participants[0]).toBe(before.participants[0]); // bob 没变
+      expect(after.participants[1]).not.toBe(before.participants[1]); // carol 音量变了
+      expect(after.participants[1]?.volume).toBe(55);
+    });
+
+    it('没有任何成员变化时 participants 数组整体保留原引用', () => {
+      const before = applySpeakers(room(['bob', 'carol']), [{ uid: 'bob', volume: 40 }], 'alice');
+      // volumes 不同但落在同一个 Map 键上，isSpeaking/volume 结果与上一次相同。
+      const after = applySpeakers(before, [{ uid: 'bob', volume: 40 }], 'bob');
+      expect(after.participants).toBe(before.participants);
+    });
+
+    it('self 没变就保留原对象引用', () => {
+      const before = applySpeakers(room(['bob']), [{ uid: 'bob', volume: 40 }], 'alice');
+      const after = applySpeakers(before, [{ uid: 'bob', volume: 99 }], 'alice');
+      expect(after.self).toBe(before.self); // alice 不在名单里，self 两次都是「没在说话」
+      expect(after.participants).not.toBe(before.participants); // bob 音量变了，数组必须换新
+    });
+  });
 });

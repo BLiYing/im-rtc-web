@@ -4,7 +4,7 @@ import { avatarGradient, avatarInitial } from '../format/avatar.js';
 import { useCall } from '../useCall.js';
 import { styles } from '../styles.js';
 import { callColors } from '../theme.js';
-import { NetworkBars, networkText } from './Icon.js';
+import { NetworkBars, isNetworkBad, networkText } from './Icon.js';
 import { RemoteAudioSink } from './RemoteAudioSink.js';
 
 /**
@@ -48,7 +48,7 @@ export function AudioStage({
       {showsCaption && <div style={styles.whoName}>{name}</div>}
       {showsCaption && <div style={styles.whoStatus}>{status}</div>}
       {networkLevel > 0 && (
-        <span style={{ ...styles.netChip, ...(networkLevel >= 5 ? { color: callColors.warning } : {}) }} data-testid="net-chip">
+        <span style={{ ...styles.netChip, ...(isNetworkBad(networkLevel) ? { color: callColors.warning } : {}) }} data-testid="net-chip">
           <NetworkBars level={networkLevel} size={12} />
           {networkText(networkLevel)}
         </span>

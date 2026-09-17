@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 
 import { callColors, callMotion } from '../theme.js';
@@ -117,7 +117,12 @@ function useHeldSpeaking(speaking: boolean): boolean {
   return held;
 }
 
-export function SpeechIcon(
+/**
+ * **包了 `React.memo`**：全部 props 都是原始值，且它**不读 `useCall()`**——
+ * 不像 `VideoTile`，这里没有 context 传播会绕开 memo 的问题，`isSpeaking`/`volume`
+ * 没变的格子会被真正跳过（`applySpeakers` 优化的价值主要就落在这里）。
+ */
+export const SpeechIcon = memo(function SpeechIcon(
   { speaking, muted, volume = 0, showsSpeaking = true, testUid = '' }: SpeechIconProps,
 ): JSX.Element {
   // **Hook 必须在任何提前 return 之前调**，所以拖拍算在最前面。
@@ -173,4 +178,4 @@ export function SpeechIcon(
       ))}
     </span>
   );
-}
+});
