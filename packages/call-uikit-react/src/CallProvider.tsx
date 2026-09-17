@@ -15,6 +15,7 @@ import { subscribeEngine } from './subscribeEngine.js';
 import { callMotion } from './theme.js';
 import type { CallActions, PublishedCids } from './useCallActions.js';
 import { useCallActions } from './useCallActions.js';
+import { useKeyedTimers } from './useKeyedTimers.js';
 import type { PermissionPromptView } from './usePermissionGate.js';
 import { usePermissionGate } from './usePermissionGate.js';
 import { useRingingPreview } from './useRingingPreview.js';
@@ -193,35 +194,12 @@ export function CallProvider({
     邀请中的格子拿到终局（已拒绝 / 未接听）后停 2s 再收（交互稿 §05 G3）。
     **依赖看的是内容签名，不是 length**（CONVENTIONS §5）——定长时 length 不变，effect 永远不重跑。
 
-    **计时器按 uid 各算各的**，放 ref 不进 effect 的清理：原先整批一起建、一起清，
-    第二个人拒接时会把第一个人的 2 秒重新计一遍——先拒的那格反而留得更久。
+    **计时器按 uid 各算各的**：原先整批一起建、一起清，第二个人拒接时会把第一个人的 2 秒
+    重新计一遍——先拒的那格反而留得更久。写法与 `useVideoRevealFallback` 同一套，抽成了
+    `useKeyedTimers`（内部 hook，不从包入口导出）。
   */
-  const settledTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const settledUids = state.participants.filter((p) => p.settled !== '').map((p) => p.uid).join(',');
-  useEffect(() => {
-    const wanted = new Set(settledUids === '' ? [] : settledUids.split(','));
-    const timers = settledTimers.current;
-    for (const [uid, timer] of timers) {
-      // 人已经被收掉（或重新接听了）：撤掉他的计时器。
-      if (!wanted.has(uid)) {
-        clearTimeout(timer);
-        timers.delete(uid);
-      }
-    }
-    for (const uid of wanted) {
-      if (timers.has(uid)) continue;
-      timers.set(uid, setTimeout(() => {
-        timers.delete(uid);
-        dispatch({ type: 'userRemove', uid });
-      }, callMotion.settledHoldMs));
-    }
-  }, [settledUids]);
-
-  // 卸载时把还没到点的终局计时器清干净（CONVENTIONS §5：成对清理）。
-  useEffect(() => () => {
-    for (const timer of settledTimers.current.values()) clearTimeout(timer);
-    settledTimers.current.clear();
-  }, []);
+  useKeyedTimers(settledUids, callMotion.settledHoldMs, (uid) => dispatch({ type: 'userRemove', uid }));
 
   /*
     callBegin 之后发布本端媒体。**不能放进 actions**：被叫方的 callBegin
