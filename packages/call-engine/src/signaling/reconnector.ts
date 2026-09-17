@@ -1,5 +1,6 @@
 import { logger } from '../logger.js';
 import { backoffDelayMs } from './backoff.js';
+import { OneShotTimer } from './oneShotTimer.js';
 
 /**
  * 重连调度（RTC_PROTOCOL.md §1.4）。
@@ -11,7 +12,7 @@ import { backoffDelayMs } from './backoff.js';
  * `shouldReconnect`）。这里只管「决定重连之后，等多久、第几次」。
  */
 export class Reconnector {
-  private timer: ReturnType<typeof setTimeout> | null = null;
+  private readonly timer = new OneShotTimer();
   private attempt = 0;
   /** 已经彻底放弃。见 stop() —— 这是**闩**，不是一次性的取消。 */
   private stopped = false;
@@ -31,19 +32,18 @@ export class Reconnector {
    * 十几分钟后就退到了几十秒一次，看着像「不重连了」。
    */
   schedule(): void {
-    if (this.stopped || this.timer !== null) return;
+    if (this.stopped || this.timer.armed) return;
     const delayMs = backoffDelayMs(this.attempt, this.random);
     this.attempt += 1;
     logger.info('计划重连', { attempt: this.attempt, delayMs });
 
-    this.timer = setTimeout(() => {
-      this.timer = null;
+    this.timer.start(delayMs, () => {
       void this.reconnect().catch((err: unknown) => {
         this.onFailed(err);
         // 失败后继续退避——档位不重置，否则断网期间会退化成每秒重试。
         this.schedule();
       });
-    }, delayMs);
+    });
   }
 
   /** succeeded 在一次连接成功后把退避档重置，并解掉 stop() 的闩。 */
@@ -66,10 +66,7 @@ export class Reconnector {
 
   /** cancel 取消未触发的重连。幂等。 */
   cancel(): void {
-    if (this.timer !== null) {
-      clearTimeout(this.timer);
-      this.timer = null;
-    }
+    this.timer.cancel();
   }
 
   /** attempts 供测试与诊断观察。 */

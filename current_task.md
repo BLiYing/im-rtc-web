@@ -7,7 +7,9 @@
 
 ## 当前焦点
 
-**2026-09-17 夜：「调用结果回给调用方」（server `docs/design/ACTION_RESULT_DESIGN.md`，→ 2.0.0）Web 参照实现已改完，未提交，等 code-review。** `test.sh` 16 步全绿（engine 485 / uikit 214）。
+**2026-09-17 夜：信令层一次性定时器抽成 `signaling/oneShotTimer.ts`（队列 5 的定时器样板，不导出）**：`Reconnector` / `ResumeDeadline` 改用它；`Heartbeat`（周期）、`TokenExpiryTimer`（注入定时器 + 32 位分段）、`PendingRequests`（按 req 多只）形状不同，没动。行为不变。
+
+**2026-09-17 夜：「调用结果回给调用方」（server `docs/design/ACTION_RESULT_DESIGN.md`，→ 2.0.0）已提交 `7089978`（未推送），code-review 已过。** `test.sh` 16 步全绿。
 - 向量：`act` 步骤新增 `result`，状态机本地拒绝不再 emit `onError`（`MachineOutput.reject`），两个 FSM runner 比对它。
 - `FrameLoop.request`（宿主调用）/ `dispatch`（找不到调用方）分开：直接帧失败 reject 给调用方、不发 `error` 事件；直接帧 `.ok` 落进状态机就结算，连锁帧失败走 `error`（带 `forType`）。退出类（hangup / reject / cancel / leave）失败本地收场。
 - 门面：`call()` 返回 `callId`；`probe*` 不再双发；`setRemoteLayer` / `close*` 永不 reject；`setRemoteLayer` 归 destroy 后 SAFE。`error` 事件加 `forType`。
@@ -18,7 +20,7 @@
 
 - 09-17 下午用户验收了旧「下一步」1、2：发起人挂断后被叫能在选人页重新邀请、他那边来电页不出现自己的格子；`openMicrophone` / `openCamera` 等四个开关真浏览器点过。
   旧 3（destroy 对表查出的别端欠账）不在本仓，已挪进 android / ios 的 `current_task.md`。
-- code-review 通过后等用户通知发 2.0.0：版本号改 `packages/call-engine/src/version.ts` + 两个 `package.json`，用户在终端 `npm publish`。
+- 真机验收后等用户通知发 2.0.0：版本号改 `packages/call-engine/src/version.ts` + 两个 `package.json`，用户在终端 `npm publish`。
 - 真机（Chrome 5179）：`joinCall` 满员 1202 / 已结束 1402 / 宿主拒绝 1409 三种文案；拨号拿到 `callId`；通话中断网再挂断界面收得掉。
 
 ## 已知坑 / 限制

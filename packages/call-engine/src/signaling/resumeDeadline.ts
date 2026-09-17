@@ -1,4 +1,5 @@
 import { logger } from '../logger.js';
+import { OneShotTimer } from './oneShotTimer.js';
 
 /** 协议 §1.4 的恢复窗口：30 秒。**四端同一个值**，服务端的 `ResumeWindow` 也是它。 */
 export const RESUME_WINDOW_SEC = 30;
@@ -45,7 +46,7 @@ export function giveUpDelayMs(pingIntervalSec: number): number {
  * 也让「什么时候该放弃」这条规则有独立的测试面。
  */
 export class ResumeDeadline {
-  private timer: ReturnType<typeof setTimeout> | null = null;
+  private readonly timer = new OneShotTimer();
   private pingIntervalSec = 15;
 
   constructor(private readonly onUnrecoverable: () => void) {}
@@ -69,26 +70,22 @@ export class ResumeDeadline {
    * 起点是第一次断开的那一刻，与服务端算的是同一笔账。
    */
   arm(): void {
-    if (this.timer !== null) return;
+    if (this.timer.armed) return;
     const delayMs = giveUpDelayMs(this.pingIntervalSec);
     logger.info('恢复窗口倒计时已起', { delayMs });
-    this.timer = setTimeout(() => {
-      this.timer = null;
+    this.timer.start(delayMs, () => {
       logger.warn('断开已超过恢复窗口，会话不可恢复', {});
       this.onUnrecoverable();
-    }, delayMs);
+    });
   }
 
   /** 撤销。连上了、或宿主 logout 了都要调。幂等。 */
   cancel(): void {
-    if (this.timer !== null) {
-      clearTimeout(this.timer);
-      this.timer = null;
-    }
+    this.timer.cancel();
   }
 
   /** armed 供测试与诊断观察。 */
   get armed(): boolean {
-    return this.timer !== null;
+    return this.timer.armed;
   }
 }
