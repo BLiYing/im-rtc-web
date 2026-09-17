@@ -7,28 +7,27 @@
 
 ## 当前焦点
 
-**2026-09-17 夜：补了三件（本地已提交、未推送），`test.sh` 15 步全绿，并在 Chrome 5179 上真实验过。** SDK 1.0.0 已公网发布，这些进下一个版本。
-- `b3fe407` engine 收 `call.ringing` 抛 `userRinging`，uikit 群通话里别人加的人也摆占位格——**三标签页真实验证**：alice 加 bob，carol 看到「呼叫中」，bob 拒接后「已拒绝」2 s 收掉。
-- `fd6a862` 会议房「还有 N 人未显示」+ 屏外报 none（M1）——**真实验证**：alice + 11 个假人，9 格 +「还有 3 人未显示」，第 13 人 1202。
-- `fbe06ae` 「对方网络不佳」横幅只在 1v1；服务端开始下发 `room.quality` 后客户端日志每 2 s 收到 level。
-- Chrome 扩展连 `127.0.0.1` 卡住、改 `localhost:5179` 就通了。
+**2026-09-17 下午：旧「下一步」2（destroy 对表）、4、5、6 四条做完，均已提交、未推送，`test.sh` 16 步全绿。**
+- `343dcc3` 铃声 `play()` 被本端 `pause()` 打断（`AbortError`）记 debug，只有 `NotAllowedError` 才说「被拦下」。
+- `a9cb938` 体量 / 日志门禁按 `package.json` workspaces 推扫描目录（`scripts/lib/workspaceDirs.sh`），demo-react 不再漏扫；读不出 workspaces 时 exit 2。
+- `2b2017a` `webrtcAdapter.ts` 529 → 449（`media/videoSender.ts`、`media/captureStream.ts`）。
+- `c257177` `engine.ts` 582 → 470（`callGuards.ts`、`engineSession.ts`、`engineMediaApi` 的 `openLocal` / `closeLocal`）；destroy 之后逐方法归类钉进 `test/destroyContract.test.ts`，三端对照写进 CLIENT_PARITY v1.39 `[^destroy]`（server `fd7b38d`）。
+- 09-17 夜那三件（`call.ringing` 占位格、会议房 M1、网络横幅只在 1v1）见 git log，已真实验过。
 
 ## 下一步
 
 1. **用户自测**（服务端先重启）：发起人挂断后，被叫在选人页能选到他并邀请；他那边来电页不出现自己的格子。
-2. **API 命名对齐遗留**：`destroy()` 之后哪些方法抛 2005 没和 iOS / Android 逐条对表；`openMicrophone` / `openCamera` 等四个开关没在真浏览器点过。
-4. **体量**：`engine.ts` 582、`media/webrtcAdapter.ts` 529 行 WARN，再往里加东西前先拆。
-5. 老漏洞：`demo-react/` 不在 `check-logging.sh` / `check-file-size.sh` 扫描范围（`for d in packages demo`）。
-6. 小瑕疵：铃声 `play()` 落定前被 `pause()` 打断会抛 `AbortError`，快速挂断时日志多一条误导性的「自动播放被拦下」。
+2. `openMicrophone` / `openCamera` 等四个开关没在真浏览器点过（这轮只挪了方法体、行为不变）。
+3. destroy 对表查出的**别端欠账**（不在本仓）：Android 没有 2005、销毁后静默丢弃；iOS 生命周期注释与实际不符、`attachView` 销毁后仍建空视图。见 CLIENT_PARITY `[^destroy]`。
 
 ## 已知坑 / 限制
 
 - **发布只能用户在终端发**：`npm publish` 要通行密钥 2FA，Claude 这边没 TTY 必报 EOTP。版本号改 `packages/call-engine/src/version.ts` + 两个 `package.json`。
 - **`IMRTC_SDK` 三档只影响两个 Demo 的 `vite.config.ts`**：`tsc -b`、`vitest` 永远跑源码。`local` / `public` 档目录不存在时直接抛错（不回落 source），先跑 `./scripts/pack-sdk.sh <档>`（每次 `rm -rf` 重建）。
-- `check-logging.sh` 靠 `*/vite.config.ts` 豁免才不拦 `demo/vite.config.ts` 的构建期 `console.log`，改豁免表别删这条。
+- `check-logging.sh` 靠 `*/vite.config.ts` 豁免才不拦两个 Demo `vite.config.ts` 的构建期 `console.log`，改豁免表别删这条。两道门禁扫哪些目录跟 `package.json` 的 workspaces 走，别再手写列表。
 - **LICENSE 每个包目录下都要有一份**：npm 只打包包自己目录里的 LICENSE，monorepo 根那份不跟着进去。
 - **`callCancelled` 公开事件字段是 `uid`，线路帧 / 状态机内部仍是 `by`**（向量钉死）：翻译只在 `engineBus.ts` 的 `emitMachine` 那条特例。
-- **`destroy()` 之后不是一刀切**：多数方法抛 2005，但 `logout()` / `forceEnd()` / `on()` / 读或清理类始终安全——新公开方法想清楚归哪类。
+- **`destroy()` 之后不是一刀切**：发起类抛 2005，`logout()` / `forceEnd()` / `on()` / `close*` / 读或清理类始终安全。**新公开方法必须归进 `test/destroyContract.test.ts` 的 THROWS / SAFE**，不归类那条用例就红。
 - **「发布过没有」只问 `MediaAdapter`**（`publishedMicrophoneCid()` / `publishedCameraCid()`），别在 `engine.ts` 另记账。
 - **`FrameLoop.sendFrame` 从不把服务端拒绝转成异常**：`call()` / `joinCall()` / `inviteMore()` 被拒也 `resolve`，失败看 `error` 事件与状态机落地，别用 `try/catch` 猜。
 - **2006 阈值「3」未校准、uikit 只认 2 个错误码**：见 server「已知坑」。
@@ -54,7 +53,7 @@
 - 起服务端联调：`cd ../im-rtc-server && ./scripts/dev.sh`（:8787 / UDP 7881）。浏览器实测两个标签页各登一个用户并**勾上「合成音视频源」**。
   ```bash
   ./scripts/install-hooks.sh                       # 新 clone 跑一次
-  ./scripts/test.sh                                # 唯一测试入口（15 步，末步 IMRTC_SDK=local 校验）
+  ./scripts/test.sh                                # 唯一测试入口（16 步，末步 IMRTC_SDK=local 校验）
   npx vitest run --root packages/call-engine       # 只跑 engine
   npx vitest run --root packages/call-uikit-react  # 只跑 uikit
   npm run dev / npm run dev:react                  # 自画 UI Demo :5178 / uikit Demo :5179
