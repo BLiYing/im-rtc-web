@@ -20,6 +20,8 @@ export class RemoteLogSink {
   private queue: IMLogEntryLike[] = [];
   private timer: ReturnType<typeof setInterval> | null = null;
   private flushing = false;
+  /** 存住 `start()` 注册的那个监听器，`stop()` 才摘得下来（不存的话没法 `removeEventListener`）。 */
+  private onPageHide: (() => void) | null = null;
 
   constructor(
     private readonly server: string,
@@ -30,17 +32,23 @@ export class RemoteLogSink {
     private readonly maxQueue = 500,
   ) {}
 
-  /** start 开始定时上报，并在页面关闭时抢救最后一批。 */
+  /** start 开始定时上报，并在页面关闭时抢救最后一批。**重复 start 不叠加**——已经在跑就直接返回。 */
   start(): void {
     if (this.timer !== null) return;
     this.timer = setInterval(() => void this.flush(), this.flushIntervalMs);
     // 关标签页时最后一批往往正是最要紧的那批（比如崩溃前的几条）。
-    window.addEventListener('pagehide', () => void this.flush(true));
+    this.onPageHide = () => void this.flush(true);
+    window.addEventListener('pagehide', this.onPageHide);
   }
 
+  /** stop 必须把 `start()` 挂的监听器摘干净，否则每 start/stop 一轮就多挂一个，永久攒下去。 */
   stop(): void {
     if (this.timer !== null) clearInterval(this.timer);
     this.timer = null;
+    if (this.onPageHide !== null) {
+      window.removeEventListener('pagehide', this.onPageHide);
+      this.onPageHide = null;
+    }
     void this.flush(true);
   }
 
