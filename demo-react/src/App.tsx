@@ -5,7 +5,7 @@ import { SyntheticMediaSource, browserMediaSource } from '@demo/synthetic';
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { demoLogin } from './api.js';
+import { demoLogin } from '@demo/api';
 import type { ConnPhase } from '@demo/connection-guard';
 import { guardConnection } from '@demo/connection-guard';
 import { toEntry } from './logTypes.js';

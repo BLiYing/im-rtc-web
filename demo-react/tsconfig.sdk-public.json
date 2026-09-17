@@ -7,7 +7,8 @@
         "../.sdk-release/public/node_modules/im-rtc-call-uikit-react/dist/index.d.ts"
       ],
       "@demo/synthetic": ["../demo/src/syntheticMedia.ts"],
-      "@demo/connection-guard": ["../demo/src/connectionGuard.ts"]
+      "@demo/connection-guard": ["../demo/src/connectionGuard.ts"],
+      "@demo/api": ["../demo/src/api.ts"]
     }
   }
 }

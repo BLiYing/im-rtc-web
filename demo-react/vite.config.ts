@@ -29,6 +29,7 @@ export default defineConfig({
       '@demo/synthetic': new URL('../demo/src/syntheticMedia.ts', import.meta.url).pathname,
       '@demo/connection-guard':
         new URL('../demo/src/connectionGuard.ts', import.meta.url).pathname,
+      '@demo/api': new URL('../demo/src/api.ts', import.meta.url).pathname,
     },
     // local / public 档下 uikit 自己 import 'react' 时，别再解出第二份 React——
     // 那份没有走 npm 安装、不带 peer 依赖，唯一的 React 副本应该就是仓库根的那份。

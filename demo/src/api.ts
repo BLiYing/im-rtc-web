@@ -3,6 +3,10 @@
  *
  * **这一层不是 SDK 的一部分**——它是「宿主后台该做的事」的示范。
  * 真实宿主会用自己的账号体系换 token，用自己的接口建房。
+ *
+ * **两个 Demo 共用这一份**，走 `@demo/api` 别名（与 `@demo/synthetic` /
+ * `@demo/connection-guard` 同一个模式，见两个 `vite.config.ts`）：demo-react
+ * 原先自己抄了一份，函数名都漂了（`postJson` vs `request`）——以这份（demo）为准。
  */
 
 /**
@@ -61,4 +65,45 @@ export async function fetchRoomToken(
     token,
   );
   return out.room_token;
+}
+
+/**
+ * getJson 发一个 GET，带 `AbortSignal`——列表类查询要能在组件卸载时中止
+ * （原样保留 demo-react 那份 `request` 里的这部分行为，只是换了个更贴合
+ * `postJson` 命名风格的名字，且只服务 `listCalls` 这一个调用点）。
+ */
+async function getJson<T>(url: string, bearer: string, signal: AbortSignal): Promise<T> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', Authorization: `Bearer ${bearer}` };
+  const response = await fetch(url, { method: 'GET', headers, signal });
+  if (!response.ok) {
+    throw new Error(`${url} 返回 ${response.status}：${await errorText(response)}`);
+  }
+  return (await response.json()) as T;
+}
+
+/** CallRecord 是一条通话记录（服务端 §4.5 的 REST 出口）。只有 demo-react 的 CallHistory 用。 */
+export interface CallRecord {
+  readonly call_id: string;
+  readonly caller: string;
+  readonly media_type: string;
+  readonly is_group: boolean;
+  readonly reason: string;
+  readonly ended_by: string;
+  readonly duration_sec: number;
+  readonly started_at_ms: number;
+  readonly members: readonly { uid: string; state: string }[];
+}
+
+/**
+ * listCalls 查通话记录。
+ *
+ * **宿主不一定要用它**：很多宿主拿 webhook 落自己的库就够了。
+ * 这里查它只是为了让 Demo 能把「一通电话结束之后留下了什么」展示出来。
+ */
+export async function listCalls(
+  server: string, token: string, uid: string, signal: AbortSignal,
+): Promise<CallRecord[]> {
+  const out = await getJson<{ calls: CallRecord[] }>(
+    `${server}/v1/calls?uid=${encodeURIComponent(uid)}&limit=20`, token, signal);
+  return out.calls;
 }

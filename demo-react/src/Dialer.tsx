@@ -2,7 +2,7 @@ import { useCall } from 'im-rtc-call-uikit-react';
 import type { ReactNode } from 'react';
 import { useState } from 'react';
 
-import { createMeetingRoom, fetchRoomToken } from './api.js';
+import { createMeetingRoom, fetchRoomToken } from '@demo/api';
 import { DEMO_CONTACTS, GROUP_PICK_LIMIT, calleesFor } from './contacts.js';
 
 /** DialerProps 是拨号面板的参数。 */
