@@ -1,9 +1,10 @@
-import { useCall } from 'im-rtc-call-uikit-react';
+import { normalizeReason } from 'im-rtc-call-engine';
+import { endReasonText, useCall } from 'im-rtc-call-uikit-react';
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useState } from 'react';
 
-import type { CallRecord } from './api.js';
-import { listCalls } from './api.js';
+import type { CallRecord } from '@demo/api';
+import { listCalls } from '@demo/api';
 
 /** CallHistoryProps 是通话记录面板的参数。 */
 export interface CallHistoryProps {
@@ -72,7 +73,7 @@ export function CallHistory({ server, token, uid }: CallHistoryProps): ReactNode
                 <td>{new Date(r.started_at_ms).toLocaleTimeString()}</td>
                 <td>{r.caller}</td>
                 <td>{r.media_type === 'video' ? '视频' : '语音'}{r.is_group ? '·群' : ''}</td>
-                <td>{reasonText(r.reason)}</td>
+                <td>{reasonText(r, uid)}</td>
                 <td>{r.duration_sec > 0 ? `${r.duration_sec}s` : '—'}</td>
                 <td className="muted">{r.members.map((m) => m.uid).join(', ')}</td>
               </tr>
@@ -88,12 +89,15 @@ export function CallHistory({ server, token, uid }: CallHistoryProps): ReactNode
   );
 }
 
-/** reasonText 把协议的 reason 枚举翻成中文。**翻译在宿主侧**，SDK 不带文案。 */
-function reasonText(reason: string): string {
-  const table: Record<string, string> = {
-    hangup: '已挂断', cancel: '已取消', reject: '已拒接', busy: '忙线',
-    no_answer: '无应答', offline: '对方离线', network: '网络中断',
-    kicked: '被移出', room_closed: '房间关闭', timeout: '超时', error: '出错',
-  };
-  return table[reason] ?? reason;
+/**
+ * reasonText 把一条记录的 reason 翻成中文。
+ *
+ * **翻译其实在 SDK 侧**：uikit 公开导出了 `endReasonText`（`CallEnded` 结束画面用的就是它），
+ * Demo 没有理由自己再维护一张覆盖不全的表——这里原先的版本就漏了 `answered_elsewhere` /
+ * `rejected_elsewhere` 这类新增枚举值，未知 reason 会直接把协议原始字符串露给用户。
+ * `normalizeReason` 先把陌生值折成 `error`，与 `endReasonText` 的兜底（「已结束」）配套。
+ */
+function reasonText(record: CallRecord, uid: string): string {
+  const role = record.caller === uid ? 'caller' : 'callee';
+  return endReasonText(normalizeReason(record.reason), role, record.duration_sec);
 }
