@@ -1,7 +1,9 @@
 import type { TrackKind } from '../signaling/enums.js';
+import { autoSubscribeCovers } from '../signaling/enums.js';
 import { FrameType } from '../signaling/registry.js';
 import type { PublishState, RemoteTrack, RoomContext, SubscribeState } from './roomMachine.js';
 import { clearedRoom, replayBuffered, roomOut } from './roomMachine.js';
+import { dropPending } from './roomPaging.js';
 import type { EmittedEvent, MachineOutput, OutgoingFrame } from './types.js';
 import { bool, str } from './types.js';
 
@@ -112,7 +114,8 @@ function handleJoinOk(
     };
     emit.push(availabilityEvent(kind, str(track, 'uid'), !bool(track, 'muted')));
     // 自动订阅是**服务端**做的，客户端这边只记账，等 sub offer 来把它们坐实。
-    if (ctx.autoSubscribe) subscribe[trackId] = 'subscribing';
+    // 会议房只有音频落这一路，视频等界面报「看得见」时再按页订（roomPaging.ts）。
+    if (autoSubscribeCovers(ctx.autoSubscribe, kind)) subscribe[trackId] = 'subscribing';
   }
 
   // 进房成功之后**立刻重放 joining 期间攒下的意图**（不变量 R2）：
@@ -168,18 +171,22 @@ function handleParticipantLeft(
   const remoteTracks: Record<string, RemoteTrack> = {};
   const subscribe: Record<string, SubscribeState> = { ...ctx.subscribe };
 
+  const gone = new Set<string>();
   for (const [trackId, track] of Object.entries(ctx.remoteTracks)) {
     if (track.participantId === participantId) {
       // 人走了，他的 Track 与我们对它的订阅一起清掉——不清的话重连时会重放一个死订阅。
       delete subscribe[trackId];
+      gone.add(trackId);
       continue;
     }
     remoteTracks[trackId] = track;
   }
 
-  return roomOut({ ...ctx, remoteTracks, subscribe }, [], [
-    { cb: 'onUserLeave', args: { uid: str(data, 'uid') } },
-  ]);
+  return roomOut(
+    { ...ctx, remoteTracks, subscribe, pendingUnsubscribe: dropPending(ctx.pendingUnsubscribe, gone) },
+    [],
+    [{ cb: 'onUserLeave', args: { uid: str(data, 'uid') } }],
+  );
 }
 
 function handleTrackPublished(
@@ -190,7 +197,7 @@ function handleTrackPublished(
   const kind: TrackKind = str(data, 'kind') === 'video' ? 'video' : 'audio';
   const uid = str(data, 'uid');
   const subscribe = { ...ctx.subscribe };
-  if (ctx.autoSubscribe) subscribe[trackId] = 'subscribing';
+  if (autoSubscribeCovers(ctx.autoSubscribe, kind)) subscribe[trackId] = 'subscribing';
 
   return roomOut(
     {
@@ -220,7 +227,16 @@ function handleTrackUnpublished(
 
   const emit: EmittedEvent[] =
     known === undefined ? [] : [availabilityEvent(known.kind, known.uid, false)];
-  return roomOut({ ...ctx, remoteTracks, subscribe }, [], emit);
+  return roomOut(
+    {
+      ...ctx,
+      remoteTracks,
+      subscribe,
+      pendingUnsubscribe: dropPending(ctx.pendingUnsubscribe, new Set([trackId])),
+    },
+    [],
+    emit,
+  );
 }
 
 function handleTrackMuted(

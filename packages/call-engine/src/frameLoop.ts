@@ -15,6 +15,7 @@ import type { EngineContext } from './state/engineMachine.js';
 import { initialEngineContext, reduceEngine } from './state/engineMachine.js';
 import { forceEnd as planForceEnd } from './state/forceEnd.js';
 import type { EmittedEvent, MachineInput, MachineOutput, OutgoingFrame } from './state/types.js';
+import { UnsubscribeTimers } from './state/unsubscribeTimers.js';
 
 /**
  * engine 的**核心循环**：输入喂进状态机 → 产出的帧发出去 → 应答再喂回来。
@@ -70,6 +71,14 @@ export interface FrameLoopDeps {
 /** FrameLoop 持有状态机快照，并驱动它。 */
 export class FrameLoop {
   private ctx: EngineContext = initialEngineContext;
+  /** 会议房翻页退订的五秒迟滞（`state/roomPaging.ts`）。到点喂一个内部事件回状态机。 */
+  private readonly unsubscribeTimers = new UnsubscribeTimers((trackId) => {
+    void this.dispatch({
+      kind: 'internal',
+      name: 'unsubscribe_hysteresis_elapsed',
+      args: { track_id: trackId },
+    });
+  });
 
   constructor(private readonly deps: FrameLoopDeps) {}
 
@@ -81,6 +90,7 @@ export class FrameLoop {
   /** reset 把状态机归零（logout 用）。 */
   reset(): void {
     this.ctx = initialEngineContext;
+    this.unsubscribeTimers.clear();
   }
 
   /**
@@ -224,6 +234,8 @@ export class FrameLoop {
 
     // 认领新到的远端轨道，**并把状态机里已经没有的那些摘掉**（见 syncRemoteTracks）。
     bridge.syncRemoteTracks(this.ctx.room.remoteTracks);
+    // 翻页退订的定时器**每轮对账一次**，不在各条来路上各排各撤（见 UnsubscribeTimers）。
+    this.unsubscribeTimers.sync(this.ctx.room.pendingUnsubscribe);
     // **一通结束就把媒体面归零**，在抛事件之前：宿主收到 onCallEnd 时
     // engine 已经是干净的，下一通不会带着上一通的轨道去协商。
     if (result.emit.some((event) => LEAVE_CALLBACKS.has(event.cb))) bridge.reset();

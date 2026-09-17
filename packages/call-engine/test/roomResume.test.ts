@@ -90,17 +90,17 @@ describe('resumeRoom：reconnecting 的两种来路', () => {
     expect(result.state.buffered[0]?.op).toBe('publish');
   });
 
-  it('auto_subscribe=false 也要原样带进重发的那一帧', () => {
+  it('auto_subscribe 的档位要原样带进重发的那一帧', () => {
     let ctx = reduceRoom(initialRoomContext, {
       kind: 'act',
       op: 'join',
-      args: { room_id: 'r-9', room_token: 'rt-9', auto_subscribe: false },
+      args: { room_id: 'r-9', room_token: 'rt-9', auto_subscribe: 'audio' },
     }).state;
     ctx = reduceRoom(ctx, { kind: 'internal', name: 'disconnected' }).state;
 
     const result = resumeRoom(ctx, true);
 
-    expect(result.send[0]?.data).toMatchObject({ auto_subscribe: false });
+    expect(result.send[0]?.data).toMatchObject({ auto_subscribe: 'audio' });
   });
 
   it('连房号都没有时干净地回 idle，不发帧', () => {

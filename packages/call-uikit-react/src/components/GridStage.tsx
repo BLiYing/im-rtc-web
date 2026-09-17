@@ -6,7 +6,6 @@ import { useCall } from '../useCall.js';
 import { useElementSize } from '../useElementSize.js';
 import { styles } from '../styles.js';
 import { callMetrics } from '../theme.js';
-import { RemoteAudioSink } from './RemoteAudioSink.js';
 import { VideoTile } from './VideoTile.js';
 
 /**
@@ -93,16 +92,20 @@ export function GridStage(): ReactNode {
 }
 
 /**
- * OffscreenMember：没有格子的人——**声音照接，视频报 `none`**（MEETING_ROOM_DESIGN §4.3，M1 止血）。
+ * OffscreenMember：没有格子的人——**只报 `none`，什么都不画**（MEETING_ROOM_DESIGN §4.3）。
  *
- * 看不见的人原先照常按默认层收视频，白白吃下行。`none` = 暂停下发、保留订阅，翻回来不重协商。
+ * 看不见的人原先照常按默认层收视频，白白吃下行。`none` 在通话房里 = 暂停下发、保留订阅；
+ * 在会议房里引擎还会把它翻译成「五秒后退订」（`roomPaging.ts`），翻回来只换层、不重协商。
  * `hasVideo` 进依赖的理由同 VideoTile：人先进来、轨道后到，轨道到了那一刻要再报一次。
  * 他回到屏幕上时 VideoTile 挂载会按格子大小重报层，不用这里撤。
+ *
+ * **不再挂隐藏的 `<audio>`**：远端音频从 2.0.0 起由引擎自己播（`RemoteAudioPlayer`），
+ * 与画面挂在哪无关。原先那个 `RemoteAudioSink` 组件因此退役。
  */
 function OffscreenMember({ uid, hasVideo }: { readonly uid: string; readonly hasVideo: boolean }): ReactNode {
   const { engine } = useCall();
   useEffect(() => {
     void engine.setRemoteLayer(uid, 'none');
   }, [engine, uid, hasVideo]);
-  return <RemoteAudioSink uid={uid} />;
+  return null;
 }

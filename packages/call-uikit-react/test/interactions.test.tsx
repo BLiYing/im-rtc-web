@@ -624,22 +624,32 @@ describe('九宫格放不下的人也要有声音', () => {
     return engine;
   }
 
-  it('第 9 个人起没有格子，但必须有音频出口', () => {
-    bigMeeting(10);
+  it('第 9 个人起没有格子，Kit 不再为他挂任何元素——声音归引擎管', () => {
+    const engine = bigMeeting(10);
 
     // 本端占一格，远端只剩 8 个位置。
     expect(screen.getByTestId('tile-p8')).toBeTruthy();
-    expect(screen.queryByTestId('tile-p9'), '第 9 位没有格子（v1 不做翻页）').toBeNull();
+    expect(screen.queryByTestId('tile-p9'), '第 9 位没有格子').toBeNull();
 
-    // 关键：没格子的人也要挂上元素，否则他说话谁也听不见。
-    expect(screen.getByTestId('audio-p9')).toBeTruthy();
-    expect(screen.getByTestId('audio-p10')).toBeTruthy();
+    /*
+      2.0.0 起远端音频由引擎自己播（`RemoteAudioPlayer`），`attachView` 只管画面，
+      原先那个每人一个隐藏 `<audio>` 的 `RemoteAudioSink` 已经退役。
+      所以这里断言的是**没有**那种元素——留着它反而会与引擎的出口重复出声。
+    */
+    expect(screen.queryByTestId('audio-p9')).toBeNull();
+    expect(screen.queryByTestId('audio-p10')).toBeNull();
+
+    // 没格子的人照旧要报 none：会议房里引擎会把它翻译成「五秒后退订」。
+    const offscreen = engine.layers.filter((l) => l.layer === 'none').map((l) => l.uid);
+    expect(offscreen).toContain('p9');
+    expect(offscreen).toContain('p10');
+    expect(offscreen, '有格子的人不许被报成 none').not.toContain('p8');
   });
 
-  it('人数没超的时候不多挂元素——一个 uid 只能挂一个，多挂会互相顶掉', () => {
-    bigMeeting(3);
+  it('人数没超的时候一个人都不报 none', () => {
+    const engine = bigMeeting(3);
     expect(screen.getByTestId('tile-p3')).toBeTruthy();
-    expect(screen.queryByTestId('audio-p3')).toBeNull();
+    expect(engine.layers.filter((l) => l.layer === 'none')).toEqual([]);
   });
 });
 
@@ -652,7 +662,7 @@ describe('九宫格放不下的人也要有声音', () => {
   而每次重挂 srcObject 都会让播放从头开始，群里来回对话时就是持续的音频断续。
 */
 describe('小窗不跟着主讲人抖', () => {
-  it('主讲人变了，小窗那一格不动，音频出口也不重挂', () => {
+  it('主讲人变了，小窗那一格不动，挂载也不重来', () => {
     const engine = setup();
     act(() => {
       engine.emit('callBegin', {
@@ -665,7 +675,8 @@ describe('小窗不跟着主讲人抖', () => {
     fireEvent.click(screen.getByTestId('minimize'));
 
     expect(screen.getByTestId('tile-bob')).toBeTruthy();
-    expect(screen.getByTestId('audio-carol')).toBeTruthy();
+    // 小窗只画主讲人一格；其余人的声音归引擎播，Kit 这边不该再有他们的元素。
+    expect(screen.queryByTestId('audio-carol')).toBeNull();
     const attachedBefore = engine.attached.length;
 
     // carol 开始说话：这一条每 300ms 就来一次。
@@ -675,7 +686,6 @@ describe('小窗不跟着主讲人抖', () => {
 
     expect(screen.getByTestId('tile-bob'), '小窗那一格不该换人').toBeTruthy();
     expect(screen.queryByTestId('tile-carol')).toBeNull();
-    expect(screen.getByTestId('audio-carol')).toBeTruthy();
     expect(engine.attached.length, '一次挂载都不该重来').toBe(attachedBefore);
   });
 });

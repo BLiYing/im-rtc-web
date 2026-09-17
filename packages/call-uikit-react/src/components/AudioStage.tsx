@@ -5,7 +5,6 @@ import { useCall } from '../useCall.js';
 import { styles } from '../styles.js';
 import { callColors } from '../theme.js';
 import { NetworkBars, isNetworkBad, networkText } from './Icon.js';
-import { RemoteAudioSink } from './RemoteAudioSink.js';
 
 /**
  * AudioStage 是语音通话页与拨出中页的中间区块（规范 §03 · §04 红线）：
@@ -39,8 +38,6 @@ export function AudioStage({
   return (
     <div style={styles.who} data-testid="audio-stage">
       <style>{BREATHE_CSS}</style>
-      {/* 语音页上没有对端的格子，声音要靠这个隐藏元素播出来。 */}
-      {state.participants.map((p) => <RemoteAudioSink key={p.uid} uid={p.uid} />)}
       <div style={{ ...styles.whoAvatar, background: avatarGradient(uid) }}>
         {isRinging && <span className="imrtc-breathe" aria-hidden="true" />}
         {avatarInitial(name)}

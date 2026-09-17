@@ -26,9 +26,15 @@ export interface ViewElement {
   srcObject: MediaProvider | null;
 }
 
-/** ViewRegistry 管「哪条轨道属于谁」与「谁挂在哪个元素上」。 */
+/**
+ * ViewRegistry 管「哪条轨道属于谁」与「谁挂在哪个元素上」。
+ *
+ * **只有视频进得了这条流**（2.0.0 起）：远端音频由引擎自己播（`remoteAudio.ts`），
+ * 挂载与否不影响听不听得见。两样都往这条流里塞的话，挂了 `<video>` 的人会**出两份声音**
+ * ——一份来自隐藏的 `<audio>`，一份来自那个 `<video>`。
+ */
 export class ViewRegistry {
-  /** uid → 该用户的媒体流（音视频合在一条流里，浏览器才会同步播放）。 */
+  /** uid → 该用户的画面流。 */
   private readonly streams = new Map<string, MediaStream>();
   /** uid → 已挂载的元素。 */
   private readonly views = new Map<string, ViewElement>();
@@ -49,8 +55,12 @@ export class ViewRegistry {
     }
     this.orphans.delete(trackId);
     this.owners.set(trackId, uid);
-    this.streamOf(uid).addTrack(track);
-    this.refresh(uid);
+    // 音频只记账不进流：它由引擎自己播（见类注释）。记账仍要做——
+    // 对账要靠 owners 知道「这条轨道还在不在」。
+    if (track.kind !== 'audio') {
+      this.streamOf(uid).addTrack(track);
+      this.refresh(uid);
+    }
   }
 
   /**
@@ -84,6 +94,8 @@ export class ViewRegistry {
   /**
    * attach 把某个 uid 的画面挂到元素上；`el` 传 null 表示卸载。
    *
+   * **只管画面**：挂不挂都不影响听不听得见（远端音频由引擎自己播）。
+   *
    * **卸载必须做**：组件卸载时不清 `srcObject`，被卸掉的 <video> 会连着
    * MediaStream 一起被引用，画面停了但解码器还占着（CONVENTIONS §5）。
    */
@@ -113,7 +125,7 @@ export class ViewRegistry {
     return this.views.get(uid);
   }
 
-  /** streamFor 取某人的流，宿主想自己挂载时用。 */
+  /** streamFor 取某人的**画面**流，宿主想自己挂载时用。声音不在里面。 */
   streamFor(uid: string): MediaStream | undefined {
     return this.streams.get(uid);
   }

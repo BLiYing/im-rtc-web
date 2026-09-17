@@ -33,6 +33,26 @@ export const LAYERS = ['none', 'l', 'm', 'h'] as const;
 /** Layer 是 max_layer 的取值。 */
 export type Layer = (typeof LAYERS)[number];
 
+/**
+ * AUTO_SUBSCRIBE_MODES：`room.join.auto_subscribe` 的三档（协议 2 起，之前是布尔）。
+ *
+ * 兜底 'all'——认不出的档位按「全订」处理。反过来兜成 'none' 的话，
+ * 一个字母写错就是「人进了房，谁都看不见也听不见」，而且没有任何一处报错。
+ *
+ * - `all`   音频 + 视频都由服务端自动订阅（通话房）
+ * - `audio` 只自动订音频，视频由客户端按当前页 `room.subscribe`（会议分页画廊）
+ * - `none`  一条都不自动订
+ */
+export const AUTO_SUBSCRIBE_MODES = ['all', 'audio', 'none'] as const;
+/** AutoSubscribeMode 是 auto_subscribe 的取值。 */
+export type AutoSubscribeMode = (typeof AUTO_SUBSCRIBE_MODES)[number];
+
+/** autoSubscribeCovers 报告这一档要不要让服务端自动订阅某种 kind 的 Track。 */
+export function autoSubscribeCovers(mode: AutoSubscribeMode, kind: TrackKind): boolean {
+  if (mode === 'all') return true;
+  return mode === 'audio' && kind === 'audio';
+}
+
 /** TRACK_KINDS：Track 类型。 */
 export const TRACK_KINDS = ['audio', 'video'] as const;
 /** TrackKind 是 kind 的取值。 */

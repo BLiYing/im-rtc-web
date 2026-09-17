@@ -7,6 +7,14 @@
 
 ## 当前焦点
 
+**2026-09-17 夜（第三段）：会议房 M2 的 Engine 那一半已做完并提交（server `docs/design/MEETING_ROOM_DESIGN.md` §7 第 2 步）。`test.sh` 16 步全绿。**
+- 协议 2：`sys.hello` 的 `protocol_version` 默认值 1 → 2；收帧上限拆成两个数（发仍 `MAX_FRAME_BYTES` 64 KiB，收按 `MAX_RECV_FRAME_BYTES` 256 KiB）。
+- `room.join.auto_subscribe` 布尔 → 三档枚举 `all | audio | none`（`AUTO_SUBSCRIBE_MODES`，兜底 `all`）。`joinRoom(roomId, token, autoSubscribe)` 第三个参数跟着改类型，**没有新增公开方法**。
+- 会议房按页订阅（`state/roomPaging.ts`）：`auto_subscribe='audio'` 时 `setRemoteLayer` 就是订阅意图——`l/m/h` = 订阅或换层，`none` = 先停包再等 5 s 退订；翻回来只换层不重协商；同时订阅的视频封顶 16 路，满了先退最早翻走的那一条，一条都腾不出来才本地拒绝。定时器在 `state/unsubscribeTimers.ts`，按 `pendingUnsubscribe` **整体对账**。
+- **远端音频由 Engine 自己播**（`media/remoteAudio.ts`）：每条音频轨一个隐藏 `<audio>`，`attachView` 只管画面，`ViewRegistry` 不再把音频塞进 uid 的 `MediaStream`。uikit 的 `RemoteAudioSink` 已删。进房 / 接听那一次点击顺手 `unlock()` 解自动播放。
+- 新测 `test/roomPaging.test.ts`（10 条）、`test/remoteAudio.test.ts`（11 条）；向量新增两组用例跟着跑。
+- **没做**：uikit 的分页画廊、钉住、成员列表（下一段）；`useCallActions` 进会议房还是发 `'all'`，等 Kit 那一段改成 `'audio'`。
+
 **2026-09-17 夜：信令层一次性定时器抽成 `signaling/oneShotTimer.ts`（队列 5 的定时器样板，不导出）**：`Reconnector` / `ResumeDeadline` 改用它；`Heartbeat`（周期）、`TokenExpiryTimer`（注入定时器 + 32 位分段）、`PendingRequests`（按 req 多只）形状不同，没动。行为不变。
 
 **2026-09-17 夜：「调用结果回给调用方」（server `docs/design/ACTION_RESULT_DESIGN.md`，→ 2.0.0）已提交 `7089978`（未推送），code-review 已过。** `test.sh` 16 步全绿。
@@ -39,7 +47,7 @@
 - **对端重开摄像头要等新帧上屏才揭示**：等待时 `<video>` 保持可见、靠头像盖住（`visibility:hidden` 可能不回调 rVFC）；rVFC 回调了不等于新画面，要按 `receiveTime` 挡掉积压旧帧；后台标签页 2 秒兜底。
 - **「人先进来、轨道后到」是常态**：挂载时的 effect 依赖数组得带 `hasVideo`。
 - 权限状态查询只决定要不要出说明卡，判失败靠真探。Safari `getUserMedia` 必须在用户手势调用栈里，中间不能夹网络 `await`。
-- **没挂元素的人就是彻底静音**：语音版式、页内小窗、第 9 人起的声音全靠 `RemoteAudioSink`，别删；一个 uid 只挂一个元素。
+- **远端音频归 Engine 播，不归挂载**（2.0.0 起）：`attachView` 只管画面，`RemoteAudioSink` 已退役。别再往 uid 的 `MediaStream` 里塞音频轨——挂了 `<video>` 的人会出两份声音。一个 uid 仍只挂一个画面元素。
 - **中间态一定要有回滚**：帧发不出去或被拒时状态机必须收到 `*_failed`（表在 `frameLoop.rollback`，与 Android `onRequestFailed` 对齐）。
 - 解不动的下行帧按原始 data 放行、绝不往上抛；下行 call 帧必须按 call_id 过滤。
 - **停 Demo 用 Ctrl+C，别用 Ctrl+Z**（挂起的 vite 占着端口）；走 `./scripts/dev.sh` 会自动回收。

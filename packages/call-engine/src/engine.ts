@@ -28,7 +28,7 @@ import type { ViewElement } from './media/viewRegistry.js';
 import type { VideoProfile } from './media/videoProfile.js';
 import { WebRTCAdapter } from './media/webrtcAdapter.js';
 import type { Connection, HelloOk } from './signaling/connection.js';
-import type { Layer, MediaType } from './signaling/enums.js';
+import type { AutoSubscribeMode, Layer, MediaType } from './signaling/enums.js';
 import { FrameSender } from './signaling/frameSender.js';
 import type { WebSocketFactory } from './signaling/webSocket.js';
 import type { EngineContext } from './state/engineMachine.js';
@@ -277,6 +277,8 @@ export class CallEngine {
 
   /** accept 接听。 */
   async accept(): Promise<void> {
+    // 接听是一次用户手势，顺手把远端音频的自动播放解锁（见 RemoteAudioPlayer.unlock）。
+    this.bridge.unlockRemoteAudio();
     await this.act('accept');
   }
 
@@ -351,11 +353,26 @@ export class CallEngine {
     await probeCamera(this.mediaApi());
   }
 
-  /** joinRoom 直接进一个会议房（不走振铃）。 */
-  async joinRoom(roomId: string, roomToken: string, autoSubscribe = true): Promise<void> {
+  /**
+   * joinRoom 直接进一个会议房（不走振铃）。
+   *
+   * `autoSubscribe` 是服务端替你自动订多少（协议 §3.1，2.0.0 起是三档）：
+   * - `'all'`（默认）音视频全自动订上，通话房与小会议用它；
+   * - `'audio'` **会议分页画廊用这一档**：音频照旧自动订上（页外的人说话也听得见），
+   *   视频一条都不自动订，由 `setRemoteLayer(uid, layer)` 按当前页订与退
+   *   （`none` = 五秒后退订，见 MEETING_ROOM_DESIGN §4.3）；
+   * - `'none'` 一条都不自动订，全部由宿主自己订。
+   */
+  async joinRoom(
+    roomId: string,
+    roomToken: string,
+    autoSubscribe: AutoSubscribeMode = 'all',
+  ): Promise<void> {
     this.assertNotDestroyed();
     // 宿主指定的房间号同属 §2.5，不拦的话又是一条「1004 但不说为什么」。
     checkRoomId(roomId);
+    // 「加入会议」也是一次用户手势，同 accept。
+    this.bridge.unlockRemoteAudio();
     await this.act('join', { room_id: roomId, room_token: roomToken, auto_subscribe: autoSubscribe });
   }
 

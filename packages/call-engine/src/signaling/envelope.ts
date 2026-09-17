@@ -7,8 +7,21 @@ import { checkDiscipline } from './discipline.js';
  * （RTC_PROTOCOL.md §2.1）。
  */
 
-/** MAX_FRAME_BYTES 是单帧上限（§2.6）。超限对应 WS 关闭码 4400。 */
+/** MAX_FRAME_BYTES 是单帧**上行**上限（§2.6）。超限对应 WS 关闭码 4400。 */
 export const MAX_FRAME_BYTES = 64 * 1024;
+
+/**
+ * MAX_RECV_FRAME_BYTES 是**收帧**的容忍上限（§2.6，2.0.0 起）。
+ *
+ * **发帧与收帧不是同一个数**：发仍卡 64 KiB，收放宽到 256 KiB。
+ * 服务端今天发的下行 offer 都远小于 64 KiB；放宽的是**以后**——会议到 100 人时
+ * 每人一条音频 m-line，整帧约 80 KB（MEETING_ROOM_DESIGN §9 ③）。那时只要改服务端，
+ * 不必让已经发出去的 2.0.0 客户端跟着升一次版本。
+ *
+ * 放宽收不放宽发，是因为收帧上限是「愿意为对端花多少内存」，
+ * 发帧上限是「允许对端为我花多少内存」——后者松不得。
+ */
+export const MAX_RECV_FRAME_BYTES = 256 * 1024;
 
 /** OK_SUFFIX 是成功应答的唯一后缀（§2.2）。 */
 export const OK_SUFFIX = '.ok';
@@ -37,9 +50,9 @@ const REQUIRED_KEYS = ['type', 'req_id', 'ts', 'data'] as const;
  * 只需要 type 与 req_id，没必要为一个马上要丢掉的帧去解 data。
  */
 export function decodeEnvelope(raw: string): Envelope {
-  if (byteLength(raw) > MAX_FRAME_BYTES) {
+  if (byteLength(raw) > MAX_RECV_FRAME_BYTES) {
     throw new RtcError(ErrorCode.frameTooLarge, {
-      cause: new Error(`帧 ${byteLength(raw)} 字节 > 上限 ${MAX_FRAME_BYTES}`),
+      cause: new Error(`帧 ${byteLength(raw)} 字节 > 收帧上限 ${MAX_RECV_FRAME_BYTES}`),
     });
   }
 

@@ -53,6 +53,7 @@ export type { DiagnosticEntry, LogFields, LogLevel, LogSink } from './logger.js'
 
 export {
   MAX_FRAME_BYTES,
+  MAX_RECV_FRAME_BYTES,
   OK_SUFFIX,
   decodeEnvelope,
   encodeEnvelope,
@@ -64,6 +65,7 @@ export type { Envelope } from './signaling/envelope.js';
 export { checkDiscipline } from './signaling/discipline.js';
 
 export {
+  AUTO_SUBSCRIBE_MODES,
   DEFAULT_TIMEOUT_SEC,
   LAYERS,
   MAX_TIMEOUT_SEC,
@@ -76,6 +78,7 @@ export {
   TRACK_SOURCES,
 } from './signaling/enums.js';
 export type {
+  AutoSubscribeMode,
   HandledAction,
   Layer,
   MediaType,

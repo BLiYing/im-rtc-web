@@ -11,7 +11,11 @@ export const EMPTY_FIELDS = {} as const satisfies FrameFields;
  * token 走首帧而不是 URL 查询串：查询串会进网关日志、Referer 与浏览器历史。
  */
 export const HELLO_FIELDS = {
-  protocolVersion: { kind: 'int', wire: 'protocol_version', default: 1 },
+  /**
+   * 协议版本（§10）。**2 = SDK 2.0.0**：`room.join.auto_subscribe` 从布尔变成三档枚举。
+   * 服务端只认自己实现的那一版，对不上在握手阶段就回 1006。
+   */
+  protocolVersion: { kind: 'int', wire: 'protocol_version', default: 2 },
   token: { kind: 'string', wire: 'token' },
   deviceId: { kind: 'string', wire: 'device_id' },
   /** 重连恢复用；首次连接为 ''。 */

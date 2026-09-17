@@ -107,7 +107,7 @@ describe('握手', () => {
     expect(hello?.type).toBe('sys.hello');
     expect(hello?.data['token']).toBe('test-token');
     expect(hello?.data['device_id']).toBe('d1');
-    expect(hello?.data['protocol_version']).toBe(1);
+    expect(hello?.data['protocol_version']).toBe(2); // 2.0.0 起（1.0.0 握手会被拒）
     expect(hello?.data['session_id']).toBe(''); // 首次连接没有会话可恢复
     // 宿主没传 sdk 时，版本号取 SDK_VERSION——不许在 connection.ts 里另写一份再漂掉。
     expect(hello?.data['sdk']).toBe(`web/${SDK_VERSION}`);

@@ -1,5 +1,7 @@
 import { FirstFrameGate } from './firstFrameGate.js';
 import type { MediaAdapter, MediaAdapterEvents } from './mediaAdapter.js';
+import type { SinkFactory } from './remoteAudio.js';
+import { RemoteAudioPlayer } from './remoteAudio.js';
 import type { ViewElement } from './viewRegistry.js';
 import { ViewRegistry } from './viewRegistry.js';
 
@@ -22,14 +24,22 @@ export interface RemoteTrackOwner {
 export class MediaBridge {
   readonly adapter: MediaAdapter;
   private readonly views = new ViewRegistry();
+  /** 远端音频由引擎自己播，与画面挂在哪无关（`remoteAudio.ts`）。 */
+  private readonly audio: RemoteAudioPlayer;
   /** 已经抛过「首帧」的轨道，避免重复抛。 */
   private readonly seenVideo = new Set<string>();
   /** 开摄像头之后等新画面上屏的那些人（见 awaitFirstVideoFrame）。 */
   private readonly firstFrames = new FirstFrameGate();
   private events: MediaAdapterEvents | null = null;
 
-  constructor(adapter: MediaAdapter) {
+  constructor(adapter: MediaAdapter, createAudioSink?: SinkFactory) {
     this.adapter = adapter;
+    this.audio = new RemoteAudioPlayer(createAudioSink);
+  }
+
+  /** unlockRemoteAudio 在进房那次用户手势里再试一遍播放（浏览器自动播放限制）。 */
+  unlockRemoteAudio(): void {
+    this.audio.unlock();
   }
 
   /** open 建两条 PeerConnection。 */
@@ -72,6 +82,12 @@ export class MediaBridge {
     onFirstVideo: (trackId: string) => void,
   ): void {
     this.views.addTrack(trackId, track, uid);
+    /*
+      **音频一到就播，不等认领**：`ontrack` 与 `room.track_published` 谁先到都可能，
+      而声音不该等一个信令帧。认领不到 uid 的轨道照样出声——以后服务端换成音频槽位时
+      它根本不会有 uid（MEETING_ROOM_DESIGN §9 路 B）。
+    */
+    if (track.kind === 'audio') this.audio.add(trackId, track);
     if (track.kind !== 'video' || this.seenVideo.has(trackId)) return;
     this.seenVideo.add(trackId);
     this.waitForVideo(trackId, track, onFirstVideo);
@@ -131,6 +147,7 @@ export class MediaBridge {
       if (owner.startsWith(LOCAL_VIEW_PREFIX)) continue;
       if (Object.hasOwn(remoteTracks, trackId)) continue;
       this.views.removeTrack(trackId);
+      this.audio.remove(trackId);
       // 忘掉「首帧抛过了」：同一条 track_id 再回来时该重新抛一次 firstVideoFrame。
       this.seenVideo.delete(trackId);
     }
@@ -184,6 +201,7 @@ export class MediaBridge {
 
   private clear(): void {
     this.views.clear();
+    this.audio.clear();
     this.seenVideo.clear();
     this.firstFrames.clear();
   }

@@ -112,8 +112,8 @@ describe('newFrameData —— 发送侧的默认值陷阱', () => {
   it('room.join 的默认值不是零值', () => {
     const join = newFrameData(JOIN_FIELDS);
     // 这三个默认值非零。直接写 { room_id: 'r-1' } 少了它们，
-    // 显式写 false 又把 true 覆盖掉——两种写法都会让人进了房收不到流。
-    expect(join.autoSubscribe).toBe(true);
+    // 显式写 ''/false 又把默认值覆盖掉——两种写法都会让人进了房收不到流。
+    expect(join.autoSubscribe).toBe('all');
     expect(join.publishAudio).toBe(true);
     expect(join.publishVideo).toBe(false);
   });
@@ -129,7 +129,7 @@ describe('newFrameData —— 发送侧的默认值陷阱', () => {
     expect(encodeFrame(JOIN_FIELDS, join)).toEqual({
       room_id: 'r-1',
       room_token: 'tk',
-      auto_subscribe: true,
+      auto_subscribe: 'all',
       publish_audio: true,
       publish_video: false,
     });

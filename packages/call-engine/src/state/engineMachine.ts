@@ -55,8 +55,20 @@ const ROOM_ACTS = new Set([
   'update_layer',
   'restart_pub_ice',
 ]);
-/** ROOM_FAILURES 是帧循环把「房间帧没送到」翻译成的内部事件，全归房间机。 */
-const ROOM_FAILURES = new Set(['join_failed', 'leave_failed', 'publish_failed', 'subscribe_failed']);
+/**
+ * ROOM_INTERNALS 是**只归房间机**的内部事件。
+ *
+ * 前四条是帧循环把「房间帧没送到」翻译过来的回滚；最后一条是会议房翻页退订的五秒
+ * 迟滞到点（`roomPaging.ts`）。**不显式路由的话它们会落到通话机去，被静默丢掉**——
+ * 症状分别是「房间永远停在 joining」和「翻走的人五秒后没退订，订阅位一直占着」。
+ */
+const ROOM_INTERNALS = new Set([
+  'join_failed',
+  'leave_failed',
+  'publish_failed',
+  'subscribe_failed',
+  'unsubscribe_hysteresis_elapsed',
+]);
 
 /**
  * reduceEngine 是 engine 状态的唯一入口。
@@ -197,8 +209,7 @@ function handleInternal(
     // 交给通话机回 idle；它抛的 onCallEnd 会顺带把房间也清掉（见 liftCall）。
     return liftCall(ctx, reduceCall(ctx.call, { kind: 'internal', name }));
   }
-  // 房间那几条失败回滚都归房间机；不显式路由的话它们会落到通话机去，被静默丢掉。
-  if (ROOM_FAILURES.has(name)) {
+  if (ROOM_INTERNALS.has(name)) {
     const room = reduceRoom(ctx.room, input);
     return { state: { ...ctx, room: room.state }, send: [...room.send], emit: [...room.emit] };
   }

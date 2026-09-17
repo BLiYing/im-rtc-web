@@ -1,6 +1,8 @@
 import { ErrorCode, errorName } from '../errors.js';
-import type { Layer, TrackKind } from '../signaling/enums.js';
+import type { AutoSubscribeMode, Layer, TrackKind } from '../signaling/enums.js';
+import { AUTO_SUBSCRIBE_MODES } from '../signaling/enums.js';
 import { FrameType } from '../signaling/registry.js';
+import { flushHysteresis, pagedUpdateLayer, usesPagedVideo } from './roomPaging.js';
 import { reduceRoomRecv } from './roomRecv.js';
 import type { EmittedEvent, MachineInput, MachineOutput, OutgoingFrame } from './types.js';
 import { bool, str } from './types.js';
@@ -42,7 +44,8 @@ export interface RoomContext {
   readonly roomId: string;
   readonly roomToken: string;
   readonly participantId: string;
-  readonly autoSubscribe: boolean;
+  /** 进房时声明的自动订阅档位（协议 §3.1）。会议房是 'audio'，通话房是 'all'。 */
+  readonly autoSubscribe: AutoSubscribeMode;
   /** cid → 发布状态。用 cid 而不是 track_id：发布请求发出时还没有 track_id。 */
   readonly publish: Readonly<Record<string, PublishState>>;
   /** cid → 服务端分配的 track_id。 */
@@ -55,6 +58,13 @@ export interface RoomContext {
   readonly layers: Readonly<Record<string, Layer>>;
   /** joining / reconnecting 期间缓存的用户意图（不变量 R2）。 */
   readonly buffered: readonly BufferedIntent[];
+  /**
+   * 翻页翻走、等五秒迟滞到点才退订的 track_id，**最早翻走的排在前面**（`roomPaging.ts`）。
+   *
+   * 顺序有用：订满 16 路要提前腾位置时，退的就是最早翻走的那一个。
+   * **不进一致性向量**——向量只断言 room / publish / subscribe 三个键。
+   */
+  readonly pendingUnsubscribe: readonly string[];
   /**
    * 这个房间**真的收到过 `room.join.ok`** 吗。
    *
@@ -85,13 +95,14 @@ export const initialRoomContext: RoomContext = {
   roomId: '',
   roomToken: '',
   participantId: '',
-  autoSubscribe: true,
+  autoSubscribe: 'all',
   publish: {},
   publishTrackIds: {},
   subscribe: {},
   remoteTracks: {},
   layers: {},
   buffered: [],
+  pendingUnsubscribe: [],
   didJoin: false,
 };
 
@@ -161,6 +172,10 @@ function reduceRoomInternal(
       return dropFailedPublish(ctx, str(args, 'cid'));
     case 'subscribe_failed':
       return dropFailedSubscribe(ctx, str(args, 'track_id'));
+    case 'unsubscribe_hysteresis_elapsed':
+      // 翻页退订的五秒到了。带 track_id 就只退那一条（帧循环按 track 排定时器），
+      // 不带就把排着的一次清掉（一致性向量用的是这一种）。
+      return flushHysteresis(ctx, optionalStr(args, 'track_id'));
     default:
       return roomOut(ctx);
   }
@@ -313,9 +328,9 @@ function joinRoom(
   args: Readonly<Record<string, unknown>>,
 ): MachineOutput<RoomContext> {
   if (ctx.state !== 'idle') return localReject(ctx);
-  // auto_subscribe 默认 true——直接读 args 会把「没写」当成 false，
-  // 那正是协议 §2.4 点名的发送侧陷阱。
-  const autoSubscribe = args['auto_subscribe'] === undefined ? true : bool(args, 'auto_subscribe');
+  // auto_subscribe 默认 'all'——直接读 args 会把「没写」当成空串，
+  // 那正是协议 §2.4 点名的发送侧陷阱。集合外的值按 §2.4 规则 6 兜底成 'all'。
+  const autoSubscribe = coerceAutoSubscribe(args['auto_subscribe']);
   const roomId = str(args, 'room_id');
   const roomToken = str(args, 'room_token');
 
@@ -391,20 +406,52 @@ function unsubscribeTrack(
   args: Readonly<Record<string, unknown>>,
 ): MachineOutput<RoomContext> {
   const trackId = str(args, 'track_id');
-  return roomOut({ ...ctx, subscribe: { ...ctx.subscribe, [trackId]: 'unsubscribing' } }, [
-    { type: FrameType.roomUnsubscribe, data: { track_id: trackId } },
-  ]);
+  // 已经手动退了，排着的那次迟滞退订就不必再来一遍。
+  return roomOut(
+    {
+      ...ctx,
+      subscribe: { ...ctx.subscribe, [trackId]: 'unsubscribing' },
+      pendingUnsubscribe: ctx.pendingUnsubscribe.filter((id) => id !== trackId),
+    },
+    [{ type: FrameType.roomUnsubscribe, data: { track_id: trackId } }],
+  );
 }
 
+/**
+ * updateLayer 报某条流的层上界。
+ *
+ * **会议房里它同时是订阅意图**：视频不由服务端自动订，所以「看得见」= 订阅、
+ * 「看不见」= 五秒后退订（`roomPaging.ts`）。通话房照旧只换层。
+ */
 function updateLayer(
   ctx: RoomContext,
   args: Readonly<Record<string, unknown>>,
 ): MachineOutput<RoomContext> {
   const trackId = str(args, 'track_id');
   const maxLayer = (str(args, 'max_layer') || 'm') as Layer;
+  if (usesPagedVideo(ctx) && ctx.remoteTracks[trackId]?.kind === 'video') {
+    return pagedUpdateLayer(ctx, trackId, maxLayer);
+  }
   return roomOut({ ...ctx, layers: { ...ctx.layers, [trackId]: maxLayer } }, [
     { type: FrameType.roomUpdateLayer, data: { track_id: trackId, max_layer: maxLayer } },
   ]);
+}
+
+/** coerceAutoSubscribe 把线路上的档位归一化，认不出的一律按 'all'（§2.4 规则 6）。 */
+function coerceAutoSubscribe(value: unknown): AutoSubscribeMode {
+  if (typeof value !== 'string') return 'all';
+  return (AUTO_SUBSCRIBE_MODES as readonly string[]).includes(value)
+    ? (value as AutoSubscribeMode)
+    : 'all';
+}
+
+/** optionalStr 取一个可以缺席的字符串参数。 */
+function optionalStr(
+  args: Readonly<Record<string, unknown>>,
+  key: string,
+): string | undefined {
+  const value = args[key];
+  return typeof value === 'string' && value !== '' ? value : undefined;
 }
 
 /** BUFFERABLE_OPS 是值得攒下来重放的操作——正好是 R1 管的那一组。 */

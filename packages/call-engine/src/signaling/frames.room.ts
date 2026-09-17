@@ -1,4 +1,5 @@
 import {
+  AUTO_SUBSCRIBE_MODES,
   LAYERS,
   PC_ROLES,
   REASONS,
@@ -37,13 +38,19 @@ export const TRACK_FIELDS = {
 /**
  * JOIN_FIELDS：进房请求。
  *
- * **注意 auto_subscribe / publish_audio 默认是 true**：直接用零值对象发这一帧，
- * 线路上会变成 false，人进了房却收不到任何流。发送侧一律用 newJoinData()。
+ * **注意 auto_subscribe 默认 'all'、publish_audio 默认 true**：直接用零值对象发这一帧，
+ * 线路上会变成 ''、false，人进了房却收不到任何流。发送侧一律用 newJoinData()。
  */
 export const JOIN_FIELDS = {
   roomId: { kind: 'string', wire: 'room_id' },
   roomToken: { kind: 'string', wire: 'room_token' },
-  autoSubscribe: { kind: 'bool', wire: 'auto_subscribe', default: true },
+  autoSubscribe: {
+    kind: 'enum',
+    wire: 'auto_subscribe',
+    values: AUTO_SUBSCRIBE_MODES,
+    fallback: 'all',
+    default: 'all',
+  },
   publishAudio: { kind: 'bool', wire: 'publish_audio', default: true },
   publishVideo: { kind: 'bool', wire: 'publish_video', default: false },
 } as const satisfies FrameFields;

@@ -9,7 +9,6 @@ import { useElapsed } from '../useElapsed.js';
 import { usePipDrag } from '../usePipDrag.js';
 import { styles } from '../styles.js';
 import { callMetrics, callMotion } from '../theme.js';
-import { RemoteAudioSink } from './RemoteAudioSink.js';
 import { VideoTile } from './VideoTile.js';
 
 /**
@@ -70,10 +69,6 @@ export function MiniWindow(): ReactNode {
       data-corner={corner}
       {...drag.handlers}
     >
-      {/* 小窗只画主讲人一格，其余人的声音靠隐藏元素接上，否则收起小窗就听不见他们了。 */}
-      {state.participants.filter((p) => p.uid !== speaker?.uid).map((p) => (
-        <RemoteAudioSink key={p.uid} uid={p.uid} />
-      ))}
       {speaker !== undefined && (
         <VideoTile
           uid={speaker.uid}
