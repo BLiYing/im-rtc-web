@@ -22,25 +22,17 @@ export interface MediaApiDeps {
   bridge: MediaBridge;
 }
 
-/** 探麦克风。失败**也走一遍 error 事件**再抛——宿主的契约见 CallEngine.probeMicrophone。 */
+/**
+ * 探麦克风。失败**只** reject，不再同时发 error 事件（2.0.0 起一次失败只从一个出口报，
+ * server `docs/design/ACTION_RESULT_DESIGN.md` R3）。宿主的契约见 CallEngine.probeMicrophone。
+ */
 export async function probeMicrophone(d: MediaApiDeps): Promise<void> {
-  try {
-    await d.media.probeMicrophone();
-  } catch (err) {
-    // 宿主只监听事件表也该知道「这通电话是因为没权限才没打出去」。
-    d.bus.emitError(err);
-    throw err;
-  }
+  await d.media.probeMicrophone();
 }
 
-/** 探摄像头。与 probeMicrophone 同一个契约：失败先报 error 事件再抛。 */
+/** 探摄像头。与 probeMicrophone 同一个契约。 */
 export async function probeCamera(d: MediaApiDeps): Promise<void> {
-  try {
-    await d.media.probeCamera();
-  } catch (err) {
-    d.bus.emitError(err);
-    throw err;
-  }
+  await d.media.probeCamera();
 }
 
 /**
@@ -49,7 +41,7 @@ export async function probeCamera(d: MediaApiDeps): Promise<void> {
  */
 export async function publishMicrophone(d: MediaApiDeps): Promise<string> {
   const info = await d.media.acquireMicrophone();
-  await d.loop.dispatch({
+  await d.loop.request({
     kind: 'act',
     op: 'publish',
     args: { cid: info.cid, kind: info.kind, source: info.source, simulcast: false },
@@ -60,7 +52,7 @@ export async function publishMicrophone(d: MediaApiDeps): Promise<string> {
 /** 发布摄像头。`simulcast` **同时喂给媒体面与信令**——只喂一边就是「报了三层、实际发一层」。 */
 export async function publishCamera(d: MediaApiDeps, simulcast: boolean): Promise<string> {
   const info = await d.media.acquireCamera(simulcast);
-  await d.loop.dispatch({
+  await d.loop.request({
     kind: 'act',
     op: 'publish',
     args: { cid: info.cid, kind: info.kind, source: info.source, simulcast },
@@ -79,7 +71,7 @@ export async function setMuted(d: MediaApiDeps, cid: string, muted: boolean): Pr
   await d.media.setMuted(cid, muted);
   const trackId = d.loop.state.room.publishTrackIds[cid];
   if (trackId !== undefined) {
-    await d.loop.dispatch({ kind: 'act', op: 'mute', args: { track_id: trackId, muted } });
+    await d.loop.request({ kind: 'act', op: 'mute', args: { track_id: trackId, muted } });
   }
   d.bridge.refreshLocalViews();
 }
@@ -106,20 +98,38 @@ export async function openLocal(d: MediaApiDeps, source: LocalSource): Promise<v
   else await publishCamera(d, true);
 }
 
-/** 按类型关：已发布的那条 `setMuted(cid, true)`，**不 unpublish**；没发布过是空操作。 */
+/**
+ * 按类型关：已发布的那条 `setMuted(cid, true)`，**不 unpublish**；没发布过是空操作。
+ *
+ * 清理类，**永不 reject**：本端在发帧之前就已经静音，`room.mute` 被拒也不回滚本端（隐私优先），
+ * 错误走 error 事件。
+ */
 export async function closeLocal(d: MediaApiDeps, source: LocalSource): Promise<void> {
   const cid = publishedCid(d, source);
-  if (cid !== null) await setMuted(d, cid, true);
+  if (cid === null) return;
+  try {
+    await setMuted(d, cid, true);
+  } catch (err) {
+    d.bus.emitError(err);
+  }
 }
 
-/** 报某人画面的层上界。一个 uid 可能有多条视频轨道，逐条报。 */
+/**
+ * 报某人画面的层上界。一个 uid 可能有多条视频轨道，逐条报。
+ *
+ * 提示类，**永不 reject**（界面每次换布局都调，失败宿主也无事可做）：失败走 error 事件。
+ */
 export async function setRemoteLayer(d: MediaApiDeps, uid: string, layer: Layer): Promise<void> {
   for (const [trackId, info] of Object.entries(d.loop.state.room.remoteTracks)) {
     if (info.uid !== uid || info.kind !== 'video') continue;
-    await d.loop.dispatch({
-      kind: 'act',
-      op: 'update_layer',
-      args: { track_id: trackId, max_layer: layer },
-    });
+    try {
+      await d.loop.request({
+        kind: 'act',
+        op: 'update_layer',
+        args: { track_id: trackId, max_layer: layer },
+      });
+    } catch (err) {
+      d.bus.emitError(err);
+    }
   }
 }

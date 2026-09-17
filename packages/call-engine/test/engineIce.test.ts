@@ -252,7 +252,7 @@ describe('回调顺序', () => {
     const { engine, ws } = await setup();
 
     // 不 await：joinRoom 要等 room.join 的应答，而应答得等我们下面喂进去。
-    void engine.joinRoom('r-1', 'tk');
+    const joining = engine.joinRoom('r-1', 'tk');
     await flush(4);
     const join = ws.frames().find((f) => f.type === 'room.join');
     expect(join).toBeDefined();
@@ -265,6 +265,7 @@ describe('回调顺序', () => {
         for_type: 'room.join', retryable: false,
       },
     }));
+    await expect(joining).rejects.toMatchObject({ code: 1204 });
     await flush(8);
 
     expect(engine.state.room.state).toBe('idle');

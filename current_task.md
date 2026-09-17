@@ -7,17 +7,19 @@
 
 ## 当前焦点
 
-**2026-09-17 傍晚：四仓 /simplify 清理做完并推送（本仓 `323abe4`…`354b265`，`test.sh` 16 步全绿：engine 432 / uikit 212 / demo-react 20 例；用户已复看，正常）。**
-- `323abe4` `applySpeakers` 没变就返回原 state / 原引用，`VideoTile` / `SpeechIcon` / `NetworkBars` 包 memo——止住 300ms 全量重渲染（VideoTile 读 context，memo 挡不住它，收益主要在子组件）。
-- `useKeyedTimers` 合并 `CallProvider` settledTimers 与 `useVideoRevealFallback`；`maxParticipants` → `MAX_TILES`、VideoStage 用 `focusedLayer`、`isNetworkBad`；`CallEnded` 拆 if/return；`useCallActions` 删冗余依赖。
-- Demo（行为变化）：demo 与 demo-react 的 `api.ts` 合并成 `@demo/api`；demo-react 通话记录改用 `endReasonText`（未知原因显示「已结束」）；`remoteLog` 的 pagehide 监听 stop 时摘掉。
-- 09-17 下午四条（destroy 对表、体量两刀、铃声 AbortError、拨号卡片）已移进 archive。
+**2026-09-17 夜：「调用结果回给调用方」（server `docs/design/ACTION_RESULT_DESIGN.md`，→ 2.0.0）Web 参照实现已改完，未提交，等 code-review。** `test.sh` 16 步全绿（engine 485 / uikit 214）。
+- 向量：`act` 步骤新增 `result`，状态机本地拒绝不再 emit `onError`（`MachineOutput.reject`），两个 FSM runner 比对它。
+- `FrameLoop.request`（宿主调用）/ `dispatch`（找不到调用方）分开：直接帧失败 reject 给调用方、不发 `error` 事件；直接帧 `.ok` 落进状态机就结算，连锁帧失败走 `error`（带 `forType`）。退出类（hangup / reject / cancel / leave）失败本地收场。
+- 门面：`call()` 返回 `callId`；`probe*` 不再双发；`setRemoteLayer` / `close*` 永不 reject；`setRemoteLayer` 归 destroy 后 SAFE。`error` 事件加 `forType`。
+- uikit：删 `joinCall` 临时监听与 `subscribeEngine` 的 `error` 订阅；拨号 1409、加人 1202/1407/1409、主动加入从 reject 取码；其余 catch 只留日志。
+- 新测 `test/actionResult.test.ts`（11 个方法 × 四格 + 连锁帧 / 退出类 / 提示类）。
 
 ## 下一步
 
 - 09-17 下午用户验收了旧「下一步」1、2：发起人挂断后被叫能在选人页重新邀请、他那边来电页不出现自己的格子；`openMicrophone` / `openCamera` 等四个开关真浏览器点过。
   旧 3（destroy 对表查出的别端欠账）不在本仓，已挪进 android / ios 的 `current_task.md`。
-- 暂无本仓待办。
+- code-review 通过后等用户通知发 2.0.0：版本号改 `packages/call-engine/src/version.ts` + 两个 `package.json`，用户在终端 `npm publish`。
+- 真机（Chrome 5179）：`joinCall` 满员 1202 / 已结束 1402 / 宿主拒绝 1409 三种文案；拨号拿到 `callId`；通话中断网再挂断界面收得掉。
 
 ## 已知坑 / 限制
 
@@ -26,9 +28,9 @@
 - `check-logging.sh` 靠 `*/vite.config.ts` 豁免才不拦两个 Demo `vite.config.ts` 的构建期 `console.log`，改豁免表别删这条。两道门禁扫哪些目录跟 `package.json` 的 workspaces 走，别再手写列表。
 - **LICENSE 每个包目录下都要有一份**：npm 只打包包自己目录里的 LICENSE，monorepo 根那份不跟着进去。
 - **`callCancelled` 公开事件字段是 `uid`，线路帧 / 状态机内部仍是 `by`**（向量钉死）：翻译只在 `engineBus.ts` 的 `emitMachine` 那条特例。
-- **`destroy()` 之后不是一刀切**：发起类抛 2005，`logout()` / `forceEnd()` / `on()` / `close*` / 读或清理类始终安全。**新公开方法必须归进 `test/destroyContract.test.ts` 的 THROWS / SAFE**，不归类那条用例就红。
+- **`destroy()` 之后不是一刀切**：发起类抛 2005，`logout()` / `forceEnd()` / `on()` / `close*` / `setRemoteLayer` / 读或清理类始终安全。**新公开方法必须归进 `test/destroyContract.test.ts` 的 THROWS / SAFE**，不归类那条用例就红。
 - **「发布过没有」只问 `MediaAdapter`**（`publishedMicrophoneCid()` / `publishedCameraCid()`），别在 `engine.ts` 另记账。
-- **`FrameLoop.sendFrame` 从不把服务端拒绝转成异常**：`call()` / `joinCall()` / `inviteMore()` 被拒也 `resolve`，失败看 `error` 事件与状态机落地，别用 `try/catch` 猜。
+- **（2.0.0 起）宿主调用的结果走 Promise，`error` 事件只剩找不到调用方的**：宿主调用一律走 `FrameLoop.request`，引擎自发的走 `dispatch`——走错了要么双发、要么丢结果。reject 之前 `callEnd(error)` 已经抛过，uikit 的 catch 里别再收场。
 - **2006 阈值「3」未校准、uikit 只认 2 个错误码**：见 server「已知坑」。
 - **关摄像头停采集**：通话中关 = `track.stop()`，开 = 重新 `getUserMedia` 再 `replaceTrack` 到同一个 sender；开关串行（`cameraToggle`）；`stopLocalPreview()` 不停 `cameraClaimed` 的。
 - worktree 不在 `.claude/worktrees/` 下时直接 `npx vitest` 找不到向量：设 `RTC_CONFORMANCE_DIR`，或走 `./scripts/test.sh`。

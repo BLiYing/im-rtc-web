@@ -1,5 +1,5 @@
 import type { EngineBus } from './engineBus.js';
-import { ErrorCode, RtcError } from './errors.js';
+import { ErrorCode, RtcError, isRtcError } from './errors.js';
 import { LogField, logger } from './logger.js';
 import type { MediaAdapter } from './media/mediaAdapter.js';
 import type { MediaBridge } from './media/mediaBridge.js';
@@ -37,6 +37,23 @@ const LATE_MEDIA_FRAMES = new Set(['room.ice_candidate', 'room.offer', 'room.ans
 
 /** SLOW_REQUEST_MS：请求往返超过这么久记一条。正常是几十毫秒。 */
 const SLOW_REQUEST_MS = 2_000;
+
+/** ActInput 是宿主调用触发的那种输入。 */
+export type ActInput = Extract<MachineInput, { kind: 'act' }>;
+
+/** ReplyData 是请求成功时 `xxx.ok` 的 data（线路形状，snake_case）。 */
+export type ReplyData = Readonly<Record<string, unknown>>;
+
+/**
+ * Settlement 收集**一次宿主调用直接发出的那几帧**的结算（ACTION_RESULT_DESIGN R1 / R2）。
+ *
+ * 只有 {@link FrameLoop.request} 会建它；应答处理里连锁出来的帧走 `dispatch`、不带它，
+ * 失败照旧发 `onError`——那些失败找不到调用方。
+ */
+interface Settlement {
+  error: RtcError | null;
+  reply: ReplyData;
+}
 
 /** FrameLoopDeps 是这个循环要用到的全部东西。 */
 export interface FrameLoopDeps {
@@ -104,9 +121,30 @@ export class FrameLoop {
     await this.dispatch({ kind: 'recv', type, data });
   }
 
-  /** dispatch 把一个输入喂进状态机，然后发帧、抛事件。 */
+  /**
+   * dispatch 把一个**找不到调用方**的输入喂进状态机（下行帧、内部事件、engine 自己发起的动作），
+   * 然后抛事件、发帧。**永不 reject**：帧失败转成 `error` 事件。
+   */
   async dispatch(input: MachineInput): Promise<void> {
-    await this.apply(reduceEngine(this.ctx, input), input);
+    await this.apply(reduceEngine(this.ctx, input), input, null);
+  }
+
+  /**
+   * request 把一次**宿主调用**喂进状态机，并把结果交回调用方（ACTION_RESULT_DESIGN R1）。
+   *
+   * - 状态机就地拒绝 → reject 那个码（`2005` 等），不抛事件、不发帧；
+   * - 本步直接产出的帧被拒 / 超时 / 没连接 → reject 那个错误，**不再**发 `error` 事件（R3），
+   *   回滚照做——`onCallEnd(error)` 之类的状态事件照发（R4）；
+   * - 否则 resolve 最后一帧的应答 data（`call` 从里面取 `call_id`）。本步没发帧（意图被缓存、
+   *   拨出中挂起的 cancel）时 resolve 空对象：调用已受理，之后的连锁帧失败走 `error` 事件（R2）。
+   */
+  async request(input: ActInput): Promise<ReplyData> {
+    const result = reduceEngine(this.ctx, input);
+    const settlement: Settlement = { error: null, reply: {} };
+    await this.apply(result, input, settlement);
+    if (result.reject !== undefined) throw new RtcError(result.reject.code);
+    if (settlement.error !== null) throw settlement.error;
+    return settlement.reply;
   }
 
   /**
@@ -140,7 +178,20 @@ export class FrameLoop {
     });
     this.fireFrames(plan.send);
     // 结束帧已经直发过了，这里只落状态与事件；apply 的同步前半段（记状态、关媒体、抛事件）当场跑完。
-    this.apply({ state: plan.state, send: [], emit: plan.emit }).catch((err: unknown) =>
+    this.apply({ state: plan.state, send: [], emit: plan.emit }, undefined, null).catch((err: unknown) =>
+      this.deps.bus.emitError(err),
+    );
+  }
+
+  /** endLocally 按此刻状态本地收场（通话或会议），不发帧。已经收干净时什么都不做。 */
+  private endLocally(): void {
+    const plan = planForceEnd(this.ctx, Date.now());
+    if (plan.emit.length === 0) return;
+    logger.warn('结束帧失败，本地收场', {
+      [LogField.callId]: this.ctx.call.callId,
+      [LogField.roomId]: this.ctx.room.roomId,
+    });
+    this.apply({ state: plan.state, send: [], emit: plan.emit }, undefined, null).catch((err: unknown) =>
       this.deps.bus.emitError(err),
     );
   }
@@ -163,7 +214,11 @@ export class FrameLoop {
    *
    * **发帧之前的部分都是同步的**——`forceEnd` 靠这一点在调用返回前就把事件抛完。
    */
-  private async apply(result: MachineOutput<EngineContext>, input?: MachineInput): Promise<void> {
+  private async apply(
+    result: MachineOutput<EngineContext>,
+    input: MachineInput | undefined,
+    settlement: Settlement | null,
+  ): Promise<void> {
     const { bus, bridge } = this.deps;
     this.ctx = result.state;
 
@@ -183,7 +238,7 @@ export class FrameLoop {
       **roomJoined 和 userEnter 排在 callBegin 前面**——它还没被告知有这通电话，
       就先收到了这通电话房间里的事件。
     */
-    if (input !== undefined) this.logLocalReject(input, result.emit);
+    if (input !== undefined) this.logLocalReject(input, result);
     for (const event of result.emit) {
       /*
         **`onDisconnected` 由连接层独占**，状态机那一份不往外发。
@@ -216,12 +271,17 @@ export class FrameLoop {
       bridge.awaitFirstVideoFrame(uid, (trackId) => bus.emit('firstVideoFrame', { uid, trackId }));
     }
     for (const frame of result.send) {
-      await this.sendFrame(frame);
+      await this.sendFrame(frame, settlement);
     }
   }
 
-  /** sendFrame 发一帧，并把应答喂回状态机。 */
-  private async sendFrame(frame: OutgoingFrame): Promise<void> {
+  /**
+   * sendFrame 发一帧，并把应答喂回状态机。
+   *
+   * `settlement` 不为 null 时这一帧是宿主调用直接发出的：失败记进去交给调用方，不发 `error` 事件。
+   * 同一次调用发了几帧的，调用方拿第一个失败，其余的照旧走 `error` 事件——一个错误只报一次。
+   */
+  private async sendFrame(frame: OutgoingFrame, settlement: Settlement | null): Promise<void> {
     const connection = this.deps.connection();
     /*
       **没有连接不是「什么都不做」，是一次失败。**
@@ -235,23 +295,47 @@ export class FrameLoop {
       未连接时就是立刻回 `NOT_LOGGED_IN`，本端这个码定义了却一直没人用。）
     */
     if (connection === null) {
-      const err = new RtcError(ErrorCode.notLoggedIn, { forType: frame.type });
-      this.deps.bus.emitError(err);
+      this.settleFailure(new RtcError(ErrorCode.notLoggedIn, { forType: frame.type }), settlement);
       await this.rollback(frame);
       return;
     }
     const startedMs = Date.now();
+    let reply: Awaited<ReturnType<FrameSender['send']>>;
     try {
-      const reply = await this.deps.sender.send(connection, frame.type, frame.data);
-      noteSlowRequest(frame.type, startedMs, false);
-      // **应答也要喂回状态机**：join.ok / publish.ok 都是状态推进的关键一步。
-      if (reply !== null) await this.handleIncoming(reply.type, reply.data);
+      reply = await this.deps.sender.send(connection, frame.type, frame.data);
     } catch (err) {
       noteSlowRequest(frame.type, startedMs, true);
-      // 请求失败不该中断整个事件流：转成 error 事件交给宿主。
-      this.deps.bus.emitError(err);
+      // 请求失败不该中断整个事件流：交给调用方，找不到调用方就转成 error 事件。
+      this.settleFailure(withForType(err, frame.type), settlement);
       await this.rollback(frame);
+      return;
     }
+    noteSlowRequest(frame.type, startedMs, false);
+    if (reply === null) return;
+    // **应答也要喂回状态机**：join.ok / publish.ok 都是状态推进的关键一步。
+    if (settlement === null) {
+      await this.handleIncoming(reply.type, reply.data);
+      return;
+    }
+    settlement.reply = reply.data;
+    /*
+      宿主调用直接发出的那一帧：**应答落进状态机就算结算完**，不等它连锁出来的帧（R2 / D1）。
+
+      `.ok` 在 `handleIncoming` 里没有 await 就进了 `apply`，状态与事件在这一行同步落地；
+      之后的连锁帧（publish.ok → pub offer → 等 answer，join.ok → 重放缓存的发布）有自己的出口
+      （`dispatch` → error 事件）。等它们的话，`publishMicrophone()` 要陪着 SDP 协商走完，
+      协商卡住还得多等一个请求超时——而那些失败本来就不算这次调用的。
+    */
+    this.handleIncoming(reply.type, reply.data).catch((err: unknown) => this.deps.bus.emitError(err));
+  }
+
+  /** settleFailure 把一帧的失败交给调用方；没有调用方、或调用方已经拿到一个失败时发 error 事件。 */
+  private settleFailure(err: RtcError, settlement: Settlement | null): void {
+    if (settlement !== null && settlement.error === null) {
+      settlement.error = err;
+      return;
+    }
+    this.deps.bus.emitError(err);
   }
 
   /**
@@ -277,6 +361,16 @@ export class FrameLoop {
       return;
     }
     /*
+      **退出类被拒也要本地收场**（ACTION_RESULT_DESIGN D2）：用户按的是「结束」，服务端拒了
+      （最常见的是通话已经结束 1402 / 1401）或根本没发出去，都不该让界面停在通话里。
+      结束帧已经试过了，这里只落本地——与 `forceEnd` 同一份收场计算，只是不再发帧。
+      `room.leave` 被拒走下面那条 `leave_failed`。
+    */
+    if (type === 'call.hangup' || type === 'call.reject' || type === 'call.cancel') {
+      this.endLocally();
+      return;
+    }
+    /*
       **进房失败要把房间状态退回 idle**。
 
       不退的话状态机永远停在 `joining`，之后每一次 publish 都会被不变量 R1
@@ -297,6 +391,12 @@ export class FrameLoop {
     */
     if (type === 'room.leave') {
       await this.dispatch({ kind: 'internal', name: 'leave_failed' });
+      /*
+        等应答期间断线的话，房间机先收到 `disconnected` 从 `leaving` 进了 `reconnecting`，
+        `leave_failed` 就不认了——恢复之后人又回到房里，而宿主早就按了离开。
+        这一帧只可能是宿主要离房才发的，没有通话时照样本地收场（D2）。
+      */
+      if (this.ctx.call.state === 'idle') this.endLocally();
       return;
     }
     /*
@@ -330,25 +430,33 @@ export class FrameLoop {
   /**
    * logLocalReject 把「状态机本地拒掉了一个动作」记成一条**说得清的**日志。
    *
-   * 宿主收到的 `onError` 只有 `code=2005 / invalid_state`——**哪个动作、当时什么状态，
+   * 宿主拿到的错误只有 `code=2005 / invalid_state`——**哪个动作、当时什么状态，
    * 一个字都没有**。三人会议那次排查就卡在这里：日志里十几条一模一样的 2005，
    * 要读代码才能推出「点的是挂断、而会议里没有 call」。
    *
-   * 不把这些塞进 `onError` 的载荷，是因为那是四端共用的公开回调表；
-   * 诊断信息进日志就够了。
+   * 不把这些塞进错误对象，是因为那是四端共用的公开形状；诊断信息进日志就够了。
+   * engine 自己发起的动作（`restart_pub_ice`）被拒时**只有**这一条日志。
    */
-  private logLocalReject(input: MachineInput, emit: readonly EmittedEvent[]): void {
-    if (input.kind !== 'act') return;
-    const rejected = emit.some(
-      (event) => event.cb === 'onError' && event.args['code'] === ErrorCode.invalidState,
-    );
-    if (!rejected) return;
+  private logLocalReject(input: MachineInput, result: MachineOutput<EngineContext>): void {
+    if (input.kind !== 'act' || result.reject === undefined) return;
     logger.warn('动作被状态机本地拒绝', {
       op: input.op,
       call_state: this.ctx.call.state,
       room_state: this.ctx.room.state,
     });
   }
+}
+
+/**
+ * withForType 把发送层抛出来的东西收敛成带请求类型的 `RtcError`。
+ *
+ * 断线时在途请求一起被 reject 的那个错误（`networkUnreachable`）不知道自己是哪一帧的，这里补上——
+ * 调用方与 `error` 事件的 `forType` 都靠它。
+ */
+function withForType(err: unknown, type: string): RtcError {
+  if (isRtcError(err) && err.forType !== '') return err;
+  const code = isRtcError(err) ? err.code : ErrorCode.internal;
+  return new RtcError(code, { forType: type, cause: err });
 }
 
 /**

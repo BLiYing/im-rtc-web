@@ -438,10 +438,8 @@ function cidOfTrack(ctx: RoomContext, trackId: string): string | undefined {
 
 /** localReject 是不变量 R1 的落点：错误状态下的调用**本地拒绝**，不发上去。 */
 function localReject(ctx: RoomContext): MachineOutput<RoomContext> {
-  return roomOut(ctx, [], [
-    {
-      cb: 'onError',
-      args: { code: ErrorCode.invalidState, name: errorName(ErrorCode.invalidState) },
-    },
-  ]);
+  return {
+    ...roomOut(ctx),
+    reject: { code: ErrorCode.invalidState, name: errorName(ErrorCode.invalidState) },
+  };
 }

@@ -42,6 +42,13 @@ function Dial(): ReactNode {
   );
 }
 
+/** inviteOne 走一遍加人面板：打开 → 勾一个人 → 发起。 */
+function inviteOne(uid: string): void {
+  fireEvent.click(screen.getByTestId('invite-button'));
+  fireEvent.click(screen.getByTestId(`invite-row-${uid}`));
+  fireEvent.click(screen.getByTestId('invite-go'));
+}
+
 /** connectAs 直接把通话推到「通话中」。role 决定是不是主叫。 */
 function connectAs(engine: FakeEngine, role: 'caller' | 'callee', isGroup: boolean, mediaType = 'video'): void {
   act(() => {
@@ -255,18 +262,27 @@ describe('九宫格加人', () => {
     }
   });
 
-  it('服务端说本端不在通话里（1407）→ 入口藏掉；满员（1202）→ 提示', () => {
+  it('加人被拒：满员（1202）→ 提示；本端不在通话里（1407）→ 入口藏掉', async () => {
+    const engine = setup([{ uid: 'dave' }, { uid: 'erin' }]);
+    connectAs(engine, 'caller', true);
+    engine.inviteMoreError = new RtcError(ErrorCode.roomFull, { forType: 'call.invite_more' });
+    inviteOne('dave');
+    await flush();
+    expect(screen.getByTestId('active-call').textContent).toContain('通话已满员');
+
+    engine.inviteMoreError = new RtcError(ErrorCode.notCallOwner, { forType: 'call.invite_more' });
+    inviteOne('erin');
+    await flush();
+    expect(screen.queryByTestId('invite-button')).toBeNull();
+  });
+
+  it('error 事件里的同名码不再被当成加人失败（2.0.0 起加人结果只从 reject 回来）', () => {
     const engine = setup();
     connectAs(engine, 'caller', true);
     act(() => {
-      engine.emit('error', { code: ErrorCode.roomFull, name: 'room_full', message: '' });
+      engine.emit('error', { code: ErrorCode.roomFull, name: 'room_full', message: '', forType: '' });
     });
-    expect(screen.getByTestId('active-call').textContent).toContain('通话已满员');
-
-    act(() => {
-      engine.emit('error', { code: ErrorCode.notCallOwner, name: 'not_call_owner', message: '' });
-    });
-    expect(screen.queryByTestId('invite-button')).toBeNull();
+    expect(screen.getByTestId('active-call').textContent).not.toContain('通话已满员');
   });
 
   it('被叫也能加人；离场的发起人也能被重新邀请', async () => {
@@ -416,51 +432,41 @@ describe('失败路径要收尾', () => {
     expect(camera.textContent).toContain('无权限');
   });
 
-  it('加人被拒：占位格要收回来，不能一直挂着「呼叫中…」（真实场景走 error 事件，不是 inviteMore 的 reject）', async () => {
-    /*
-      **`inviteMore()` 的 promise 正常 resolve**（`FrameLoop.sendFrame` 从不把服务端拒绝转成
-      异常）：服务端的 1407 由 `subscribeEngine` 订阅的 `error` 事件到达，不经 `try/catch`。
-      这条用例原先靠 `engine.inviteMoreError` 让假实现抛异常来触发收回，那条路径在真 engine
-      上永远不会发生（2026-09-15 查实，见 `useCallActions.ts` 与 `subscribeEngine.ts` 的注释）。
-    */
+  it('加人被拒（1407）：占位格要收回来，不能一直挂着「呼叫中…」', async () => {
     const engine = setup([{ uid: 'dave' }]);
     connectAs(engine, 'caller', true);
+    engine.inviteMoreError = new RtcError(ErrorCode.notCallOwner, { forType: 'call.invite_more' });
 
-    fireEvent.click(screen.getByTestId('invite-button'));
-    fireEvent.click(screen.getByTestId('invite-row-dave'));
-    fireEvent.click(screen.getByTestId('invite-go'));
+    inviteOne('dave');
     await flush();
 
     expect(engine.calls).toContain('inviteMore:dave');
-    expect(screen.getByTestId('tile-dave')).toBeTruthy(); // 帧发出去、服务端还没回应之前占位格照常挂着
-
-    act(() => {
-      engine.emit('error', { code: ErrorCode.notCallOwner, name: 'not_call_owner', message: '' });
-    });
     expect(screen.queryByTestId('tile-dave')).toBeNull();
   });
 
-  it('inviteMore 抛出意料之外的异常：不崩溃（真实场景不会走到这里，占位格留给 error 事件收）', async () => {
+  it('加人超时 / 断线这类没有专属文案的失败：占位格同样收回，通话不受影响', async () => {
     const engine = setup([{ uid: 'dave' }]);
-    engine.inviteMoreError = new Error('unexpected');
+    engine.inviteMoreError = new RtcError(ErrorCode.signalingTimeout, { forType: 'call.invite_more' });
     connectAs(engine, 'caller', true);
 
-    fireEvent.click(screen.getByTestId('invite-button'));
-    fireEvent.click(screen.getByTestId('invite-row-dave'));
-    fireEvent.click(screen.getByTestId('invite-go'));
+    inviteOne('dave');
     await flush();
 
     expect(engine.calls).toContain('inviteMore:dave');
-    expect(screen.getByTestId('tile-dave')).toBeTruthy();
+    expect(screen.queryByTestId('tile-dave')).toBeNull();
+    expect(screen.getByTestId('active-call')).toBeTruthy();
   });
 
-  it('提示停几秒就撤，计时器要回来', () => {
+  it('提示停几秒就撤，计时器要回来', async () => {
     vi.useFakeTimers();
     try {
-      const engine = setup();
+      const engine = setup([{ uid: 'dave' }]);
       connectAs(engine, 'caller', true);
-      act(() => {
-        engine.emit('error', { code: ErrorCode.roomFull, name: 'room_full', message: '' });
+      engine.inviteMoreError = new RtcError(ErrorCode.roomFull, { forType: 'call.invite_more' });
+      inviteOne('dave');
+      // 假计时器下 setTimeout(0) 不走，只让微任务跑完。
+      await act(async () => {
+        for (let i = 0; i < 5; i += 1) await Promise.resolve();
       });
       expect(screen.getByTestId('active-call').textContent).toContain('通话已满员');
 
@@ -513,37 +519,25 @@ describe('失败路径要收尾', () => {
 describe('宿主邀请鉴权回调拒绝（1409）', () => {
   it('初始呼叫被拒：提示「对方暂时无法被邀请」，界面照常收起，收起之后这句话还看得见', async () => {
     const engine = setup(undefined, { withDialer: true });
+    // 真 engine 的顺序：先 `callEnd(error)`（`rollback` 触发的 `call_failed`），再 reject `call()`——假实现同序。
+    engine.callError = new RtcError(ErrorCode.inviteDenied, { forType: 'call.invite' });
     fireEvent.click(screen.getByTestId('dial'));
     await flush();
     expect(engine.calls).toContain('call:bob:audio');
-
-    /*
-      真 engine 的顺序：先一条 `error`（`sendFrame` 的 catch），再紧跟着 `callEnd`
-      （`rollback` 触发的 `call_failed`）——`FakeEngine.call()` 不自动模拟这两条，
-      这里手动按真实顺序摆，同 `joinCallError` 之外的路径一个道理。
-    */
-    act(() => {
-      engine.emit('error', { code: ErrorCode.inviteDenied, name: 'invite_denied', message: '' });
-      engine.emit('callEnd', { reason: 'error', durationSec: 0 });
-    });
 
     // **收起之后**（CallOverlay 换成 CallEnded，不再是 ActiveCall）这句话依然可见——
     // 不是消失在 ActiveCall 的状态行里就没人再读到（2026-09-15 code review 抓到）。
     expect(screen.getByTestId('call-ended').textContent).toContain('对方暂时无法被邀请');
   });
 
-  it('通话中加人被拒：提示同一句话，收回占位格，通话继续（与 1202 满员对齐）', () => {
+  it('通话中加人被拒：提示同一句话，收回占位格，通话继续（与 1202 满员对齐）', async () => {
     const engine = setup([{ uid: 'dave' }]);
     connectAs(engine, 'caller', true);
+    engine.inviteMoreError = new RtcError(ErrorCode.inviteDenied, { forType: 'call.invite_more' });
 
-    fireEvent.click(screen.getByTestId('invite-button'));
-    fireEvent.click(screen.getByTestId('invite-row-dave'));
-    fireEvent.click(screen.getByTestId('invite-go'));
+    inviteOne('dave');
     expect(screen.getByTestId('tile-dave')).toBeTruthy();
-
-    act(() => {
-      engine.emit('error', { code: ErrorCode.inviteDenied, name: 'invite_denied', message: '' });
-    });
+    await flush();
 
     expect(screen.getByTestId('active-call').textContent).toContain('对方暂时无法被邀请');
     expect(screen.queryByTestId('tile-dave')).toBeNull();
@@ -552,22 +546,17 @@ describe('宿主邀请鉴权回调拒绝（1409）', () => {
     expect(screen.getByTestId('invite-button')).toBeTruthy();
   });
 
-  it('不该收回跟这次失败无关的占位格：上一轮还在响铃的人不受影响', () => {
+  it('不该收回跟这次失败无关的占位格：上一轮还在响铃的人不受影响', async () => {
     // dave 是上一轮邀请、还在响铃的人；erin 是这一轮被拒的那批——两批不能互相牵连
     // （`lastInvited` 按批次整体替换，只收最近这一批，见 `participants.ts` 的 `revokeLastInvited`）。
     const engine = setup([{ uid: 'dave' }, { uid: 'erin' }]);
     connectAs(engine, 'caller', true);
-    fireEvent.click(screen.getByTestId('invite-button'));
-    fireEvent.click(screen.getByTestId('invite-row-dave'));
-    fireEvent.click(screen.getByTestId('invite-go'));
+    inviteOne('dave');
+    await flush();
 
-    fireEvent.click(screen.getByTestId('invite-button'));
-    fireEvent.click(screen.getByTestId('invite-row-erin'));
-    fireEvent.click(screen.getByTestId('invite-go'));
-
-    act(() => {
-      engine.emit('error', { code: ErrorCode.inviteDenied, name: 'invite_denied', message: '' });
-    });
+    engine.inviteMoreError = new RtcError(ErrorCode.inviteDenied, { forType: 'call.invite_more' });
+    inviteOne('erin');
+    await flush();
     expect(screen.getByTestId('tile-dave')).toBeTruthy();
     expect(screen.queryByTestId('tile-erin')).toBeNull();
   });

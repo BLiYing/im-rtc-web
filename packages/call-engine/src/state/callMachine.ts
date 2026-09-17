@@ -225,12 +225,10 @@ function joinOngoingCall(
 }
 
 function invalidState(ctx: CallContext): MachineOutput<CallContext> {
-  return out(ctx, [], [
-    {
-      cb: 'onError',
-      args: { code: ErrorCode.invalidState, name: errorName(ErrorCode.invalidState) },
-    },
-  ]);
+  return {
+    ...out(ctx),
+    reject: { code: ErrorCode.invalidState, name: errorName(ErrorCode.invalidState) },
+  };
 }
 
 /** synthesizeNetworkEnd 是不变量 I8 的那个**唯一例外**。 */

@@ -7,6 +7,7 @@ import { engineMediaDeps } from './engineWiring.js';
 import { EngineSession } from './engineSession.js';
 import { ErrorCode, RtcError } from './errors.js';
 import { FrameLoop } from './frameLoop.js';
+import type { ReplyData } from './frameLoop.js';
 import { checkDeviceId, checkRoomId } from './protocolId.js';
 import type { EngineEventHandler, EngineEventName } from './events.js';
 import type { MediaAdapter } from './media/mediaAdapter.js';
@@ -66,7 +67,21 @@ export interface EngineOptions {
 
 export type { CallOptions } from './callOptions.js';
 
-/** CallEngine 是宿主唯一需要接触的类型。 */
+/**
+ * CallEngine 是宿主唯一需要接触的类型。
+ *
+ * # 方法的结果回给调用方（2.0.0）
+ *
+ * 发请求的方法（`login` / `call` / `joinCall` / `accept` / `reject` / `cancel` / `hangup` /
+ * `inviteMore` / `joinRoom` / `leaveRoom` / `publish*` / `open*` / `setMuted`）返回的 Promise
+ * **在这次调用直接发出的那一帧收到应答时 resolve**，被本地拒绝、被服务端拒绝、超时、没连接时
+ * **reject 一个 `RtcError`**——这个错误**不再**同时发 `error` 事件。引擎随后自动发的连锁帧
+ * （接听之后的进房等）失败找不到调用方，才走 `error` 事件。
+ *
+ * 通话 / 房间因此收场时 `callEnd(error)` / `roomLeft` 照发：**界面收起靠事件，catch 里只做提示**。
+ * 退出类（`reject` / `cancel` / `hangup` / `leaveRoom`）失败时本地照样收场，错误只供日志。
+ * 规则全文见 server `docs/design/ACTION_RESULT_DESIGN.md`。
+ */
 export class CallEngine {
   private readonly bus = new EngineBus();
   private readonly bridge: MediaBridge;
@@ -171,14 +186,14 @@ export class CallEngine {
    * # 之后再调别的方法
    *
    * 会发起动作的方法（`login` / `call` / `accept` / … / `publishMicrophone` / `openCamera` 等，
-   * 经 {@link act} 或 {@link mediaApi} 转发的那一批）一律**抛 `2005 invalid_state`**，
+   * 经 {@link act} 或 {@link mediaApi} 转发的那一批）一律**reject `2005 invalid_state`**，
    * 不是静默空操作：事件订阅已经清空，静默的话宿主的 `hangup()` 之类调用会石沉大海——
    * 不抛错也不会有任何事件把原因告诉它，界面只会永远停在转圈。与 `login()` 拦
    * 「已经登录了」同一个理由：让宿主一调就知道错在哪，不用猜。
    *
-   * `logout()` / `forceEnd()` / `on()` / `uid` / `state`，以及读或清理类的方法
+   * `logout()` / `forceEnd()` / `on()` / `uid` / `state`，以及读、清理、提示类的方法
    * （`attachView` / `attachLocalView`、`localTrack`、`stopLocalPreview`、`closeMicrophone` /
-   * `closeCamera`、`updateToken`）**不受影响**，销毁后调用仍然安全——宿主卸载时经常无脑清理这几个，
+   * `closeCamera`、`updateToken`、`setRemoteLayer`）**不受影响**，销毁后调用仍然安全——宿主卸载时经常无脑清理这几个，
    * 不该因为清理顺序先后而报错。逐个方法的归类由 `test/destroyContract.test.ts` 钉住，
    * 新增公开方法不归类那张表就红；与 iOS / Android 的对照见 server `docs/CLIENT_PARITY.md`。
    */
@@ -199,38 +214,52 @@ export class CallEngine {
   }
 
   /**
-   * act 是「发一个业务动作、等状态机处理完」的公共外壳：`call` / `accept` / `reject` / `cancel` /
+   * act 是「发一个业务动作、等这次调用的结果」的公共外壳：`call` / `accept` / `reject` / `cancel` /
    * `hangup` / `inviteMore` / `joinCall` / `joinRoom` / `leaveRoom` 共用，唯一的区别只是
    * op 名与参数。抽出来顺带把 {@link assertNotDestroyed} 的检查收在一处。
+   * 结算规则见 `FrameLoop.request`。
    */
-  private async act(op: string, args?: Record<string, unknown>): Promise<void> {
+  private async act(op: string, args?: Record<string, unknown>): Promise<ReplyData> {
     this.assertNotDestroyed();
-    await this.loop.dispatch(args === undefined ? { kind: 'act', op } : { kind: 'act', op, args });
+    return this.loop.request(args === undefined ? { kind: 'act', op } : { kind: 'act', op, args });
   }
 
   /**
-   * call 发起通话。**名单里不能有自己**，见 `callGuards.ts` 的 `rejectsSelf`。
+   * call 发起通话，**resolve 服务端分配的 `callId`**（取自 `call.invite.ok`）。
+   * **名单里不能有自己**，见 `callGuards.ts` 的 `rejectsSelf`。
    *
    * `options` 传布尔值等同旧的 `isGroup` 参数（三参数签名保持兼容）；传 {@link CallOptions}
    * 可以带上群号 / user_data / 振铃超时（HOST_INTEGRATION_DESIGN §3.3）。
-   * 群号 / user_data 超限同样本地拒掉，见 `callGuards.ts`。
+   * 群号 / user_data 超限同样本地拒掉（reject `1004`），见 `callGuards.ts`。
+   *
+   * 被拒（本地 `1004` / 服务端拒绝 / 超时）时 reject，**并且照发一次 `callEnd(error)`**——
+   * 界面在调用之前就切到了「正在呼叫…」，收起它靠那个事件。
+   *
+   * 这两道本地关卡**只在 `idle` 时**抢在状态机前面拦：`callEnd(error)` 假定界面刚乐观地进了
+   * 「正在呼叫…」。不是 `idle`（这通 `call()` 其实是在另一通电话进行中时误调的，比如名单里
+   * 误含自己）时抢先 reject 只会给**正在进行的**那通电话发一条假的 `callEnd`，把它错杀——
+   * 让状态机去拒，按 §5.1 正常收成 `2005`，不碰当前那通。
    */
   async call(
     calleeIds: string[],
     mediaType: MediaType,
     options?: boolean | CallOptions,
-  ): Promise<void> {
+  ): Promise<string> {
     this.assertNotDestroyed();
     const req = toCallRequest(calleeIds, mediaType, options);
-    if (
-      rejectsSelf(this.bus, this.session.uid, calleeIds, '呼叫') ||
-      rejectsBadCallOptions(this.bus, req.chatGroupId, req.userData)
-    ) {
+    const rejected =
+      this.state.call.state === 'idle'
+        ? (rejectsSelf(this.session.uid, calleeIds, '呼叫', 'call.invite') ??
+          rejectsBadCallOptions(req.chatGroupId, req.userData))
+        : null;
+    if (rejected !== null) {
       // 本地拒掉也要给界面一个出口，理由见 emitLocallyRejectedCall。
       emitLocallyRejectedCall(this.bus);
-      return;
+      throw rejected;
     }
-    await this.act('call', req.args);
+    const reply = await this.act('call', req.args);
+    const callId = reply['call_id'];
+    return typeof callId === 'string' ? callId : '';
   }
 
   /**
@@ -238,8 +267,9 @@ export class CallEngine {
    *
    * **「怎么知道有通话在进行中」不是 engine 的事**——宿主拿 webhook `call.started`
    * 或后台 `GET /v1/calls?chat_group_id=...&active=1` 自己判断、自己摆横幅。
-   * 服务端拒绝（不存在 / 已结束 / 满员 / 本人已在通话中 / 宿主邀请鉴权回调拒绝 1409）
-   * 时与 `call()` 被拒同一个出口：`onError` + `onCallEnd(error)`。
+   * **resolve = 服务端受理了（`call.join.ok`）**，接通事件随后到。服务端拒绝（`1401` 不存在 /
+   * `1402` 已结束 / `1202` 满员 / `1408` 本人已在通话中 / `1409` 宿主邀请鉴权回调拒绝）时 reject 那个码，
+   * 同时照发 `callEnd(error)`（状态机已经进了 `accepting`，界面收起靠它）。
    */
   async joinCall(callId: string): Promise<void> {
     await this.act('join_call', { call_id: callId });
@@ -250,17 +280,17 @@ export class CallEngine {
     await this.act('accept');
   }
 
-  /** reject 拒接。 */
+  /** reject 拒接。失败（通话已结束等）时本地照样收场，错误只供日志。 */
   async reject(): Promise<void> {
     await this.act('reject');
   }
 
-  /** cancel 取消呼出（**仅接通前**；接通后用 hangup）。 */
+  /** cancel 取消呼出（**仅接通前**；接通后用 hangup）。失败时本地照样收场，错误只供日志。 */
   async cancel(): Promise<void> {
     await this.act('cancel');
   }
 
-  /** hangup 挂断（接通后，主被叫都用它）。 */
+  /** hangup 挂断（接通后，主被叫都用它）。失败时本地照样收场（`callEnd` 照发），错误只供日志。 */
   async hangup(): Promise<void> {
     await this.act('hangup');
   }
@@ -293,17 +323,19 @@ export class CallEngine {
    *
    * **通话里的任何人都能发**（2026-09-15 起，原先仅主叫）；还在响铃 / 已离场的人发会被服务端拒成
    * `1407 not_call_owner`（交互稿 §05）。房间满了回 `1202 room_full`；离场的发起人也能被重新邀请。
+   * 这些都 reject 给调用方，通话本身不受影响。
    */
   async inviteMore(calleeIds: string[]): Promise<void> {
     this.assertNotDestroyed();
-    if (rejectsSelf(this.bus, this.session.uid, calleeIds, '加人')) return;
+    const rejected = rejectsSelf(this.session.uid, calleeIds, '加人', 'call.invite_more');
+    if (rejected !== null) throw rejected;
     await this.act('invite_more', { callee_ids: calleeIds });
   }
 
   /**
    * probeMicrophone 在拨出 / 接听**之前**探一下麦克风权限（交互稿 §01）。
    *
-   * 拿到就放掉，不占设备；被拒抛 `2001`、没设备抛 `2002`。
+   * 拿到就放掉，不占设备；被拒 reject `2001`、没设备 reject `2002`（不发 `error` 事件）。
    */
   async probeMicrophone(): Promise<void> {
     await probeMicrophone(this.mediaApi());
@@ -327,7 +359,7 @@ export class CallEngine {
     await this.act('join', { room_id: roomId, room_token: roomToken, auto_subscribe: autoSubscribe });
   }
 
-  /** leaveRoom 离房。 */
+  /** leaveRoom 离房。失败时本地照样收场（`roomLeft` 照发），错误只供日志。 */
   async leaveRoom(): Promise<void> {
     await this.act('leave');
   }
@@ -351,6 +383,8 @@ export class CallEngine {
   /**
    * closeMicrophone 关麦克风：对已发布的那条轨道 `setMuted(cid, true)`——**不 unpublish**，
    * 协商保留。没发布过、或 engine 已销毁，是空操作（清理类，见 {@link destroy}）。
+   *
+   * **永不 reject**：本端立即静音；`room.mute` 帧被拒不回滚本端（隐私优先），错误走 `error` 事件。
    */
   async closeMicrophone(): Promise<void> {
     if (this.destroyed) return;
@@ -397,7 +431,7 @@ export class CallEngine {
 
   /**
    * closeCamera 关摄像头：`setMuted(cid, true)`（停采集，指示灯灭；不 unpublish）。
-   * 没发布过、或 engine 已销毁，是空操作。
+   * 没发布过、或 engine 已销毁，是空操作。永不 reject，理由同 {@link closeMicrophone}。
    */
   async closeCamera(): Promise<void> {
     if (this.destroyed) return;
@@ -438,8 +472,11 @@ export class CallEngine {
    *
    * 九宫格缩略图报 `l`、双击放大报 `h`。**不触发重协商**，也不保证立刻切——
    * 服务端要等目标层的关键帧，还会再按带宽估计压一次。
+   *
+   * 提示类：**永不 reject**，失败走 `error` 事件；engine 已销毁时是空操作。
    */
   async setRemoteLayer(uid: string, layer: Layer): Promise<void> {
+    if (this.destroyed) return;
     await setRemoteLayer(this.mediaApi(), uid, layer);
   }
 

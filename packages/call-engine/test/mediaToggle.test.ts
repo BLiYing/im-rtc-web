@@ -79,13 +79,18 @@ async function setup(): Promise<Harness> {
   return h;
 }
 
-/** publish 把一次 room.publish 请求回成功——回 publish.ok 再回 offer 的 answer，直到发布方法落地。 */
+/**
+ * publish 把一次 room.publish 请求回成功——回 publish.ok 再回 offer 的 answer，直到轨道 published。
+ *
+ * 发布方法本身在 publish.ok 时就落定（结果只管直接那一帧）；answer 是连锁的协商，要另外等它应用完。
+ */
 async function completePublish(h: Harness, pending: Promise<unknown>, cid: string): Promise<void> {
   await flush(4);
   h.reply('room.publish', 'room.publish.ok', { cid, track_id: `t-${cid}` });
+  await pending;
   await flush(6);
   h.reply('room.offer', 'room.answer', { pc: 'pub', sdp: 'answer-sdp' });
-  await pending;
+  await flush(6);
 }
 
 beforeEach(() => vi.useFakeTimers());

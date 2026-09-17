@@ -226,9 +226,20 @@ function routeAct(
   if (CALL_ACTS.has(input.op)) return liftCall(ctx, reduceCall(ctx.call, input));
   if (ROOM_ACTS.has(input.op)) {
     const room = reduceRoom(ctx.room, input);
-    return { state: { ...ctx, room: room.state }, send: [...room.send], emit: [...room.emit] };
+    return withReject(
+      { state: { ...ctx, room: room.state }, send: [...room.send], emit: [...room.emit] },
+      room,
+    );
   }
   return { state: ctx, send: [], emit: [] };
+}
+
+/** withReject 把子状态机的本地拒绝原样带到 engine 层——漏带的话调用方拿不到结果。 */
+function withReject<S>(
+  lifted: MachineOutput<EngineContext>,
+  from: MachineOutput<S>,
+): MachineOutput<EngineContext> {
+  return from.reject === undefined ? lifted : { ...lifted, reject: from.reject };
 }
 
 /**
@@ -270,5 +281,5 @@ function liftCall(
   if (emit.some((event) => event.cb === 'onCallEnd')) {
     room = clearedRoom('idle');
   }
-  return { state: { ...ctx, room, call: result.state }, send, emit };
+  return withReject({ state: { ...ctx, room, call: result.state }, send, emit }, result);
 }

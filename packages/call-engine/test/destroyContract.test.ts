@@ -6,12 +6,11 @@ import { NullMedia } from './nullMedia.js';
 /**
  * `destroy()` 之后**每一个**公开方法归哪一类，逐条钉住（CallEngine.destroy 的文档注释）。
  *
- * - THROWS：发起动作的方法，reject / throw `2005 invalid_state`——事件订阅已清空，静默的话宿主永远等不到结果。
- * - SAFE：读与清理类，照常返回、不抛——宿主卸载时无脑清理，不该因先后顺序报错。
+ * - THROWS：发起类与本地设备类，reject / throw `2005 invalid_state`——与平时失败同一个出口（结果回给调用方）。
+ * - SAFE：读、清理、提示类，照常返回、不抛——宿主卸载时无脑清理，不该因先后顺序报错。
  *
- * 三端对照（2026-09-17 并表）：iOS 只有 `async throws` 签名的方法抛 2005、其余静默；
- * Android 没有 2005，销毁后一律丢弃。Web 的方法都返回 Promise，所以发起类一律抛——
- * **iOS 抛的 Web 都抛**，close* 两端都是空操作。表在 server `docs/CLIENT_PARITY.md`。
+ * 归类规则是四端共用的（server `docs/design/ACTION_RESULT_DESIGN.md` §3 与 R6），逐端状态在
+ * server `docs/CLIENT_PARITY.md`。
  *
  * 最后一条用例扫 `CallEngine.prototype`：**新增公开方法不归进这张表就红**，
  * 逼着加方法的人想清楚它归哪类（current_task「已知坑」那条的硬闸）。
@@ -38,7 +37,6 @@ const THROWS: Readonly<Record<string, Call>> = {
   publishCamera: (e) => e.publishCamera(),
   openCamera: (e) => e.openCamera(),
   setMuted: (e) => e.setMuted('mic-1', true),
-  setRemoteLayer: (e) => e.setRemoteLayer('bob', 'l'),
 };
 
 const SAFE: Readonly<Record<string, Call>> = {
@@ -51,6 +49,8 @@ const SAFE: Readonly<Record<string, Call>> = {
   forceEnd: (e) => e.forceEnd(),
   closeMicrophone: (e) => e.closeMicrophone(),
   closeCamera: (e) => e.closeCamera(),
+  // 提示类（ACTION_RESULT_DESIGN D3）：没有结果，销毁后同清理类一样是空操作。
+  setRemoteLayer: (e) => e.setRemoteLayer('bob', 'l'),
   stopLocalPreview: (e) => e.stopLocalPreview(),
   localTrack: (e) => e.localTrack('mic-1'),
   attachView: (e) => {

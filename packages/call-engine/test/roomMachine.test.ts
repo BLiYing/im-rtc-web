@@ -28,6 +28,8 @@ interface RoomStep {
   internal?: string;
   send?: { type: string; data?: Record<string, unknown> }[];
   emit?: { cb: string; args?: Record<string, unknown> }[];
+  /** act 被本地拒绝时回给调用方的结果；省略 = 断言没有本地拒绝。 */
+  result?: { code: number; name: string };
   state?: RoomStepState;
 }
 
@@ -149,6 +151,7 @@ describe('room_fsm.json —— 房间与 Track 状态机', () => {
 
       expectSubset(stripSend(result.send), step.send ?? [], `${label} 的 send`);
       expectSubset(stripEmit(result.emit), step.emit ?? [], `${label} 的 emit`);
+      expect(result.reject ?? null, `${label} 的 result`).toEqual(step.result ?? null);
       if (step.state !== undefined) assertState(ctx, step.state, label);
     });
   });

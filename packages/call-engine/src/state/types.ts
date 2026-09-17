@@ -24,11 +24,24 @@ export interface EmittedEvent {
   readonly args: Readonly<Record<string, unknown>>;
 }
 
+/**
+ * LocalReject 是「状态机就地拒掉了这次调用」（一致性向量里 `act` 步骤的 `result`）。
+ *
+ * **不是事件**：它只回给发起这次调用的人（门面据此 reject），不经 `onError` 广播——
+ * 一次失败只从一个出口报（server `docs/design/ACTION_RESULT_DESIGN.md` R3）。
+ */
+export interface LocalReject {
+  readonly code: number;
+  readonly name: string;
+}
+
 /** MachineOutput 是一次状态转移的产物。 */
 export interface MachineOutput<S> {
   readonly state: S;
   readonly send: readonly OutgoingFrame[];
   readonly emit: readonly EmittedEvent[];
+  /** 只有 `act` 输入会带：这次调用被本地拒掉了。带它时 `send` / `emit` 为空、状态不变。 */
+  readonly reject?: LocalReject;
 }
 
 /** MachineInput 是驱动状态机的三种输入之一（与向量的 act / recv / internal 一一对应）。 */

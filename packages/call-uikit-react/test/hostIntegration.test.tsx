@@ -85,21 +85,25 @@ describe('joinCall()：主动加入进行中的群通话', () => {
     expect(screen.getByTestId('active-call').getAttribute('data-layout')).toBe('grid');
   });
 
-  it('被服务端拒绝（如 1409）：按同一句文案提示，走既有的 callEnd 出口收场', async () => {
+  it('被服务端拒绝（如 1409）：码从 joinCall 的 reject 里取，按同一句文案提示，走 callEnd 出口收场', async () => {
     const engine = new FakeEngine();
-    engine.joinCallError = { code: ErrorCode.inviteDenied, name: 'invite_denied', message: 'invite denied by host' };
+    engine.joinCallError = new RtcError(ErrorCode.inviteDenied, { forType: 'call.join' });
     setup(engine);
     fireEvent.click(screen.getByTestId('join-call'));
     await flush();
     expect(screen.getByTestId('call-ended').textContent).toContain('无法加入该通话');
-    /*
-      **不能同时冒出「对方暂时无法被邀请」**：`FakeEngine.joinCall()` 的 `emit('error', …)`
-      同一份 1409 会被 `subscribeEngine` 的全局监听器与 `useCallActions.joinCall` 自己挂的临时
-      监听器同时收到——`callView.ts` 的 `inviteRejectedByHost` 靠「`connecting` 且没有
-      `roomId`」这个信号识别出这是主动加入，什么都不做，专属文案由这里的 `joinCallFailed` 单独出
-      （2026-09-15 补：Web 原先没有这条区分，`inviteMore` 相关的提示走的是从没被触发过的死代码）。
-    */
+    // 同一次拒绝只提示一句：主动加入的 1409 不走「对方暂时无法被邀请」那条。
     expect(screen.getByTestId('call-ended').textContent).not.toContain('对方暂时无法被邀请');
+  });
+
+  it('满员（1202）：同样收到「已结束」，不冒加人那句满员 Toast', async () => {
+    const engine = new FakeEngine();
+    engine.joinCallError = new RtcError(ErrorCode.roomFull, { forType: 'call.join' });
+    setup(engine);
+    fireEvent.click(screen.getByTestId('join-call'));
+    await flush();
+    expect(screen.getByTestId('call-ended')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('通话已满员（最多 9 人）');
   });
 
   it('通话中再 joinCall：不动当前通话、不发 call.join，只提示（2026-09-15 代码审查）', async () => {
@@ -113,11 +117,13 @@ describe('joinCall()：主动加入进行中的群通话', () => {
     expect(document.body.textContent).toContain('正在通话中，无法加入');
   });
 
-  it('加入期间冒出无关的 error：以通话状态为准，不收场', async () => {
+  it('加入期间冒出无关的 error 事件：不算这次加入的失败，不收场', async () => {
     const engine = new FakeEngine();
-    engine.joinCallStrayError = { code: ErrorCode.networkUnreachable, name: 'network_unreachable', message: 'x' };
     setup(engine);
     fireEvent.click(screen.getByTestId('join-call'));
+    act(() => {
+      engine.emit('error', { code: ErrorCode.networkUnreachable, name: 'network_unreachable', message: 'x', forType: '' });
+    });
     await flush();
     expect(screen.queryByTestId('call-ended')).toBeNull();
     expect(screen.getByTestId('active-call').textContent).toContain('接通中…');

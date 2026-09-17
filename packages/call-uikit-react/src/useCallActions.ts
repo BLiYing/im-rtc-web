@@ -1,5 +1,5 @@
 import type { CallEngine, CallOptions, MediaType } from 'im-rtc-call-engine';
-import { logger } from 'im-rtc-call-engine';
+import { ErrorCode, isRtcError, logger } from 'im-rtc-call-engine';
 import type { MutableRefObject } from 'react';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 
@@ -60,6 +60,21 @@ export interface CallActionsDeps {
   readonly gate: PermissionGate;
   /** 红键看门狗等多久（见 `RedButtonWatchdog`）。 */
   readonly endWatchdogMs: number;
+}
+
+/**
+ * codeOf 取 engine 方法 reject 出来的错误码；不是 `RtcError` 时返回 null。
+ *
+ * 2.0.0 起服务端拒绝、超时、断线都经方法本身的 Promise 回来（server `docs/design/ACTION_RESULT_DESIGN.md`），
+ * 不再发 `error` 事件——文案从这里挑；**界面收起仍靠 `callEnd` / `roomLeft`**，catch 里不收场。
+ */
+function codeOf(err: unknown): number | null {
+  return isRtcError(err) ? err.code : null;
+}
+
+/** logRejected 给「界面收起靠事件、这里只留痕」的那几处 catch 用。 */
+function logRejected(what: string, err: unknown): void {
+  logger.warn(`[uikit] ${what}失败`, { code: codeOf(err), err: String(err) });
 }
 
 /**
@@ -186,7 +201,16 @@ export function useCallActions({ engine, state, dispatch, cids, gate, endWatchdo
         }
         // 群通话默认关着摄像头进来：权限照问（交互稿 §01），摄像头不开。
         if (gateResult === 'ok' && defaultCameraOn(mediaType, isGroup)) await startPreview();
-        await engine.call(calleeIds, mediaType, options);
+        try {
+          await engine.call(calleeIds, mediaType, options);
+        } catch (err) {
+          /*
+            被拒时 engine 先抛 `callEnd(error)`（界面已经进了「通话已结束」），再 reject 到这里。
+            只有宿主邀请鉴权回调拒绝（1409）有专属文案，其余码的收场与提示都由 `callEnd` 那条路负责。
+          */
+          logRejected('拨号', err);
+          if (codeOf(err) === ErrorCode.inviteDenied) dispatch({ type: 'inviteRejectedByHost' });
+        }
       },
       joinMeeting: async (roomId, roomToken): Promise<void> => {
         const gateResult = await gate.ensure(devicesFor('video', true));
@@ -218,17 +242,18 @@ export function useCallActions({ engine, state, dispatch, cids, gate, endWatchdo
         */
         const gateResult = await gate.ensure(devicesForAnswering(state.mediaType, state.self.cameraOptedOut));
         if (gateResult === 'cancelled' || gateResult === 'mic-blocked') {
-          // 接不了就别让对方一直等：拒掉。
-          await engine.reject();
+          // 接不了就别让对方一直等：拒掉。失败时 engine 本地照样收场。
+          await engine.reject().catch((err: unknown) => logRejected('拒接', err));
           return;
         }
         if (gateResult === 'ok' && state.mediaType === 'video' && state.self.cameraOn) await startPreview();
-        await engine.accept();
+        // 接听被拒（通话已结束 / 已在别处处理）：engine 退回 idle 并抛 callEnd(error)，界面随它收起。
+        await engine.accept().catch((err: unknown) => logRejected('接听', err));
       },
       reject: async (): Promise<void> => {
         // 来电页上的红键同样要盯着：拒接帧发不出去时，来电页不能一直挂在那儿。
         armEnd('reject');
-        await engine.reject();
+        await engine.reject().catch((err: unknown) => logRejected('拒接', err));
       },
       end: async (): Promise<void> => {
         /*
@@ -237,21 +262,27 @@ export function useCallActions({ engine, state, dispatch, cids, gate, endWatchdo
         */
         const action = endActionFor(state);
         armEnd(action);
-        switch (action) {
-          case 'leaveRoom':
-            return engine.leaveRoom();
-          case 'reject':
-            return engine.reject();
-          case 'cancel':
-            return engine.cancel();
-          case 'hangup':
-            return engine.hangup();
-        }
+        // 退出类失败时 engine 本地照样收场（callEnd / roomLeft 照发），错误只留痕。
+        const ending = ((): Promise<void> => {
+          switch (action) {
+            case 'leaveRoom':
+              return engine.leaveRoom();
+            case 'reject':
+              return engine.reject();
+            case 'cancel':
+              return engine.cancel();
+            case 'hangup':
+              return engine.hangup();
+          }
+        })();
+        await ending.catch((err: unknown) => logRejected(`红键（${action}）`, err));
       },
       toggleMic: async (): Promise<void> => {
         const on = !state.self.micOn;
         dispatch({ type: 'setMic', on });
-        if (cids.current.mic !== '') await engine.setMuted(cids.current.mic, !on);
+        if (cids.current.mic === '') return;
+        // 本端在发帧之前就已经切过了；room.mute 被拒只留痕，按钮以本端为准。
+        await engine.setMuted(cids.current.mic, !on).catch((err: unknown) => logRejected('开关麦克风', err));
       },
       toggleCamera: async (): Promise<void> => {
         // 禁用态点了要出提示，不能静默（规范 §06）。
@@ -315,16 +346,24 @@ export function useCallActions({ engine, state, dispatch, cids, gate, endWatchdo
         // 占位格**立刻**出现（交互稿 §05 G3），帧随后才发。
         dispatch({ type: 'invited', uids });
         /*
-          **服务端拒绝（1202 满员 / 1407 本端不在通话里 / 1409 宿主拒绝）不会让这个 promise
-          reject**——`FrameLoop.sendFrame` 从不把服务端拒绝转成异常（同 `joinCall` 那段注释
-          的道理），真正的失败只经 `subscribeEngine` 订阅的 `error` 事件到达，那边负责把
-          占位格收回来、出对应的提示。这里的 `try/catch` 纯属兜底：万一未来实现变了，或者
-          宿主传进来的 `uids` 触发了别的本地异常，至少不吞掉、留一条日志，不假装邀请发出去了。
+          加人的几条失败分支（交互稿 §05、HOST_INTEGRATION_DESIGN §3.4）：满员出 Toast；
+          本端已不在通话里（1407）把入口藏掉；宿主的邀请鉴权回调拒了（1409）出另一句 Toast。
+          **不管哪种失败都要把占位格收回来**——服务端拒掉这一批时不会有 `userReject` /
+          `userNoResponse`，那两条是给「真的响了铃的人」的，不收的话占位格会一直挂着「呼叫中…」。
+          通话本身不受影响。
         */
         try {
           await engine.inviteMore([...uids]);
         } catch (err) {
-          logger.warn('inviteMore 抛出了意料之外的异常', { err: String(err), uids: uids.join(',') });
+          logRejected('加人', err);
+          const code = codeOf(err);
+          if (code === ErrorCode.inviteDenied) {
+            dispatch({ type: 'inviteRejectedByHost' });
+            return;
+          }
+          dispatch({ type: 'inviteRevoked' });
+          if (code === ErrorCode.roomFull) dispatch({ type: 'hint', text: '通话已满员（最多 9 人）' });
+          else if (code === ErrorCode.notCallOwner) dispatch({ type: 'inviteDenied' });
         }
       },
       setMinimized: (minimized): void => dispatch({ type: 'setMinimized', minimized }),
@@ -340,14 +379,8 @@ export function useCallActions({ engine, state, dispatch, cids, gate, endWatchdo
   /**
    * joinCall 是「群成员看到『进行中』主动加入」（协议 §4.1 `call.join`，`useCall().joinCall`）。
    *
-   * # 为什么不能靠 `try/catch` 拿失败
-   *
-   * `CallEngine.joinCall()` 与状态机之间隔着 `FrameLoop.sendFrame`——请求被服务端拒绝时
-   * 它在内部把错误转成 `error` 事件再走 `rollback`，**从不把异常抛给调用方**
-   * （`inviteMore` 头上那段 `try/catch` 出于同一个误解，实际上也从未真的捕获到过网络层错误）。
-   * 所以这里在发起前先挂一个临时的 `error` 监听器，`await` 整条链路跑完再看有没有记到码——
-   * `engine.joinCall()` 的 promise 在 `call_failed → onCallEnd` 那一串同步完成之后才落定，
-   * 所以退订之后 `failCode` 要么是 `null`（成功），要么已经是那一次失败的码。
+   * 被拒的码直接从 `engine.joinCall()` 的 reject 里拿（1202 满员 / 1402 已结束 / 1409 宿主拒绝…），
+   * 用来挑「无法加入」的文案；engine 同时照发 `callEnd(error)`，两者都把界面收到 `ended`，是幂等的。
    */
   const joinCall = useCallback(async (callId: string): Promise<void> => {
     /*
@@ -367,22 +400,12 @@ export function useCallActions({ engine, state, dispatch, cids, gate, endWatchdo
       dispatch({ type: 'dismiss' });
       return;
     }
-    let failCode: number | null = null;
-    const off = engine.on('error', (e) => {
-      failCode = e.code;
-    });
     try {
       await engine.joinCall(callId);
-    } finally {
-      off();
-    }
-    /*
-      **失败与否以通话机的状态为准，错误事件只用来挑文案。** `error` 是全局事件、不带 call_id，
-      这段 await 期间冒出来的不一定属于这次加入；真被拒时通话机已经退回 idle，加入成功则停在 accepting 之后。
-    */
-    if (failCode !== null && engine.state.call.state === 'idle') {
-      logger.warn('joinCall 被拒', { call_id: callId, code: failCode });
-      dispatch({ type: 'joinCallFailed', code: failCode });
+    } catch (err) {
+      const code = codeOf(err) ?? ErrorCode.internal;
+      logger.warn('joinCall 被拒', { call_id: callId, code });
+      dispatch({ type: 'joinCallFailed', code });
     }
   }, [engine, dispatch, gate]);
 

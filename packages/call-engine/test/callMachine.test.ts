@@ -8,7 +8,8 @@ import { loadVector } from './vectors.js';
 /**
  * 通话状态机跑 `call_fsm.json` —— **四端同一份向量**。
  *
- * 向量的铁律：**某步没写 send / emit 就是断言为空**。多抛一次 onCallEnd 会被抓到。
+ * 向量的铁律：**某步没写 send / emit / result 就是断言为空**。多抛一次 onCallEnd 会被抓到，
+ * 本地拒绝多发一条 onError 也会被抓到（它只该进 result）。
  */
 
 interface FsmStep {
@@ -17,6 +18,8 @@ interface FsmStep {
   internal?: string;
   send?: { type: string; data?: Record<string, unknown> }[];
   emit?: { cb: string; args?: Record<string, unknown> }[];
+  /** act 被本地拒绝时回给调用方的结果；省略 = 断言没有本地拒绝。 */
+  result?: { code: number; name: string };
   state?: string;
 }
 
@@ -107,6 +110,7 @@ describe('call_fsm.json —— 通话状态机', () => {
       const wantEmit = step.emit ?? [];
       expectSubset(stripSend(result.send), wantSend, `${label} 的 send`);
       expectSubset(stripEmit(result.emit), wantEmit, `${label} 的 emit`);
+      expect(result.reject ?? null, `${label} 的 result`).toEqual(step.result ?? null);
 
       if (step.state !== undefined) {
         expect(ctx.state, `${label} 之后的状态`).toBe(step.state);

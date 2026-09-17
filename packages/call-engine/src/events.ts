@@ -50,7 +50,15 @@ export interface EngineEvents {
    * 被动行为（4401 → 换票重连），是刻意降级不是故障。
    */
   tokenWillExpire: { expiresAtMs: number };
-  error: { code: number; name: string; message: string };
+  /**
+   * **找不到调用方**的错误（2.0.0 起）：断线后放弃重连、服务端主动推的 `sys.error`、媒体层自发故障、
+   * 引擎随后自动发的连锁帧失败（例如接听之后的 `room.join`）。
+   *
+   * 宿主调方法失败**不在这里**——那个错误由方法本身的 Promise reject（server
+   * `docs/design/ACTION_RESULT_DESIGN.md` R3：一次失败只从一个出口报）。
+   * `forType` 是出错的请求帧类型，没有对应请求时为 `''`。
+   */
+  error: { code: number; name: string; message: string; forType: string };
 
   // ── 来电与拨出 ──────────────────────────────────────────
   callReceived: {

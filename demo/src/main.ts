@@ -188,11 +188,16 @@ ui.create.addEventListener('click', () => {
   })().catch((err: unknown) => logEvent('create.failed', String(err)));
 });
 
-/** 开关麦克风/摄像头。走 mute：轨道与协商都保留，只是停止发包。 */
+/**
+ * 开关麦克风/摄像头。走 mute：轨道与协商都保留，只是停止发包。
+ *
+ * 2.0.0 起 `room.mute` 被拒会让 `setMuted` reject（结果回给调用方，不再发 error 事件）——本端已经切过了，
+ * 这里只记一条日志、按钮照本端走。
+ */
 ui.toggleMic.addEventListener('click', () => {
   void (async () => {
     micMuted = !micMuted;
-    await engine?.setMuted(micCid, micMuted);
+    await engine?.setMuted(micCid, micMuted).catch((err: unknown) => logEvent('mute.failed', String(err)));
     ui.toggleMic.textContent = micMuted ? '开麦克风' : '关麦克风';
     logEvent('local.mute', { kind: 'audio', muted: micMuted });
   })();
@@ -201,7 +206,7 @@ ui.toggleMic.addEventListener('click', () => {
 ui.toggleCam.addEventListener('click', () => {
   void (async () => {
     camMuted = !camMuted;
-    await engine?.setMuted(camCid, camMuted);
+    await engine?.setMuted(camCid, camMuted).catch((err: unknown) => logEvent('mute.failed', String(err)));
     ui.toggleCam.textContent = camMuted ? '开摄像头' : '关摄像头';
     logEvent('local.mute', { kind: 'video', muted: camMuted });
   })();
@@ -223,7 +228,8 @@ function resetToLogin(): void {
 
 ui.leave.addEventListener('click', () => {
   void (async () => {
-    await engine?.leaveRoom();
+    // 离房被拒时 engine 本地照样收场，错误只记日志；下面的 logout 照做。
+    await engine?.leaveRoom().catch((err: unknown) => logEvent('leave.failed', String(err)));
     engine?.logout();
     engine = null;
     resetToLogin();

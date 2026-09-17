@@ -91,34 +91,56 @@ describe('call() 的 options', () => {
     });
   });
 
-  it('chatGroupId 超 64 字节：本地就地拒掉，不发帧，走 callEnd(error) 出口', async () => {
+  it('chatGroupId 超 64 字节：本地就地拒掉，不发帧；1004 回给调用方，界面出口仍是 callEnd(error)', async () => {
     const h = await setup();
     const tooLong = 'g'.repeat(65);
-    await h.engine.call(['bob'], 'audio', { chatGroupId: tooLong });
+    await expect(h.engine.call(['bob'], 'audio', { chatGroupId: tooLong })).rejects.toMatchObject({
+      code: ErrorCode.badParams, forType: 'call.invite',
+    });
     expect(h.latest().frames().some((f) => f.type === 'call.invite')).toBe(false);
-    expect(h.errors.map((e) => e.code)).toEqual([ErrorCode.badParams]);
+    // 一次失败只从一个出口报：已经交给调用方的错误不再发 error 事件。
+    expect(h.errors).toEqual([]);
     expect(h.callEnds.map((e) => e.reason)).toEqual(['error']);
   });
 
   it('chatGroupId 含空白：本地就地拒掉', async () => {
     const h = await setup();
-    await h.engine.call(['bob'], 'audio', { chatGroupId: 'g 42' });
+    await expect(h.engine.call(['bob'], 'audio', { chatGroupId: 'g 42' })).rejects.toMatchObject({
+      code: ErrorCode.badParams,
+    });
     expect(h.latest().frames().some((f) => f.type === 'call.invite')).toBe(false);
     expect(h.callEnds.map((e) => e.reason)).toEqual(['error']);
   });
 
   it('userData 超 4096 字节：本地就地拒掉', async () => {
     const h = await setup();
-    await h.engine.call(['bob'], 'audio', { userData: 'x'.repeat(4097) });
+    await expect(h.engine.call(['bob'], 'audio', { userData: 'x'.repeat(4097) })).rejects.toMatchObject({
+      code: ErrorCode.badParams,
+    });
     expect(h.latest().frames().some((f) => f.type === 'call.invite')).toBe(false);
     expect(h.callEnds.map((e) => e.reason)).toEqual(['error']);
   });
 
   it('名单里含自己 优先于 chatGroupId 校验，两条规则不会重复拒两次', async () => {
     const h = await setup();
-    await h.engine.call(['alice'], 'audio', { chatGroupId: 'x'.repeat(65) });
+    await expect(h.engine.call(['alice'], 'audio', { chatGroupId: 'x'.repeat(65) })).rejects.toMatchObject({
+      code: ErrorCode.badParams,
+    });
     expect(h.callEnds).toHaveLength(1);
-    expect(h.errors).toHaveLength(1);
+    expect(h.errors).toEqual([]);
+  });
+
+  it('成功时 resolve 服务端分配的 callId', async () => {
+    const h = await setup();
+    const calling = h.engine.call(['bob'], 'audio');
+    await flush(4);
+    const invite = h.latest().frames().find((f) => f.type === 'call.invite');
+    h.latest().receive(JSON.stringify({
+      type: 'call.invite.ok', req_id: invite?.req_id ?? '', ts: 1,
+      data: { call_id: 'call-7', room_id: 'r-7', room_token: 'tk', timeout_sec: 30 },
+    }));
+    await expect(calling).resolves.toBe('call-7');
+    expect(h.errors).toEqual([]);
   });
 });
 
@@ -150,7 +172,7 @@ describe('joinCall()', () => {
     expect(h.engine.state.call.state).toBe('connecting');
   });
 
-  it('服务端拒绝（如 1409）时退回 idle 并抛 error + callEnd(error)——同一个出口', async () => {
+  it('服务端拒绝（如 1409）时 reject 那个码、退回 idle 并照发 callEnd(error)，不再发 error 事件', async () => {
     const h = await setup();
     const joining = h.engine.joinCall('call-9');
     await flush(4);
@@ -159,10 +181,11 @@ describe('joinCall()', () => {
       type: 'sys.error', req_id: join?.req_id ?? '', ts: 1,
       data: { code: 1409, name: 'invite_denied', msg: 'invite denied by host', for_type: 'call.join', retryable: false },
     }));
-    await joining;
+    await expect(joining).rejects.toMatchObject({ code: ErrorCode.inviteDenied, forType: 'call.join' });
     await flush(4);
 
     expect(h.engine.state.call.state).toBe('idle');
     expect(h.callEnds.map((e) => e.reason)).toEqual(['error']);
+    expect(h.errors).toEqual([]);
   });
 });

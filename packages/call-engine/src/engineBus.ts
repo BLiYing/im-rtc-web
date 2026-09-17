@@ -69,6 +69,7 @@ export class EngineBus {
       code: error.code,
       name: errorName(error.code),
       message: error.message,
+      forType: error.forType,
     });
   }
 

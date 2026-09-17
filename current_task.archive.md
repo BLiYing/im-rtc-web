@@ -3,6 +3,16 @@
 > 2026-09-05 从 `current_task.md` 整体搬来。之后的历史看 `git log`。
 
 
+## 2026-09-17 夜（调用结果改造开工时移出活快照）：「当前焦点」
+
+> 原文照录，正文未改。
+
+**2026-09-17 傍晚：四仓 /simplify 清理做完并推送（本仓 `323abe4`…`354b265`，`test.sh` 16 步全绿：engine 432 / uikit 212 / demo-react 20 例；用户已复看，正常）。**
+- `323abe4` `applySpeakers` 没变就返回原 state / 原引用，`VideoTile` / `SpeechIcon` / `NetworkBars` 包 memo——止住 300ms 全量重渲染（VideoTile 读 context，memo 挡不住它，收益主要在子组件）。
+- `useKeyedTimers` 合并 `CallProvider` settledTimers 与 `useVideoRevealFallback`；`maxParticipants` → `MAX_TILES`、VideoStage 用 `focusedLayer`、`isNetworkBad`；`CallEnded` 拆 if/return；`useCallActions` 删冗余依赖。
+- Demo（行为变化）：demo 与 demo-react 的 `api.ts` 合并成 `@demo/api`；demo-react 通话记录改用 `endReasonText`（未知原因显示「已结束」）；`remoteLog` 的 pagehide 监听 stop 时摘掉。
+- 09-17 下午四条（destroy 对表、体量两刀、铃声 AbortError、拨号卡片）已移进 archive。
+
 ## 2026-09-17 傍晚（/simplify 清理收口时移出活快照）：「当前焦点」里更早的块
 
 > 原文照录，正文未改。

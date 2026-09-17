@@ -58,9 +58,23 @@ export class FakeEngine {
 
   /** 记录最近一次 call() 的 options，供测试断言 chatGroupId / userData 真的传到了 engine 这一层。 */
   lastCallOptions: FakeCallOptions = undefined;
-  async call(calleeIds: string[], mediaType: MediaType, options?: FakeCallOptions): Promise<void> {
+  /**
+   * `call()` 被拒由测试控制：设 `callError`。与真 engine 同一个顺序（`FrameLoop.request`）：
+   * **先**抛 `callEnd(error)`，**再** reject。
+   */
+  callError: unknown = null;
+  async call(calleeIds: string[], mediaType: MediaType, options?: FakeCallOptions): Promise<string> {
     this.calls.push(`call:${calleeIds.join(',')}:${mediaType}`);
     this.lastCallOptions = options;
+    if (this.callError !== null) {
+      this.emitCallFailed();
+      throw this.callError;
+    }
+    return 'c-1';
+  }
+  /** emitCallFailed 模拟 engine 在 reject 之前抛的那条 `callEnd(error)`。 */
+  private emitCallFailed(): void {
+    this.emit('callEnd', { callId: '', reason: 'error', durationSec: 0, endedBy: '' });
   }
   async accept(): Promise<void> {
     this.calls.push('accept');
@@ -77,33 +91,19 @@ export class FakeEngine {
   forceEnd(): void {
     this.calls.push('forceEnd');
   }
-  /**
-   * `inviteMoreError` 只用来测「万一它意外抛出」的兜底路径（`useCallActions.inviteMore`
-   * 的 `try/catch` 就是为这个留的）。**真 engine 的 `inviteMore` 从不为服务端拒绝
-   * （1202 / 1407 / 1409）抛异常**——那些都经 `error` 事件到达（`FrameLoop.sendFrame`
-   * 同 `joinCallError` 那段注释的道理），测服务端拒绝请直接 `engine.emit('error', …)`。
-   */
+  /** 加人被拒由测试控制：设 `inviteMoreError`（服务端的 1202 / 1407 / 1409 都经 reject 回来）。 */
   inviteMoreError: unknown = null;
   async inviteMore(calleeIds: string[]): Promise<void> {
     this.calls.push(`inviteMore:${calleeIds.join(',')}`);
     if (this.inviteMoreError !== null) throw this.inviteMoreError;
   }
-  /**
-   * `call.join` 被拒由测试控制：设 `joinCallError`。
-   *
-   * **真 engine 从不为这类拒绝抛异常**（`FrameLoop.sendFrame` 内部把它转成 `error` 事件，
-   * 见 `useCallActions.joinCall` 的注释），这里同形——同步 `emit('error', …)`，
-   * 不 throw：调用方靠临时挂的 `error` 监听器拿码，不是 `try/catch`。
-   */
-  joinCallError: { code: number; name: string; message: string } | null = null;
-  /** 加入本身成功，但期间冒出一条与它无关的 `error`（验 joinCall 不把它算成失败）。 */
-  joinCallStrayError: { code: number; name: string; message: string } | null = null;
+  /** `call.join` 被拒由测试控制：设 `joinCallError`。顺序同 `callError`：先 `callEnd(error)` 再 reject。 */
+  joinCallError: unknown = null;
   async joinCall(callId: string): Promise<void> {
     this.calls.push(`joinCall:${callId}`);
-    if (this.joinCallStrayError !== null) this.emit('error', this.joinCallStrayError);
     if (this.joinCallError !== null) {
-      this.emit('error', this.joinCallError);
-      return; // 被拒：通话机留在 idle，与真 engine 同形
+      this.emitCallFailed();
+      throw this.joinCallError; // 被拒：通话机留在 idle，与真 engine 同形
     }
     this.state.call.state = 'accepting';
   }

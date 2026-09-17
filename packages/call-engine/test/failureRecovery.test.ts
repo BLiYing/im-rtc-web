@@ -134,7 +134,7 @@ describe('解不动的应答帧不能把请求挂死', () => {
   cancel 产出的帧同样被丢掉，再也回不到 idle。
 */
 describe('没登录就动手：要收场，不能卡死', () => {
-  it('call() 抛 2007 并走 callEnd，状态回 idle', async () => {
+  it('call() reject 2007 并走 callEnd，状态回 idle', async () => {
     const sockets: FakeWebSocket[] = [];
     const engine = newEngine(sockets);
     const errors: number[] = [];
@@ -142,10 +142,12 @@ describe('没登录就动手：要收场，不能卡死', () => {
     engine.on('error', (e) => errors.push(e.code));
     engine.on('callEnd', (e) => ends.push(e.reason));
 
-    await engine.call(['bob'], 'audio');
+    await expect(engine.call(['bob'], 'audio')).rejects.toMatchObject({
+      code: ErrorCode.notLoggedIn, forType: 'call.invite',
+    });
     await flush(4);
 
-    expect(errors).toContain(ErrorCode.notLoggedIn);
+    expect(errors, '已经交给调用方的错误不再发 error 事件').toEqual([]);
     expect(ends, 'callEnd 是所有结束分支的唯一出口，界面只认它').toEqual(['error']);
     expect(engine.state.call.state, '不能停在 inviting').toBe('idle');
   });
@@ -176,11 +178,12 @@ describe('接听被拒也要退回 idle', () => {
     expect(h.engine.state.call.state).toBe('ringing');
 
     // 不 await：accept 的 promise 要等应答，而这条用例正是要拿应答去拒它。
-    void h.engine.accept();
+    const accepting = h.engine.accept();
     await flush(2);
     expect(h.engine.state.call.state).toBe('accepting');
 
     h.rejectRequest('call.accept', ErrorCode.callEnded);
+    await expect(accepting).rejects.toMatchObject({ code: ErrorCode.callEnded, forType: 'call.accept' });
     await flush(6);
 
     expect(h.engine.state.call.state, '不能停在 accepting——那一屏没有出口').toBe('idle');
@@ -204,9 +207,11 @@ describe('离房被拒也要收场', () => {
     await joining;
     await flush(4);
 
-    void h.engine.leaveRoom();
+    const leaving = h.engine.leaveRoom();
     await flush(2);
     h.rejectRequest('room.leave', ErrorCode.notInRoom);
+    // 退出类失败：错误只交给调用方供日志，本地照样收场（ACTION_RESULT_DESIGN D2）。
+    await expect(leaving).rejects.toMatchObject({ code: ErrorCode.notInRoom });
     await flush(6);
 
     expect(h.engine.state.room.state).toBe('idle');
@@ -287,19 +292,20 @@ describe('发布被拒要收场', () => {
     await flush(6);
   }
 
-  it('通话里 room.publish 被拒：原错误码照报，发 hangup，只抛一次 callEnd{error}', async () => {
+  it('通话里 room.publish 被拒：原错误码回给调用方，发 hangup，只抛一次 callEnd{error}', async () => {
     const h = await setup();
     await connectedCall(h);
     expect(h.engine.state.room.state).toBe('joined');
 
-    void h.engine.publishMicrophone();
+    const publishing = h.engine.publishMicrophone();
     await flush(4);
     expect(h.latest().frames().some((f) => f.type === 'room.publish')).toBe(true);
 
     h.rejectRequest('room.publish', ErrorCode.publishDenied);
+    await expect(publishing).rejects.toMatchObject({ code: ErrorCode.publishDenied });
     await flush(6);
 
-    expect(h.errors.map((e) => e.code)).toContain(ErrorCode.publishDenied);
+    expect(h.errors).toEqual([]);
     expect(h.latest().frames().at(-1)?.type, '对端还在等，要告诉服务端我走了').toBe('call.hangup');
     expect(h.callEnds, '不能留在一通对方听不见的通话里').toEqual([{ reason: 'error' }]);
     expect(h.engine.state.call.state).toBe('idle');
@@ -323,19 +329,20 @@ describe('发布被拒要收场', () => {
     await joining;
     await flush(4);
 
-    void h.engine.publishCamera(false);
+    const publishing = h.engine.publishCamera(false);
     await flush(4);
     const cid = h.latest().frames().filter((f) => f.type === 'room.publish').at(-1)?.data['cid'];
     expect(h.engine.state.room.publish[cid as string]).toBe('publishing');
 
     h.rejectRequest('room.publish', ErrorCode.publishDenied);
+    await expect(publishing).rejects.toMatchObject({ code: ErrorCode.publishDenied });
     await flush(6);
 
     expect(h.engine.state.room.state).toBe('joined');
     expect(h.engine.state.room.publish[cid as string], '不能永远停在 publishing').toBeUndefined();
     expect(h.roomLefts).toEqual([]);
     expect(h.callEnds).toEqual([]);
-    expect(h.errors.map((e) => e.code)).toEqual([ErrorCode.publishDenied]);
+    expect(h.errors).toEqual([]);
 
     const before = h.latest().frames().filter((f) => f.type === 'room.publish').length;
     void h.engine.publishCamera(false);
