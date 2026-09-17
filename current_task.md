@@ -7,7 +7,7 @@
 
 ## 当前焦点
 
-**2026-09-17 傍晚：四仓 /simplify 清理做完并推送（本仓 `323abe4`…`354b265`，`test.sh` 16 步全绿：engine 432 / uikit 212 / demo-react 20 例）。**
+**2026-09-17 傍晚：四仓 /simplify 清理做完并推送（本仓 `323abe4`…`354b265`，`test.sh` 16 步全绿：engine 432 / uikit 212 / demo-react 20 ；用户已复看，正常）。**
 - `323abe4` `applySpeakers` 没变就返回原 state / 原引用，`VideoTile` / `SpeechIcon` / `NetworkBars` 包 memo——止住 300ms 全量重渲染（VideoTile 读 context，memo 挡不住它，收益主要在子组件）。
 - `useKeyedTimers` 合并 `CallProvider` settledTimers 与 `useVideoRevealFallback`；`maxParticipants` → `MAX_TILES`、VideoStage 用 `focusedLayer`、`isNetworkBad`；`CallEnded` 拆 if/return；`useCallActions` 删冗余依赖。
 - Demo（行为变化）：demo 与 demo-react 的 `api.ts` 合并成 `@demo/api`；demo-react 通话记录改用 `endReasonText`（未知原因显示「已结束」）；`remoteLog` 的 pagehide 监听 stop 时摘掉。
@@ -15,7 +15,6 @@
 
 ## 下一步
 
-- **/simplify 之后没在浏览器里实点复看**：说话高亮 / 网络条在群通话里照常刷新、终局占位格与画面兜底揭示的时序、两个 Demo 登录与通话记录（`@demo/api` 走三档 SDK）。
 - 09-17 下午用户验收了旧「下一步」1、2：发起人挂断后被叫能在选人页重新邀请、他那边来电页不出现自己的格子；`openMicrophone` / `openCamera` 等四个开关真浏览器点过。
   旧 3（destroy 对表查出的别端欠账）不在本仓，已挪进 android / ios 的 `current_task.md`。
 - 暂无本仓待办。会议房 M1、网络质量两行 CLIENT_PARITY 仍是 🟡（09-17 夜已真实验过，改格子时一并确认）。
