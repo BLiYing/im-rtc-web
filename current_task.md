@@ -7,6 +7,10 @@
 
 ## 当前焦点
 
+**2026-09-17 傍晚：四仓 /simplify 清理（本仓 7 个提交 `323abe4`…`354b265`，未推送，`test.sh` 16 步全绿）。**
+- `323abe4` `applySpeakers` 没变就返回原 state/原引用，`VideoTile` / `SpeechIcon` / `NetworkBars` 包 memo——止住 300ms 全量重渲染（VideoTile 读 context，memo 挡不住它，收益主要在子组件）。
+- `useKeyedTimers` 合并两处按 uid 定时器；demo 与 demo-react 的 `api.ts` 合并成 `@demo/api`；demo-react 通话记录改用 `endReasonText`，`remoteLog` 的 pagehide 监听不再泄漏。浏览器里未实点复看。
+
 **2026-09-17 下午：旧「下一步」2（destroy 对表）、4、5、6 四条做完并推送，`test.sh` 16 步全绿。**
 - `343dcc3` 铃声 `play()` 被本端 `pause()` 打断（`AbortError`）记 debug，只有 `NotAllowedError` 才说「被拦下」。
 - `a9cb938` 体量 / 日志门禁按 `package.json` workspaces 推扫描目录（`scripts/lib/workspaceDirs.sh`），demo-react 不再漏扫；读不出 workspaces 时 exit 2。
