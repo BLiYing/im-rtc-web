@@ -218,7 +218,8 @@ export function App(): ReactNode {
       {session === null ? (
         restoring ? <div className="card">正在恢复登录…</div> : <LoginPanel onLogin={login} />
       ) : (
-        <CallProvider engine={session.engine} inviteMemberProvider={fakeInviteMemberProvider} bannerFirst={settings.bannerFirst}>
+        <CallProvider engine={session.engine} inviteMemberProvider={fakeInviteMemberProvider}
+                      bannerFirst={settings.bannerFirst} ringtoneMuted={settings.ringtoneMuted}>
           <div className="card">
             <h2>已登录</h2>
             <div>

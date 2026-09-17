@@ -19,7 +19,9 @@ const CHECK_ROW = { display: 'flex', gap: 6, alignItems: 'center', fontSize: 14,
 const CHECKBOX = { width: 'auto' } as const;
 
 /**
- * 设置。与 iOS / Android / 桌面 Demo 的设置页对齐：来电横幅、详细日志、采集画质、关于。
+ * 设置。与 iOS / Android / 桌面 Demo 的设置页对齐：来电横幅、静音来电铃声、详细日志、采集画质、关于。
+ *
+ * 桌面 Demo 没有「静音来电铃声」：它没有 Kit、本来就不放铃声（只有横幅 + 系统通知）。
  *
  * Android 那一项「硬件 H.264 编码」**Web 没有**：编码器由浏览器自己选，页面管不着。
  */
@@ -37,6 +39,13 @@ export function Settings({ settings, onChange, activeProfile, deviceId }: Settin
         来电先出横幅
       </label>
       <div className="note" style={{ marginTop: 2 }}>关掉则来电直接进来电页。立即生效。</div>
+
+      <label style={{ ...CHECK_ROW, marginTop: 12 }}>
+        <input type="checkbox" style={CHECKBOX} checked={settings.ringtoneMuted}
+               onChange={(e) => onChange('ringtoneMuted', e.target.checked)} />
+        静音来电铃声
+      </label>
+      <div className="note" style={{ marginTop: 2 }}>打开后来电铃声与回铃音都不响，通话本身不受影响。立即生效。</div>
 
       <label style={{ ...CHECK_ROW, marginTop: 12 }}>
         <input type="checkbox" style={CHECKBOX} checked={settings.logLevel === 'debug'}

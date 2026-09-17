@@ -10,18 +10,20 @@ export type DemoLogLevel = Extract<LogLevel, 'debug' | 'info'>;
 /**
  * DemoSettings 是设置卡片上那几项。
  *
- * `bannerFirst` 不带 is/should 前缀是**有意的**：它就是 `<CallProvider bannerFirst>` 那个开关，
+ * `bannerFirst` / `ringtoneMuted` 不带 is/should 前缀是**有意的**：它们就是 `<CallProvider>` 上同名的开关，
  * 与 iOS / Android Kit 配置同名同义，换个名字反而对不上。
  */
 export interface DemoSettings {
   readonly bannerFirst: boolean;
+  readonly ringtoneMuted: boolean;
   readonly logLevel: DemoLogLevel;
   readonly videoProfile: VideoProfileKey;
 }
 
-/** DEFAULT_SETTINGS 是读不到存储时的值——与加设置卡片之前的行为一致（debug、720p、先出横幅）。 */
+/** DEFAULT_SETTINGS 是读不到存储时的值——与加设置卡片之前的行为一致（debug、720p、先出横幅、响铃）。 */
 export const DEFAULT_SETTINGS: DemoSettings = {
   bannerFirst: true,
+  ringtoneMuted: false,
   logLevel: 'debug',
   videoProfile: 'p720',
 };
@@ -61,17 +63,23 @@ function read(store: KeyValueStore | null, key: keyof DemoSettings): string | nu
   }
 }
 
+/** readBool 只认 'true' / 'false'，别的一律当没存。 */
+function readBool(store: KeyValueStore | null, key: 'bannerFirst' | 'ringtoneMuted'): boolean {
+  const value = read(store, key);
+  return value === 'true' ? true : value === 'false' ? false : DEFAULT_SETTINGS[key];
+}
+
 function isVideoProfileKey(value: string | null): value is VideoProfileKey {
   return VIDEO_PROFILE_KEYS.some((key) => key === value);
 }
 
 /** loadSettings 读出全部设置。**存的值不认识就用默认值**——存储里的东西不能直接信。 */
 export function loadSettings(store: KeyValueStore | null): DemoSettings {
-  const banner = read(store, 'bannerFirst');
   const level = read(store, 'logLevel');
   const profile = read(store, 'videoProfile');
   return {
-    bannerFirst: banner === 'true' ? true : banner === 'false' ? false : DEFAULT_SETTINGS.bannerFirst,
+    bannerFirst: readBool(store, 'bannerFirst'),
+    ringtoneMuted: readBool(store, 'ringtoneMuted'),
     logLevel: level === 'debug' || level === 'info' ? level : DEFAULT_SETTINGS.logLevel,
     videoProfile: isVideoProfileKey(profile) ? profile : DEFAULT_SETTINGS.videoProfile,
   };

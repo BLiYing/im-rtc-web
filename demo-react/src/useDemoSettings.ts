@@ -21,7 +21,8 @@ export interface DemoSettingsHandle {
 /**
  * useDemoSettings 持有设置、写存储、让能立即生效的那几项立即生效。
  *
- * - 横幅开关：state 一变，App 传给 `<CallProvider bannerFirst>` 的值就变了；
+ * - 横幅 / 静音铃声开关：state 一变，App 传给 `<CallProvider bannerFirst ringtoneMuted>` 的值就变了；
+ *   正在响的铃也会跟着停或起（`useRingtone` 按 `ringtoneFor(state, muted)` 重算）；
  * - 日志档位：这里直接 `setLogLevel`；
  * - 采集档位：**只在下次登录时读**（WebRTCAdapter 构造时定档），这里什么都不用做。
  *
