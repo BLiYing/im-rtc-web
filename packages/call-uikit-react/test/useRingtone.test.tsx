@@ -1,10 +1,12 @@
 import { render } from '@testing-library/react';
 import { useRef } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { LogLevel } from 'im-rtc-call-engine';
+import { setLogLevel, setLogSink } from 'im-rtc-call-engine';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { CallViewState } from '../src/state/callView.js';
 import { initialCallView } from '../src/state/callView.js';
-import { useRingtone } from '../src/useRingtone.js';
+import { describePlayFailure, useRingtone } from '../src/useRingtone.js';
 import { FakeEngine, asEngine } from './fakeEngine.js';
 
 /**
@@ -86,5 +88,68 @@ describe('useRingtone：起铃 / 停铃', () => {
   it('会议房不起铃：phase 恰好是 incoming 也不响', () => {
     render(<Harness state={{ ...incoming, isMeeting: true }} />);
     expect(play).not.toHaveBeenCalled();
+  });
+});
+
+describe('describePlayFailure：play() 被拒的归类', () => {
+  it('NotAllowedError 才算「自动播放被拦下」，记 warn', () => {
+    const got = describePlayFailure(new DOMException('no gesture', 'NotAllowedError'), false);
+    expect(got.level).toBe('warn');
+    expect(got.message).toContain('自动播放被浏览器拦下');
+  });
+
+  it('AbortError 是本端 pause() 打断的，记 debug、不说「拦下」', () => {
+    const got = describePlayFailure(new DOMException('interrupted by pause()', 'AbortError'), false);
+    expect(got.level).toBe('debug');
+    expect(got.message).not.toContain('拦下');
+  });
+
+  it('已经收铃之后的任何失败都记 debug', () => {
+    expect(describePlayFailure(new DOMException('x', 'NotAllowedError'), true).level).toBe('debug');
+  });
+
+  it('其它错误（资源加载失败、非 Error 值）记 warn，但不冒充「拦下」', () => {
+    for (const err of [new DOMException('bad src', 'NotSupportedError'), 'boom']) {
+      const got = describePlayFailure(err, false);
+      expect(got.level).toBe('warn');
+      expect(got.message).not.toContain('拦下');
+    }
+  });
+});
+
+describe('useRingtone：快速挂断时 play() 被 pause() 打断', () => {
+  const logs: { level: LogLevel; message: string }[] = [];
+
+  beforeEach(() => {
+    logs.length = 0;
+    // 默认门槛是 info：不放开 debug，「记成 debug」和「根本没记」在 sink 这里分不出来。
+    setLogLevel('debug');
+    setLogSink((level, message) => logs.push({ level, message }));
+  });
+  afterEach(() => {
+    setLogSink(null);
+    setLogLevel('info');
+  });
+
+  it('卸载后 play() 以 AbortError 落定：不打「自动播放被拦下」的 warn', async () => {
+    let rejectPlay: (err: unknown) => void = () => undefined;
+    play.mockReturnValueOnce(new Promise((_, reject) => { rejectPlay = reject; }));
+    const { unmount } = render(<Harness state={incoming} />);
+
+    unmount();
+    rejectPlay(new DOMException('The play() request was interrupted by a call to pause().', 'AbortError'));
+    await new Promise((r) => setTimeout(r, 0));
+
+    const ringtoneLogs = logs.filter((l) => l.message.startsWith('提示音'));
+    expect(ringtoneLogs).toHaveLength(1);
+    expect(ringtoneLogs[0]?.level).toBe('debug');
+  });
+
+  it('还在响铃阶段被浏览器拦下（NotAllowedError）：仍打 warn', async () => {
+    play.mockRejectedValueOnce(new DOMException('no gesture', 'NotAllowedError'));
+    render(<Harness state={incoming} />);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(logs.some((l) => l.level === 'warn' && l.message.includes('自动播放被浏览器拦下'))).toBe(true);
   });
 });

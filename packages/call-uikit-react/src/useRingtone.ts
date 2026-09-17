@@ -24,6 +24,24 @@ export interface RingtoneDeps {
 }
 
 /**
+ * describePlayFailure 把 `audio.play()` 的 reject 归成日志级别与说法。
+ * `isStopped` 为 true 表示收尾的 `pause()` 已经跑过：此时的失败都是本端收铃打断的，与浏览器策略无关。
+ */
+export function describePlayFailure(
+  err: unknown,
+  isStopped: boolean,
+): { readonly level: 'debug' | 'warn'; readonly message: string } {
+  const name = err instanceof Error || err instanceof DOMException ? err.name : '';
+  if (isStopped || name === 'AbortError') {
+    return { level: 'debug', message: '提示音还没开始播放就被收掉了（快速接听 / 挂断），不是自动播放拦截' };
+  }
+  if (name === 'NotAllowedError') {
+    return { level: 'warn', message: '提示音自动播放被浏览器拦下（没有用户手势），静音继续通话' };
+  }
+  return { level: 'warn', message: '提示音播放失败（资源加载或解码出错），静音继续通话' };
+}
+
+/**
  * useRingtone 在来电 / 呼出阶段起提示音（草图 §01/§02）：骨架复刻 `useRingingPreview.ts`
  * ——同一套「按 phase 起副作用、离开时收」的写法。
  *
@@ -36,6 +54,10 @@ export interface RingtoneDeps {
  * 这里**只 `logger.warn`**：不置任何用户可见的错误态，不 `alert`（CONVENTIONS §8）。
  * 静音继续通话——用户看得见来电页/来电横幅，只是听不到响铃，这与「无权限播放视频只是没画面」
  * 同一个道理（`useRingingPreview` 的预览失败也是同样处理成不阻断通话）。
+ *
+ * **只有 `NotAllowedError` 才是「被拦下」**。快速挂断时 `play()` 还没落定就被收尾的
+ * `pause()` 打断，promise 以 `AbortError` reject——那是本端自己收的铃，不是浏览器拦的，
+ * 记成「自动播放被拦下」会把排障的人带偏（见 `describePlayFailure`）。
  */
 export function useRingtone({ engine, state, muted, incomingRingtone, ringbackTone }: RingtoneDeps): void {
   const kind = ringtoneFor(state, muted);
@@ -45,11 +67,14 @@ export function useRingtone({ engine, state, muted, incomingRingtone, ringbackTo
     const src = kind === 'incoming' ? (incomingRingtone ?? DEFAULT_INCOMING_RINGTONE) : (ringbackTone ?? DEFAULT_RINGBACK_TONE);
     const audio = new Audio(src);
     audio.loop = true;
+    let isStopped = false;
     audio.play().catch((err: unknown) => {
-      // Safari / Chrome 的自动播放策略会拒掉没有用户手势的 play()——接住，别让它变成未处理的 rejection。
-      logger.warn('提示音自动播放被浏览器拦下（没有用户手势），静音继续通话', { kind, err: String(err) });
+      // 一律接住，别让它变成未处理的 rejection；是不是「被拦下」由 describePlayFailure 分。
+      const { level, message } = describePlayFailure(err, isStopped);
+      logger[level](message, { kind, err: String(err) });
     });
     return () => {
+      isStopped = true;
       audio.pause();
       audio.currentTime = 0;
     };
