@@ -15,7 +15,10 @@
 #   ③ 凭据与 SDP 不得整条进日志 —— 必须过 redact / redactSdp / redactCandidate。
 set -u
 
-SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SELF="${SCRIPT_DIR}/$(basename "$0")"
+# shellcheck source=lib/workspaceDirs.sh
+. "${SCRIPT_DIR}/lib/workspaceDirs.sh"
 
 # CHECK_ROOT 让 --selftest 能把闸门指向临时目录。
 # 不做这一步的话，自检的子调用会 cd 回真仓库、扫到「全部通过」，
@@ -26,8 +29,10 @@ cd "$SCAN_ROOT" || { echo "无法定位扫描根目录 $SCAN_ROOT"; exit 2; }
 fail=0
 report() { echo "  ✗ $1"; fail=1; }
 
+# 扫哪些目录跟着 package.json 的 workspaces 走（见 lib/workspaceDirs.sh：手写列表漏过 demo-react）。
 sources() {
-  find packages demo -type f \( -name '*.ts' -o -name '*.tsx' \) \
+  # shellcheck disable=SC2046 # 目录名来自 workspaces 条目，不含空白
+  find $(workspace_dirs) -type f \( -name '*.ts' -o -name '*.tsx' \) \
     -not -path '*/node_modules/*' -not -path '*/dist/*' \
     -not -name '*.test.ts' -not -name '*.test.tsx' 2>/dev/null | sort
 }
@@ -47,7 +52,8 @@ is_console_exempt() {
 run_selftest() {
   tmp=$(mktemp -d) || exit 2
   trap 'rm -rf "$tmp"' EXIT
-  mkdir -p "$tmp/packages/bad/src"
+  mkdir -p "$tmp/packages/bad/src" "$tmp/demo-react/src"
+  printf '{\n  "workspaces": [\n    "packages/*",\n    "demo-react"\n  ]\n}\n' > "$tmp/package.json"
   cat > "$tmp/packages/bad/src/x.ts" <<'TS'
 export function f(token: string): void {
   console.log('nope');
@@ -56,6 +62,19 @@ export function f(token: string): void {
 TS
   if CHECK_ROOT="$tmp" bash "$SELF" >/dev/null 2>&1; then
     echo "✗ selftest：闸门放行了明显违规的文件"
+    exit 1
+  fi
+  # 违规只出现在非 packages 的 workspace 里也要拦——demo-react 曾经整个漏扫。
+  rm "$tmp/packages/bad/src/x.ts"
+  printf "export const f = (): void => { console.log('nope'); };\n" > "$tmp/demo-react/src/App.tsx"
+  if CHECK_ROOT="$tmp" bash "$SELF" >/dev/null 2>&1; then
+    echo "✗ selftest：闸门没扫到 demo-react 这个 workspace"
+    exit 1
+  fi
+  # 读不出 workspaces 时不能「什么都没扫、报全部通过」。
+  rm "$tmp/package.json"
+  if CHECK_ROOT="$tmp" bash "$SELF" >/dev/null 2>&1; then
+    echo "✗ selftest：读不出 workspaces 时闸门放行了"
     exit 1
   fi
   echo "✓ check-logging selftest 通过"
@@ -68,6 +87,11 @@ fi
 
 
 echo "== 日志纪律检查 =="
+
+if ! workspace_dirs >/dev/null; then
+  echo "  ✗ 从 package.json 的 workspaces 里读不出要扫的目录——拒绝在「什么都没扫」的情况下报通过。"
+  exit 2
+fi
 
 # ── ① console.* ───────────────────────────────────────────────
 echo "  [1/3] 直接用 console"

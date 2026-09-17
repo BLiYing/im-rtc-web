@@ -47,7 +47,13 @@ is_skipped() {
   return 1
 }
 
-cd "$(dirname "$0")/.." || { echo "无法定位仓库根目录"; exit 2; }
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SELF="${SCRIPT_DIR}/$(basename "$0")"
+# shellcheck source=lib/workspaceDirs.sh
+. "${SCRIPT_DIR}/lib/workspaceDirs.sh"
+
+# CHECK_ROOT 只给 --selftest 用：把全量扫描指向临时目录，验证「按 workspace 推目录」这条路径。
+cd "${CHECK_ROOT:-${SCRIPT_DIR}/..}" || { echo "无法定位仓库根目录"; exit 2; }
 
 limit_for() {
   local gf; gf=$(grandfather_limit "$1")
@@ -60,6 +66,7 @@ if [ "${1:-}" = "--selftest" ]; then
   trap 'rm -rf "$tmp"' EXIT
   fails=0
   mk() { yes 'x' | head -n "$1" > "$2"; }
+  echo "== 门禁自检 =="
   chk() { # $1=期望退出码 $2=MAX(空=默认) $3=描述 —— 其余=传给本脚本的参数
     local want="$1" maxv="$2" desc="$3"; shift 3
     local got
@@ -68,10 +75,22 @@ if [ "${1:-}" = "--selftest" ]; then
     if [ "$got" -ne "$want" ]; then echo "  ✗ 自检失败：${desc}（期望 exit ${want}，实得 ${got}）"; fails=1
     else echo "  ✓ ${desc}"; fi
   }
+  # 全量模式要扫到**每一个** workspace——demo-react 曾经因为目录列表写死而整个漏扫。
+  mkdir -p "$tmp/repo/demo-react/src" "$tmp/repo/packages/a/src"
+  printf '{\n  "workspaces": [\n    "packages/*",\n    "demo-react"\n  ]\n}\n' > "$tmp/repo/package.json"
+  mk 10 "$tmp/repo/packages/a/src/ok.ts"
+  mk 999 "$tmp/repo/demo-react/src/big.tsx"
+  got=0; CHECK_ROOT="$tmp/repo" MAX_LINES=100 "$SELF" >/dev/null 2>&1 || got=$?
+  if [ "$got" -ne 1 ]; then echo "  ✗ 自检失败：全量扫描漏了 demo-react 里的大文件（期望 exit 1，实得 ${got}）"; fails=1
+  else echo "  ✓ 全量扫描覆盖 workspaces 里的每个目录"; fi
+  rm "$tmp/repo/package.json"
+  got=0; CHECK_ROOT="$tmp/repo" MAX_LINES=100 "$SELF" >/dev/null 2>&1 || got=$?
+  if [ "$got" -ne 2 ]; then echo "  ✗ 自检失败：读不出 workspaces 时没报错（期望 exit 2，实得 ${got}）"; fails=1
+  else echo "  ✓ 读不出 workspaces 时报错而不是放行"; fi
+
   mk 10 "$tmp/small.ts"
   mk 999 "$tmp/big.ts"
   mk 999 "$tmp/big.test.ts"
-  echo "== 门禁自检 =="
   chk 0 100 "小文件放行"            "$tmp/small.ts"
   chk 1 100 "大文件拦截"            "$tmp/big.ts"
   chk 0 100 "测试文件跳过"          "$tmp/big.test.ts"
@@ -103,10 +122,12 @@ if [ "$#" -gt 0 ]; then
 else
   SRC=()
   scan_dirs=()
-  for d in packages demo; do [ -d "$d" ] && scan_dirs+=("$d"); done
-  if [ ${#scan_dirs[@]} -gt 0 ]; then
-    while IFS= read -r line; do SRC+=("$line"); done < <(find "${scan_dirs[@]}" \( -name "*.ts" -o -name "*.tsx" \) -not -path "*/node_modules/*" -not -path "*/dist/*" 2>/dev/null | sort)
+  while IFS= read -r d; do scan_dirs+=("$d"); done < <(workspace_dirs)
+  if [ ${#scan_dirs[@]} -eq 0 ]; then
+    echo "✗ 从 package.json 的 workspaces 里读不出要扫的目录——门禁拒绝在「什么都没扫」的情况下报通过。"
+    exit 2
   fi
+  while IFS= read -r line; do SRC+=("$line"); done < <(find "${scan_dirs[@]}" \( -name "*.ts" -o -name "*.tsx" \) -not -path "*/node_modules/*" -not -path "*/dist/*" 2>/dev/null | sort)
 fi
 
 echo "== 单文件行数体检（默认上限 ${MAX_LINES}；历史欠账见脚本内 grandfather_limit）=="

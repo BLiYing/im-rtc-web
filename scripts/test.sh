@@ -80,6 +80,7 @@ run_step "日志纪律门禁" ./scripts/check-logging.sh
 run_step "shell 可移植性门禁" ./scripts/check-shell-portability.sh
 # 闸门自己回归成 fail-open 会静默放行，所以每次回归都自检一次。
 run_step "门禁自检" ./scripts/check-logging.sh --selftest
+run_step "门禁自检（体量）" ./scripts/check-file-size.sh --selftest
 run_step "门禁自检（shell）" ./scripts/check-shell-portability.sh --selftest
 run_step "一致性向量可达" check_conformance_available
 run_step "TypeScript 类型检查" npx tsc -b
