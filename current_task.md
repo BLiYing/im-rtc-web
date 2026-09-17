@@ -12,7 +12,8 @@
 - `a9cb938` 体量 / 日志门禁按 `package.json` workspaces 推扫描目录（`scripts/lib/workspaceDirs.sh`），demo-react 不再漏扫；读不出 workspaces 时 exit 2。
 - `2b2017a` `webrtcAdapter.ts` 529 → 449（`media/videoSender.ts`、`media/captureStream.ts`）。
 - `c257177` `engine.ts` 582 → 470（`callGuards.ts`、`engineSession.ts`、`engineMediaApi` 的 `openLocal` / `closeLocal`）；destroy 之后逐方法归类钉进 `test/destroyContract.test.ts`，三端对照写进 CLIENT_PARITY v1.39 `[^destroy]`（server `fd7b38d`）。
-- demo-react 设置补「静音来电铃声」（对齐 iOS / Android Demo，接 `<CallProvider ringtoneMuted>`、存 localStorage），**未提交**；浏览器里勾选 + 刷新保持已验，真来电静音没点过。桌面 Demo 不放铃声，不加。
+- `77146f5` demo-react 设置补「静音来电铃声」（对齐 iOS / Android Demo，接 `<CallProvider ringtoneMuted>`、存 localStorage）；勾选 + 刷新保持已验，真来电静音没点过。桌面 Demo 不放铃声，不加。
+- demo-react 拨号卡片四段统一骨架（标题 / 控件行 / 说明，按钮收右侧固定宽一列），会议说明挪到会议段下；只截图量过布局，按钮没实际点、窄屏没看。
 - 09-17 夜那三件（`call.ringing` 占位格、会议房 M1、网络横幅只在 1v1）见 git log，已真实验过。
 
 ## 下一步

@@ -34,6 +34,27 @@
       .pick { background: #eef1f5; color: #14181f; padding: 6px 12px; font-size: 13px; }
       .pick[aria-pressed="true"] { background: #2f80ed; color: #fff; }
       .note { font-size: 12px; color: #8b95a3; margin-top: 12px; }
+      /*
+        拨号卡片分四段（1v1 / 多人 / 会议 / 按 call_id 加入）。四段同一套骨架：标题 → 控件行 → 说明，
+        段与段之间一条细线、上下各 16px。**按钮一律收在右侧固定宽的一列里**：
+        各段按钮个数不同（2 / 1 / 2 / 1），不固定的话左边输入框长短不一，看着像没对齐。
+      */
+      .dial-section + .dial-section { margin-top: 16px; padding-top: 16px; border-top: 1px solid #eef1f5; }
+      .dial-title { display: flex; align-items: baseline; gap: 8px; margin: 0 0 8px;
+                    font-size: 13px; font-weight: 600; color: #14181f; }
+      .dial-title .muted { font-size: 12px; font-weight: 400; }
+      .dial-row { display: flex; gap: 8px; align-items: center; }
+      .dial-row.top { align-items: flex-start; }
+      .dial-field { flex: 1; min-width: 0; }
+      .dial-field .picks { margin: 0; }
+      .dial-actions { flex: 0 0 208px; display: flex; gap: 8px; justify-content: flex-end; }
+      .dial-actions button { width: 100px; padding-left: 0; padding-right: 0; }
+      .dial-hint { font-size: 12px; color: #8b95a3; margin-top: 6px; }
+      @media (max-width: 560px) {
+        .dial-row { flex-wrap: wrap; }
+        .dial-actions { flex-basis: 100%; }
+        .dial-actions button { flex: 1; width: auto; }
+      }
     </style>
   </head>
   <body>
