@@ -332,9 +332,9 @@ export function useCallActions({ engine, state, dispatch, cids, gate, endWatchdo
       expandIncoming: (): void => dispatch({ type: 'expandIncoming' }),
       dismiss: (): void => dispatch({ type: 'dismiss' }),
     }),
-    [engine, dispatch, cids, gate, publishFor, startPreview, armEnd, state, state.phase, state.mediaType,
-     state.isMeeting, state.roomId, state.localCameraCid, state.self.micOn, state.self.cameraOn,
-     state.self.cameraBlocked, state.self.cameraOptedOut],
+    // `state` 已经在依赖里：它每次变化（哪怕是与这堆 action 无关的字段）都会换新引用，
+    // 下面单独列的 `state.xxx` 子字段完全被它覆盖，列出来只是死代码。
+    [engine, dispatch, cids, gate, publishFor, startPreview, armEnd, state],
   );
 
   /**
