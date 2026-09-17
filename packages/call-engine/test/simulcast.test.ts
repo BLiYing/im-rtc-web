@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { WebRTCAdapter } from '../src/media/webrtcAdapter.js';
 import { VideoProfiles, simulcastEncodings } from '../src/media/videoProfile.js';
+import { addVideoSender } from '../src/media/videoSender.js';
 
 /*
   上行 simulcast。
@@ -90,21 +90,14 @@ describe('发布视频时真的走了 addTransceiver', () => {
     所以必须在建 transceiver 那一刻就把 sendEncodings 给出去。
   */
   it('simulcast=true 时用 addTransceiver 带上三层，不走 addTrack', () => {
-    const adapter = new WebRTCAdapter();
     const peer = fakePeer();
-    // 直接驱动私有的发布路径：这里要验的就是它选了哪个浏览器 API。
-    const addVideoTrack = Reflect.get(adapter, 'addVideoTrack') as (
-      t: MediaStreamTrack,
-      s: MediaStream,
-      simulcast: boolean,
-    ) => void;
-    Reflect.set(adapter, 'pub', peer.pc);
-
-    addVideoTrack.call(
-      adapter,
+    // 直接驱动发布路径：这里要验的就是它选了哪个浏览器 API。
+    addVideoSender(
+      peer.pc,
       fakeTrack('cid-1', 'video'),
       { id: 'stream-1' } as unknown as MediaStream,
       true,
+      VideoProfiles.p720,
     );
 
     expect(peer.addTrackCalls).toEqual([]);
@@ -119,40 +112,62 @@ describe('发布视频时真的走了 addTransceiver', () => {
     省掉 streams 服务端永远认不回这条轨道——上行接进来了却没人要。
   */
   it('带上 streams，否则服务端认不回 cid', () => {
-    const adapter = new WebRTCAdapter();
     const peer = fakePeer();
-    const addVideoTrack = Reflect.get(adapter, 'addVideoTrack') as (
-      t: MediaStreamTrack,
-      s: MediaStream,
-      simulcast: boolean,
-    ) => void;
-    Reflect.set(adapter, 'pub', peer.pc);
     const stream = { id: 'stream-1' } as unknown as MediaStream;
 
-    addVideoTrack.call(adapter, fakeTrack('cid-1', 'video'), stream, true);
+    addVideoSender(peer.pc, fakeTrack('cid-1', 'video'), stream, true, VideoProfiles.p720);
 
     expect(peer.transceivers[0]?.streams).toEqual([stream]);
   });
 
   /** 明确关掉 simulcast（屏幕共享就是这么发的）时退回单层。 */
   it('simulcast=false 时退回 addTrack 单层', () => {
-    const adapter = new WebRTCAdapter();
     const peer = fakePeer();
-    const addVideoTrack = Reflect.get(adapter, 'addVideoTrack') as (
-      t: MediaStreamTrack,
-      s: MediaStream,
-      simulcast: boolean,
-    ) => void;
-    Reflect.set(adapter, 'pub', peer.pc);
 
-    addVideoTrack.call(
-      adapter,
+    addVideoSender(
+      peer.pc,
       fakeTrack('cid-1', 'video'),
       { id: 'stream-1' } as unknown as MediaStream,
       false,
+      VideoProfiles.p720,
     );
 
     expect(peer.transceivers).toHaveLength(0);
     expect(peer.addTrackCalls).toEqual(['cid-1']);
+  });
+});
+
+describe('上行码率上限按层对号入座', () => {
+  /** 记下 setParameters 收到的 encodings；getParameters 返回建 transceiver 时的那几层。 */
+  function peerWithEncodings(initial: RTCRtpEncodingParameters[]): {
+    pc: RTCPeerConnection;
+    applied: RTCRtpEncodingParameters[][];
+  } {
+    const applied: RTCRtpEncodingParameters[][] = [];
+    const sender = {
+      getParameters: () => ({ encodings: initial.map((e) => ({ ...e })) }),
+      setParameters: async (p: { encodings: RTCRtpEncodingParameters[] }) => {
+        applied.push(p.encodings);
+      },
+    };
+    const pc = {
+      addTransceiver: () => ({ sender }),
+      addTrack: () => sender,
+    } as unknown as RTCPeerConnection;
+    return { pc, applied };
+  }
+
+  it('simulcast：l / m / h 各用各的码率，不抹平', () => {
+    const peer = peerWithEncodings([{ rid: 'l' }, { rid: 'm' }, { rid: 'h' }]);
+    addVideoSender(peer.pc, fakeTrack('cid-1', 'video'), {} as MediaStream, true, VideoProfiles.p720);
+
+    expect(peer.applied[0]?.map((e) => e.maxBitrate)).toEqual([150_000, 500_000, 1_500_000]);
+  });
+
+  it('单层且协商前 encodings 为空：补一项，用整档上限', () => {
+    const peer = peerWithEncodings([]);
+    addVideoSender(peer.pc, fakeTrack('cid-1', 'video'), {} as MediaStream, false, VideoProfiles.p360);
+
+    expect(peer.applied[0]?.map((e) => e.maxBitrate)).toEqual([VideoProfiles.p360.maxBitrateBps]);
   });
 });

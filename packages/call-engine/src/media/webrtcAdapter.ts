@@ -7,8 +7,10 @@ import type {
   MediaAdapterEvents,
   MediaSource,
 } from './mediaAdapter.js';
+import { captureStream } from './captureStream.js';
 import type { VideoProfile } from './videoProfile.js';
-import { defaultVideoProfile, simulcastEncodings, videoConstraints } from './videoProfile.js';
+import { defaultVideoProfile, videoConstraints } from './videoProfile.js';
+import { addVideoSender } from './videoSender.js';
 
 /**
  * 浏览器 WebRTC 的媒体适配器。
@@ -121,7 +123,7 @@ export class WebRTCAdapter implements MediaAdapter {
       界面还是能正确降级），所以缓存这一个布尔值是安全的。
     */
     if (this.micProbed) return;
-    const stream = await this.getStreamOrThrow({ audio: true });
+    const stream = await captureStream(this.source, { audio: true });
     // 探完就放：这条轨道只是为了让权限框弹出来，留着会让麦克风指示灯一直亮。
     for (const track of stream.getTracks()) track.stop();
     this.micProbed = true;
@@ -135,7 +137,7 @@ export class WebRTCAdapter implements MediaAdapter {
       await this.previewOpening;
       return;
     }
-    const stream = await this.getStreamOrThrow({ video: videoConstraints(this.video) });
+    const stream = await captureStream(this.source, { video: videoConstraints(this.video) });
     // 探完就放：只为让权限框弹出来，留着摄像头指示灯会一直亮——而用户可能根本没开摄像头。
     for (const track of stream.getTracks()) track.stop();
     this.cameraProbed = true;
@@ -180,7 +182,7 @@ export class WebRTCAdapter implements MediaAdapter {
 
   private async openPreview(generation: number): Promise<LocalTrackInfo> {
     try {
-      const stream = await this.getStreamOrThrow({ video: videoConstraints(this.video) });
+      const stream = await captureStream(this.source, { video: videoConstraints(this.video) });
       if (generation !== this.closeGeneration) {
         // 起到一半通话结束了（close 已经跑过）：这条流再没人会收，当场放掉，指示灯才会灭。
         for (const track of stream.getTracks()) track.stop();
@@ -213,46 +215,8 @@ export class WebRTCAdapter implements MediaAdapter {
     }
     if (this.preview === null || this.cameraPublished) return info;
     this.cameraPublished = true;
-    this.cameraSender = this.addVideoTrack(this.preview.track, this.preview.stream, simulcast);
+    this.cameraSender = addVideoSender(this.requirePub(), this.preview.track, this.preview.stream, simulcast, this.video);
     return info;
-  }
-
-  /**
-   * addVideoTrack 把一条上行视频挂到 pub 上。
-   *
-   * # 为什么不能用 addTrack
-   *
-   * `addTrack` 只会产生**一个 encoding**，浏览器里发 simulcast 必须在建
-   * transceiver 时就把 `sendEncodings` 给出来——协商之后再 `setParameters`
-   * 加层是加不上的（规范不允许改 encoding 的条数）。
-   *
-   * 这正是之前那个洞：`publishCamera(simulcast = true)` 的这个参数一路传进了
-   * `room.publish` 帧、**告诉服务端「我是 simulcast」**，可媒体面走的是裸
-   * `addTrack`，实际只发一层。服务端于是只看到空 RID 的单层（`ridToLayer("")`
-   * 当成 h），层选择无从谈起：订阅者报 `l` 也只能收到全速率的 h
-   * （`selectLayer` 的兜底），弱下行的那一方被自己的全速率流压死。
-   *
-   * `streams: [stream]` 不能省：msid 的第二段就是 cid，服务端靠它认领 m-line
-   * （协议 §3.2）。省掉它服务端永远认不回这条轨道。
-   */
-  private addVideoTrack(track: MediaStreamTrack, stream: MediaStream, simulcast: boolean): RTCRtpSender {
-    const pub = this.requirePub();
-    if (!simulcast) {
-      const sender = pub.addTrack(track, stream);
-      this.applyVideoBitrate(sender);
-      return sender;
-    }
-    const transceiver = pub.addTransceiver(track, {
-      direction: 'sendonly',
-      streams: [stream],
-      sendEncodings: simulcastEncodings(this.video),
-    });
-    logger.info('上行视频已按 simulcast 发布', {
-      cid: track.id,
-      layers: simulcastEncodings(this.video).map((e) => e.rid).join(','),
-    });
-    this.applyVideoBitrate(transceiver.sender);
-    return transceiver.sender;
   }
 
   /**
@@ -267,7 +231,7 @@ export class WebRTCAdapter implements MediaAdapter {
     source: 'microphone' | 'camera',
   ): Promise<LocalTrackInfo> {
     const pub = this.requirePub();
-    const stream = await this.getStreamOrThrow(constraints);
+    const stream = await captureStream(this.source, constraints);
 
     const track = kind === 'audio' ? stream.getAudioTracks()[0] : stream.getVideoTracks()[0];
     if (track === undefined) {
@@ -276,7 +240,7 @@ export class WebRTCAdapter implements MediaAdapter {
       });
     }
     if (kind === 'video') {
-      this.addVideoTrack(track, stream, true);
+      addVideoSender(pub, track, stream, true, this.video);
     } else {
       pub.addTrack(track, stream);
       this.micCid = track.id;
@@ -292,46 +256,6 @@ export class WebRTCAdapter implements MediaAdapter {
   /** 摄像头「已发布」= 预览那条轨道真的挂上了 pub（`cameraPublished`），只在预览不算。 */
   publishedCameraCid(): string | null {
     return this.cameraPublished && this.preview !== null ? this.preview.cid : null;
-  }
-
-  /** getStreamOrThrow 取流，并把浏览器的异常收敛成结构化错误。 */
-  private async getStreamOrThrow(constraints: MediaStreamConstraints): Promise<MediaStream> {
-    try {
-      return await this.source.getStream(constraints);
-    } catch (cause) {
-      const code = isPermissionError(cause)
-        ? ErrorCode.devicePermissionDenied
-        : ErrorCode.deviceNotFound;
-      throw new RtcError(code, { cause });
-    }
-  }
-
-  /**
-   * applyVideoBitrate 给上行视频压一个码率上限。
-   *
-   * **不设的话浏览器会自己往上飙**：Chrome 对 720p 的默认上限远高于我们给
-   * simulcast h 层定的目标值，服务端的带宽预算（`bwe.go` 的 `bitrateHigh`）
-   * 就成了一个对不上的数字，降层判断跟着不准。
-   *
-   * 失败只记日志：码率是画质偏好，`setParameters` 被拒不该让通话打不出去。
-   */
-  private applyVideoBitrate(sender: RTCRtpSender): void {
-    const params = sender.getParameters();
-    // encodings 可能还是空的（协商之前）；补一个默认项，浏览器会认。
-    if (params.encodings.length === 0) params.encodings = [{}];
-    /*
-     **simulcast 的三层各有各的码率，不能抹平成同一个值。**
-     全设成 h 的目标码率等于让 l / m 两层也按 1.5Mbps 发，
-     上行瞬间涨到三倍，而降层根本省不下带宽——降了个寂寞。
-     按 rid 对号入座；没有 rid（单层发布）才用整档的上限。
-    */
-    const byRid = new Map(simulcastEncodings(this.video).map((e) => [e.rid, e.maxBitrate]));
-    for (const encoding of params.encodings) {
-      encoding.maxBitrate = byRid.get(encoding.rid) ?? this.video.maxBitrateBps;
-    }
-    void sender.setParameters(params).catch((err: unknown) => {
-      logger.info('设置上行码率失败，用浏览器默认值', { err: String(err) });
-    });
   }
 
   async createPubOffer(): Promise<string> {
@@ -444,7 +368,7 @@ export class WebRTCAdapter implements MediaAdapter {
       return;
     }
     if (!camera.paused) return;
-    const stream = await this.getStreamOrThrow({ video: videoConstraints(this.video) });
+    const stream = await captureStream(this.source, { video: videoConstraints(this.video) });
     const track = stream.getVideoTracks()[0];
     if (stale() || track === undefined) {
       for (const t of stream.getTracks()) t.stop();
@@ -503,10 +427,6 @@ export class WebRTCAdapter implements MediaAdapter {
     if (this.sub === null) throw new RtcError(ErrorCode.invalidState, { cause: new Error('媒体层未打开') });
     return this.sub;
   }
-}
-
-function isPermissionError(cause: unknown): boolean {
-  return cause instanceof Error && (cause.name === 'NotAllowedError' || cause.name === 'SecurityError');
 }
 
 /**
