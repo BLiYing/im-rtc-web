@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { useState } from 'react';
 
+import { focusedLayer } from '../layout/grid.js';
 import type { PipCorner } from '../layout/pip.js';
 import { defaultPipCorner, pipSizeFor } from '../layout/pip.js';
 import type { RemoteParticipant } from '../state/viewTypes.js';
@@ -42,7 +43,9 @@ export function VideoStage({ peer, controlsVisible, onStageTap }: VideoStageProp
     hasAudio: peer.hasAudio,
     isSpeaking: peer.isSpeaking,
     networkLevel: peer.networkLevel,
-    layer: full ? ('h' as const) : ('l' as const),
+    // 全屏那块就是「被放大」的格子（1v1 里恒为对端，没有双击/主讲人切换），与 `focusedLayer` 同一个语义。
+    // 小窗那一档（'l'）目前没有对应的现成函数——`tileLayer` 是按格数分档的，这里是固定的 PIP，不套用。
+    layer: full ? focusedLayer : ('l' as const),
     avatarSize: full ? callMetrics.avatarLarge : 44,
   });
   const selfTile = (full: boolean) => ({

@@ -1,5 +1,6 @@
 import type { MediaType } from 'im-rtc-call-engine';
 
+import { MAX_TILES } from '../layout/grid.js';
 import {
   addInvited, applyNetwork, applySpeakers, markRinging, newParticipant, removeParticipant, revealVideo,
   revokeLastInvited, setVideo, settleParticipant, withParticipant,
@@ -346,15 +347,18 @@ export function ringtoneFor(state: CallViewState, muted: boolean): RingtoneKind 
  *
  * 条件缺一不可：是群通话（会议房没有 call，走的是别的加人机制）、已接通、房间没满（含本端 9 人）。
  * **不看主叫被叫**：通话里的任何人都能加人（2026-09-15 起）；还在响铃的人阶段不对，自然没有入口。
+ *
+ * `maxParticipants` 默认取 `layout/grid.ts` 的 `MAX_TILES`——两者是同一个「9 人上限，含本端」，
+ * 不应各记一份字面量。
  */
-export function canShowInvite(state: CallViewState, maxParticipants = 9): boolean {
+export function canShowInvite(state: CallViewState, maxParticipants = MAX_TILES): boolean {
   return state.isGroup && !state.isMeeting && state.canInvite
     && state.participants.length + 1 < maxParticipants
     && (state.phase === 'active' || state.phase === 'connecting');
 }
 
 /** inviteSlotsLeft 是还能加几个人（顶部「还能加 N 人」）。 */
-export function inviteSlotsLeft(state: CallViewState, maxParticipants = 9): number {
+export function inviteSlotsLeft(state: CallViewState, maxParticipants = MAX_TILES): number {
   return Math.max(maxParticipants - 1 - state.participants.length, 0);
 }
 
