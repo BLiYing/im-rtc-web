@@ -3,6 +3,20 @@
 > 2026-09-05 从 `current_task.md` 整体搬来。之后的历史看 `git log`。
 
 
+## 2026-09-17 傍晚（/simplify 清理收口时移出活快照）：「当前焦点」里更早的块
+
+> 原文照录，正文未改。
+
+**2026-09-17 下午：旧「下一步」2（destroy 对表）、4、5、6 四条做完并推送，`test.sh` 16 步全绿。**
+- `343dcc3` 铃声 `play()` 被本端 `pause()` 打断（`AbortError`）记 debug，只有 `NotAllowedError` 才说「被拦下」。
+- `a9cb938` 体量 / 日志门禁按 `package.json` workspaces 推扫描目录（`scripts/lib/workspaceDirs.sh`），demo-react 不再漏扫；读不出 workspaces 时 exit 2。
+- `2b2017a` `webrtcAdapter.ts` 529 → 449（`media/videoSender.ts`、`media/captureStream.ts`）。
+- `c257177` `engine.ts` 582 → 470（`callGuards.ts`、`engineSession.ts`、`engineMediaApi` 的 `openLocal` / `closeLocal`）；destroy 之后逐方法归类钉进 `test/destroyContract.test.ts`，三端对照写进 CLIENT_PARITY v1.39 `[^destroy]`（server `fd7b38d`）。
+- `77146f5` demo-react 设置补「静音来电铃声」（对齐 iOS / Android Demo，接 `<CallProvider ringtoneMuted>`、存 localStorage）；勾选 + 刷新保持已验，真来电静音没点过。桌面 Demo 不放铃声，不加。
+- `7f183f3` demo-react 拨号卡片四段统一骨架（标题 / 控件行 / 说明，按钮收右侧固定宽一列），会议说明挪到会议段下；用户验过：各按钮实际点通（呼叫、新建 / 加入会议）、窄屏布局正常。
+- 09-17 夜那三件（`call.ringing` 占位格、会议房 M1、网络横幅只在 1v1）见 git log，已真实验过。
+
+
 ## 2026-09-17（SDK 1.0.0 公网发布后精简）：精简前全文
 
 > 2026-09-17 SDK 1.0.0 四端公网发布、五仓推送之后，`current_task.md` 整份重写成一屏快照；下面是重写前原文照录（标题降两级，正文未改）。

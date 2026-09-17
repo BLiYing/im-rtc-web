@@ -1,27 +1,21 @@
 # Current Task — im-rtc-web（TS engine + React uikit + Demo）
 
-> **活快照**：就地覆盖、不追加。历史见 `git log` 与 [current_task.archive.md](current_task.archive.md)（新的在上，顶节「2026-09-17（SDK 1.0.0 公网发布后精简）：精简前全文」）。
+> **活快照**：就地覆盖、不追加。历史见 `git log` 与 [current_task.archive.md](current_task.archive.md)（新的在上，顶节「2026-09-17 傍晚（/simplify 清理收口时移出活快照）」，其下是「SDK 1.0.0 公网发布后精简：精简前全文」）。
 > 规范 [CONVENTIONS.md](CONVENTIONS.md) · 分期 server `docs/design/RTC_CALL_DESIGN.md` §10 · 发版 server `docs/ops/RELEASE.md` ·
 > 界面以设计稿 **v3.1** 为准：`../im-rtc-server/docs/design/sketches/RTC_CALL_UI_SPEC.html` / `RTC_CALL_UX_FLOWS.html`。
 > ✅ 状态只写在 `../im-rtc-server/docs/CLIENT_PARITY.md`。
 
 ## 当前焦点
 
-**2026-09-17 傍晚：四仓 /simplify 清理（本仓 7 个提交 `323abe4`…`354b265`，未推送，`test.sh` 16 步全绿）。**
-- `323abe4` `applySpeakers` 没变就返回原 state/原引用，`VideoTile` / `SpeechIcon` / `NetworkBars` 包 memo——止住 300ms 全量重渲染（VideoTile 读 context，memo 挡不住它，收益主要在子组件）。
-- `useKeyedTimers` 合并两处按 uid 定时器；demo 与 demo-react 的 `api.ts` 合并成 `@demo/api`；demo-react 通话记录改用 `endReasonText`，`remoteLog` 的 pagehide 监听不再泄漏。浏览器里未实点复看。
-
-**2026-09-17 下午：旧「下一步」2（destroy 对表）、4、5、6 四条做完并推送，`test.sh` 16 步全绿。**
-- `343dcc3` 铃声 `play()` 被本端 `pause()` 打断（`AbortError`）记 debug，只有 `NotAllowedError` 才说「被拦下」。
-- `a9cb938` 体量 / 日志门禁按 `package.json` workspaces 推扫描目录（`scripts/lib/workspaceDirs.sh`），demo-react 不再漏扫；读不出 workspaces 时 exit 2。
-- `2b2017a` `webrtcAdapter.ts` 529 → 449（`media/videoSender.ts`、`media/captureStream.ts`）。
-- `c257177` `engine.ts` 582 → 470（`callGuards.ts`、`engineSession.ts`、`engineMediaApi` 的 `openLocal` / `closeLocal`）；destroy 之后逐方法归类钉进 `test/destroyContract.test.ts`，三端对照写进 CLIENT_PARITY v1.39 `[^destroy]`（server `fd7b38d`）。
-- `77146f5` demo-react 设置补「静音来电铃声」（对齐 iOS / Android Demo，接 `<CallProvider ringtoneMuted>`、存 localStorage）；勾选 + 刷新保持已验，真来电静音没点过。桌面 Demo 不放铃声，不加。
-- `7f183f3` demo-react 拨号卡片四段统一骨架（标题 / 控件行 / 说明，按钮收右侧固定宽一列），会议说明挪到会议段下；用户验过：各按钮实际点通（呼叫、新建 / 加入会议）、窄屏布局正常。
-- 09-17 夜那三件（`call.ringing` 占位格、会议房 M1、网络横幅只在 1v1）见 git log，已真实验过。
+**2026-09-17 傍晚：四仓 /simplify 清理做完并推送（本仓 `323abe4`…`354b265`，`test.sh` 16 步全绿：engine 432 / uikit 212 / demo-react 20 例）。**
+- `323abe4` `applySpeakers` 没变就返回原 state / 原引用，`VideoTile` / `SpeechIcon` / `NetworkBars` 包 memo——止住 300ms 全量重渲染（VideoTile 读 context，memo 挡不住它，收益主要在子组件）。
+- `useKeyedTimers` 合并 `CallProvider` settledTimers 与 `useVideoRevealFallback`；`maxParticipants` → `MAX_TILES`、VideoStage 用 `focusedLayer`、`isNetworkBad`；`CallEnded` 拆 if/return；`useCallActions` 删冗余依赖。
+- Demo（行为变化）：demo 与 demo-react 的 `api.ts` 合并成 `@demo/api`；demo-react 通话记录改用 `endReasonText`（未知原因显示「已结束」）；`remoteLog` 的 pagehide 监听 stop 时摘掉。
+- 09-17 下午四条（destroy 对表、体量两刀、铃声 AbortError、拨号卡片）已移进 archive。
 
 ## 下一步
 
+- **/simplify 之后没在浏览器里实点复看**：说话高亮 / 网络条在群通话里照常刷新、终局占位格与画面兜底揭示的时序、两个 Demo 登录与通话记录（`@demo/api` 走三档 SDK）。
 - 09-17 下午用户验收了旧「下一步」1、2：发起人挂断后被叫能在选人页重新邀请、他那边来电页不出现自己的格子；`openMicrophone` / `openCamera` 等四个开关真浏览器点过。
   旧 3（destroy 对表查出的别端欠账）不在本仓，已挪进 android / ios 的 `current_task.md`。
 - 暂无本仓待办。会议房 M1、网络质量两行 CLIENT_PARITY 仍是 🟡（09-17 夜已真实验过，改格子时一并确认）。
@@ -48,6 +42,8 @@
 - **停 Demo 用 Ctrl+C，别用 Ctrl+Z**（挂起的 vite 占着端口）；走 `./scripts/dev.sh` 会自动回收。
 - jsdom 25 没有 `PointerEvent`、容器 0×0；**fake timers 下纯 `await Promise.resolve()` 不会让 `setTimeout(fn, 0)` 落地**，用 `vi.advanceTimersByTimeAsync`；真实定时器下用 `await new Promise((r) => setTimeout(r, 0))`。
 - `getUserMedia` 只在 localhost / HTTPS 可用；便利事件只在 1v1 抛，群通话只抛 `onUser*`。
+- **高频事件的 reducer 没变就返回原引用**（`applySpeakers` / `applyNetwork`）：新建对象会让整棵通话 UI 每 300ms 重画。按 uid 的可取消定时器用 `useKeyedTimers`，别再手写一份。
+- **demo 与 demo-react 共享代码走 `@demo/*` 别名**：加一个要同步 demo-react 的 `vite.config.ts`、`tsconfig.json`、`tsconfig.sdk-local.json`、`tsconfig.sdk-public.json` 四处。
 - effect 依赖看内容签名不看 length；回调型 prop 走 `useRef`；状态机 `args` 一律 snake_case，转 camelCase 是 `engineBus` 的活。
 - `packages/call-engine/src/` 里不能放 `*.test.ts`；**`test/` 不在任何 tsconfig 的 include 里**，测试假实现接口改了门禁不会提醒。
 - 换 token 是宿主的事（engine 只给 `updateToken`）；发送侧一律 `newFrameData(FIELDS)` 起手。画质档位改了同步服务端 `bwe.go` 的 `bitrateHigh`。
