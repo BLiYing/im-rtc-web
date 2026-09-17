@@ -1,18 +1,19 @@
-import { byteLength } from './bytes.js';
+import { emitLocallyRejectedCall, rejectsBadCallOptions, rejectsSelf } from './callGuards.js';
 import type { CallOptions } from './callOptions.js';
-import { violatesCallOptionLimits } from './callOptions.js';
+import { toCallRequest } from './callOptions.js';
 import { EngineBus } from './engineBus.js';
 import type { EngineWiring } from './engineWiring.js';
-import { engineConnectionHandlers, engineMediaDeps } from './engineWiring.js';
+import { engineMediaDeps } from './engineWiring.js';
+import { EngineSession } from './engineSession.js';
 import { ErrorCode, RtcError } from './errors.js';
 import { FrameLoop } from './frameLoop.js';
-import { logger } from './logger.js';
 import { checkDeviceId, checkRoomId } from './protocolId.js';
-import { CallEndReason } from './reasons.js';
 import type { EngineEventHandler, EngineEventName } from './events.js';
 import type { MediaAdapter } from './media/mediaAdapter.js';
 import type { MediaApiDeps } from './media/engineMediaApi.js';
 import {
+  closeLocal,
+  openLocal,
   probeCamera,
   probeMicrophone,
   publishCamera,
@@ -22,12 +23,10 @@ import {
 } from './media/engineMediaApi.js';
 import { MediaBridge } from './media/mediaBridge.js';
 import type { MediaPlaneDeps } from './media/mediaPlane.js';
-import { mediaEvents } from './media/mediaPlane.js';
 import type { ViewElement } from './media/viewRegistry.js';
 import type { VideoProfile } from './media/videoProfile.js';
 import { WebRTCAdapter } from './media/webrtcAdapter.js';
 import type { Connection, HelloOk } from './signaling/connection.js';
-import { createConnection } from './signaling/connectionFactory.js';
 import type { Layer, MediaType } from './signaling/enums.js';
 import { FrameSender } from './signaling/frameSender.js';
 import type { WebSocketFactory } from './signaling/webSocket.js';
@@ -72,31 +71,26 @@ export class CallEngine {
   private readonly bus = new EngineBus();
   private readonly bridge: MediaBridge;
   private readonly media: MediaAdapter;
-  private readonly options: EngineOptions;
+  private readonly session: EngineSession;
 
   private readonly sender: FrameSender;
-  private connection: Connection | null = null;
-  /** 握手拿到的自己的 uid。用来挡「呼叫自己」，也供宿主读。 */
-  private myUid = '';
   private readonly loop: FrameLoop;
-  /** 最近一次 hello.ok 喂进状态机的那个 promise，`login()` 要等它。 */
-  private helloApplied: Promise<void> = Promise.resolve();
   /** 终态销毁标记。见 {@link destroy}。 */
   private destroyed = false;
 
   constructor(options: EngineOptions) {
     // 与 Android 的 `Config.init` 对齐：构造时就拦，不等宿主取完票走到 login()。
     checkDeviceId(options.deviceId);
-    this.options = options;
     this.media = options.media ?? new WebRTCAdapter(undefined, options.videoProfile);
     this.bridge = new MediaBridge(this.media);
+    this.session = new EngineSession(options, this.bridge, () => this.wiring());
     this.sender = new FrameSender(this.media);
     this.loop = new FrameLoop({
       bus: this.bus,
       bridge: this.bridge,
       media: this.media,
       sender: this.sender,
-      connection: (): Connection | null => this.connection,
+      connection: (): Connection | null => this.session.connection,
       mediaDeps: (): MediaPlaneDeps => engineMediaDeps(this.wiring()),
     });
   }
@@ -108,7 +102,7 @@ export class CallEngine {
 
   /** uid 是当前登录的用户。未登录时是空串。 */
   get uid(): string {
-    return this.myUid;
+    return this.session.uid;
   }
 
   /** state 返回当前的通话与房间状态，供 UI 渲染。 */
@@ -139,42 +133,7 @@ export class CallEngine {
    */
   async login(token: string): Promise<HelloOk> {
     this.assertNotDestroyed();
-    if (this.connection !== null) {
-      throw new RtcError(ErrorCode.invalidState, {
-        cause: new Error('已经登录了：换账号或换票请先 logout()'),
-      });
-    }
-    const connection = createConnection(
-      {
-        url: this.options.url,
-        token,
-        deviceId: this.options.deviceId,
-        ...(this.options.webSocketFactory === undefined
-          ? {}
-          : { webSocketFactory: this.options.webSocketFactory }),
-      },
-      engineConnectionHandlers(this.wiring(), (applied): void => {
-        this.helloApplied = applied;
-      }),
-    );
-    this.connection = connection;
-    this.bridge.open(mediaEvents(engineMediaDeps(this.wiring())));
-
-    let hello: HelloOk;
-    try {
-      hello = await connection.connect();
-    } catch (err) {
-      // 收摊：不收的话上面那道「已经登录了」的门会把重试也挡掉。
-      connection.close();
-      this.bridge.close();
-      if (this.connection === connection) this.connection = null;
-      throw err;
-    }
-    this.myUid = hello.uid;
-    // 首次登录要等状态机吃完 hello.ok 再返回：宿主拿到 login 的返回值时，
-    // engine 的状态应该已经是最终的了。（重连那些不需要等——没人在 await 它们。）
-    await this.helloApplied;
-    return hello;
+    return this.session.open(token);
   }
 
   /**
@@ -195,13 +154,12 @@ export class CallEngine {
    * 连上着的时候调它也是安全的（比如票快过期了提前换）——当前连接不受影响。
    */
   updateToken(token: string, expiresAtMs?: number): void {
-    this.connection?.updateToken(token, expiresAtMs);
+    this.session.updateToken(token, expiresAtMs);
   }
 
   /** logout 关掉连接与媒体。 */
   logout(): void {
-    this.connection?.close();
-    this.connection = null;
+    this.session.close();
     this.bridge.close();
     this.loop.reset();
   }
@@ -219,9 +177,10 @@ export class CallEngine {
    * 「已经登录了」同一个理由：让宿主一调就知道错在哪，不用猜。
    *
    * `logout()` / `forceEnd()` / `on()` / `uid` / `state`，以及读或清理类的方法
-   * （`attachView` 传 `null`、`attachLocalView` 传 `null`、`localTrack`、`stopLocalPreview`、
-   * `updateToken`）**不受影响**，销毁后调用仍然安全——宿主卸载时经常无脑清理这几个，
-   * 不该因为清理顺序先后而报错。
+   * （`attachView` / `attachLocalView`、`localTrack`、`stopLocalPreview`、`closeMicrophone` /
+   * `closeCamera`、`updateToken`）**不受影响**，销毁后调用仍然安全——宿主卸载时经常无脑清理这几个，
+   * 不该因为清理顺序先后而报错。逐个方法的归类由 `test/destroyContract.test.ts` 钉住，
+   * 新增公开方法不归类那张表就红；与 iOS / Android 的对照见 server `docs/CLIENT_PARITY.md`。
    */
   destroy(): void {
     if (this.destroyed) return;
@@ -250,10 +209,11 @@ export class CallEngine {
   }
 
   /**
-   * call 发起通话。**名单里不能有自己**，见 {@link rejectsSelf}。
+   * call 发起通话。**名单里不能有自己**，见 `callGuards.ts` 的 `rejectsSelf`。
    *
    * `options` 传布尔值等同旧的 `isGroup` 参数（三参数签名保持兼容）；传 {@link CallOptions}
    * 可以带上群号 / user_data / 振铃超时（HOST_INTEGRATION_DESIGN §3.3）。
+   * 群号 / user_data 超限同样本地拒掉，见 `callGuards.ts`。
    */
   async call(
     calleeIds: string[],
@@ -261,39 +221,16 @@ export class CallEngine {
     options?: boolean | CallOptions,
   ): Promise<void> {
     this.assertNotDestroyed();
-    const opts: CallOptions = typeof options === 'boolean' ? { isGroup: options } : (options ?? {});
-    const isGroup = opts.isGroup ?? false;
-    const chatGroupId = opts.chatGroupId ?? '';
-    const userData = opts.userData ?? '';
-
-    if (this.rejectsSelf(calleeIds, '呼叫') || this.rejectsBadCallOptions(chatGroupId, userData)) {
-      /*
-        **本地拒掉也要给界面一个出口。**
-
-        调用方（uikit / 宿主）在调 `call()` 之前就已经切到「正在呼叫…」了——
-        这是对的，不然按下去几百毫秒没反应。但只抛一个 error 事件，
-        界面不知道该退回哪儿：实测三人测试里 carol 卡在「正在呼叫…」，
-        连点五次挂断收到五个 2005（状态机是 idle，没有 call 可挂），
-        除了刷新页面没有别的出路。
-
-        `callEnd` 是所有结束分支的唯一出口（设计 §7.5），
-        这一条与「服务端拒了 invite」（call_failed）走同一个出口，界面只认它。
-        chatGroupId / userData 超限走同一个出口——不上线路，理由同上。
-      */
-      this.bus.emit('callEnd', {
-        callId: '',
-        reason: CallEndReason.error,
-        durationSec: 0,
-        endedBy: '',
-      });
+    const req = toCallRequest(calleeIds, mediaType, options);
+    if (
+      rejectsSelf(this.bus, this.session.uid, calleeIds, '呼叫') ||
+      rejectsBadCallOptions(this.bus, req.chatGroupId, req.userData)
+    ) {
+      // 本地拒掉也要给界面一个出口，理由见 emitLocallyRejectedCall。
+      emitLocallyRejectedCall(this.bus);
       return;
     }
-    const args: Record<string, unknown> = { callee_ids: calleeIds, media_type: mediaType, is_group: isGroup };
-    // 省略表达「没传」，见 callMachine.ts startCall 的同一条注释。
-    if (chatGroupId !== '') args['chat_group_id'] = chatGroupId;
-    if (userData !== '') args['user_data'] = userData;
-    if (opts.timeoutSec !== undefined) args['timeout_sec'] = opts.timeoutSec;
-    await this.act('call', args);
+    await this.act('call', req.args);
   }
 
   /**
@@ -352,14 +289,14 @@ export class CallEngine {
 
   /**
    * inviteMore 往进行中的群通话里再拉人（协议 §4.1 `call.invite_more`）。
-   * 名单里同样不能有自己，见 {@link rejectsSelf}。
+   * 名单里同样不能有自己，见 `callGuards.ts` 的 `rejectsSelf`。
    *
    * **通话里的任何人都能发**（2026-09-15 起，原先仅主叫）；还在响铃 / 已离场的人发会被服务端拒成
    * `1407 not_call_owner`（交互稿 §05）。房间满了回 `1202 room_full`；离场的发起人也能被重新邀请。
    */
   async inviteMore(calleeIds: string[]): Promise<void> {
     this.assertNotDestroyed();
-    if (this.rejectsSelf(calleeIds, '加人')) return;
+    if (rejectsSelf(this.bus, this.session.uid, calleeIds, '加人')) return;
     await this.act('invite_more', { callee_ids: calleeIds });
   }
 
@@ -403,30 +340,21 @@ export class CallEngine {
   /**
    * openMicrophone 是麦克风开关的**按类型**便捷接口（与腾讯 TUICallEngine 同名）。
    *
-   * 这条轨道还没发布过就发布（等价 `publishMicrophone()`）；已经发布了就取消静音，
-   * **不会重新发布**——重复发布同一路麦克风会在 pub PC 上多挂一条 sender。
-   *
-   * 「发没发布过」问的是**媒体适配器自己的账**（`media.publishedMicrophoneCid()`），
-   * 不在门面另开一份：宿主先直接调 `publishMicrophone()` 发布过、再调这个方法的话，
-   * 门面自己那份账不知道已经发布过，会误判成「没发布」再发一次（2026-09-15 iOS 踩过）。
+   * 还没发布过就发布（等价 `publishMicrophone()`）；已经发布了就取消静音，**不会重新发布**。
+   * 「发布过没有」问媒体适配器自己的账，与先调过 `publishMicrophone()` 混用也不会发两次。
    * `publishMicrophone()` / `setMuted(cid)` 仍然保留，给需要自己管 cid 的宿主用。
    */
   async openMicrophone(): Promise<void> {
-    const cid = this.media.publishedMicrophoneCid();
-    if (cid !== null) {
-      await this.setMuted(cid, false);
-      return;
-    }
-    await this.publishMicrophone();
+    await openLocal(this.mediaApi(), 'microphone');
   }
 
   /**
    * closeMicrophone 关麦克风：对已发布的那条轨道 `setMuted(cid, true)`——**不 unpublish**，
-   * 协商保留。没发布过是空操作。
+   * 协商保留。没发布过、或 engine 已销毁，是空操作（清理类，见 {@link destroy}）。
    */
   async closeMicrophone(): Promise<void> {
-    const cid = this.media.publishedMicrophoneCid();
-    if (cid !== null) await this.setMuted(cid, true);
+    if (this.destroyed) return;
+    await closeLocal(this.mediaApi(), 'microphone');
   }
 
   /**
@@ -459,26 +387,21 @@ export class CallEngine {
   }
 
   /**
-   * openCamera 是摄像头开关的**按类型**便捷接口。还没发布就发布（有本端预览时复用它，
-   * 同 `publishCamera()` 现有逻辑）；已发布就取消静音——通话中开关摄像头走的是
-   * `setMuted` 既有的「关停采集、开重新采集换 sender」语义，不重新协商。
-   *
-   * 「发没发布过」同样问媒体适配器自己的账（`media.publishedCameraCid()`），
-   * 理由见 {@link openMicrophone}。
+   * openCamera 是摄像头开关的**按类型**便捷接口。还没发布就发布（有本端预览时复用它）；
+   * 已发布就取消静音——走 `setMuted` 的「关停采集、开重新采集换 sender」语义，不重新协商。
+   * 不会重复发布，理由同 {@link openMicrophone}。
    */
   async openCamera(): Promise<void> {
-    const cid = this.media.publishedCameraCid();
-    if (cid !== null) {
-      await this.setMuted(cid, false);
-      return;
-    }
-    await this.publishCamera();
+    await openLocal(this.mediaApi(), 'camera');
   }
 
-  /** closeCamera 关摄像头：`setMuted(cid, true)`（停采集，指示灯灭；不 unpublish）。没发布过是空操作。 */
+  /**
+   * closeCamera 关摄像头：`setMuted(cid, true)`（停采集，指示灯灭；不 unpublish）。
+   * 没发布过、或 engine 已销毁，是空操作。
+   */
   async closeCamera(): Promise<void> {
-    const cid = this.media.publishedCameraCid();
-    if (cid !== null) await this.setMuted(cid, true);
+    if (this.destroyed) return;
+    await closeLocal(this.mediaApi(), 'camera');
   }
 
   /**
@@ -488,7 +411,6 @@ export class CallEngine {
    */
   async setMuted(cid: string, muted: boolean): Promise<void> {
     await setMuted(this.mediaApi(), cid, muted);
-    this.bridge.refreshLocalViews();
   }
 
   /** localTrack 取本端轨道做预览。 */
@@ -523,44 +445,10 @@ export class CallEngine {
 
   // ── 内部 ──────────────────────────────────────────────
 
-  /**
-   * rejectsSelf 挡住「名单里有自己」，就地报错并返回 true。
-   *
-   * 服务端会以 `1004 bad_params` 拒掉（"callee_ids 不能含主叫自己"），但那条链路上的
-   * 失败很难看懂：界面已经乐观地进了「正在呼叫…」，而错误只是一条没头没尾的 1004。
-   * （实测撞过：Demo 的群呼默认名单里正好有登录的那个人。）
-   *
-   * **一份实现供 call 与 inviteMore 共用**——两处各写一遍的话，改了一处忘了另一处，
-   * 就又是一个「同一条规则在一处成立、另一处不成立」。
-   */
-  private rejectsSelf(calleeIds: string[], what: string): boolean {
-    if (this.myUid === '' || !calleeIds.includes(this.myUid)) return false;
-    logger.warn(`${what}名单里含自己，已就地拒掉`, { uid: this.myUid });
-    this.bus.emitError(new RtcError(ErrorCode.badParams));
-    return true;
-  }
-
-  /**
-   * rejectsBadCallOptions 挡住超限的 `chatGroupId` / `userData`，就地报错并返回 true。
-   *
-   * 服务端会以 `1004 bad_params` 拒掉，但那条链路上主叫已经乐观地进了「正在呼叫…」，
-   * 错误只是一条没头没尾的 1004——与 {@link rejectsSelf} 同一个理由，本地先拦，
-   * 走同一个出口（HOST_INTEGRATION_DESIGN §3.3）。判断本身在 `callOptions.ts`
-   * （纯函数，直接单测）；这里只管日志与出口这两件带副作用的事。
-   */
-  private rejectsBadCallOptions(chatGroupId: string, userData: string): boolean {
-    if (!violatesCallOptionLimits(chatGroupId, userData)) return false;
-    logger.warn('chatGroupId / userData 超限，已就地拒掉', {
-      chatGroupId, userDataBytes: byteLength(userData),
-    });
-    this.bus.emitError(new RtcError(ErrorCode.badParams));
-    return true;
-  }
-
   /** mediaApi 是交给 media/engineMediaApi 那几个编排函数的一把依赖。 */
   private mediaApi(): MediaApiDeps {
     this.assertNotDestroyed();
-    return { media: this.media, loop: this.loop, bus: this.bus };
+    return { media: this.media, loop: this.loop, bus: this.bus, bridge: this.bridge };
   }
 
   /**
@@ -575,7 +463,7 @@ export class CallEngine {
       bridge: this.bridge,
       sender: this.sender,
       loop: this.loop,
-      connection: (): Connection | null => this.connection,
+      connection: (): Connection | null => this.session.connection,
     };
   }
 }

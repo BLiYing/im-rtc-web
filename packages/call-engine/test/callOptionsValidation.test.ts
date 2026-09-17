@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { violatesCallOptionLimits } from '../src/callOptions.js';
+import { toCallRequest, violatesCallOptionLimits } from '../src/callOptions.js';
 
 /**
  * `violatesCallOptionLimits` 是 `CallEngine.call()` 本地校验的纯逻辑那一半
@@ -33,5 +33,30 @@ describe('violatesCallOptionLimits', () => {
     const chatGroupId = '群'.repeat(22);
     expect(chatGroupId.length).toBeLessThanOrEqual(64); // 字符数没超，字节数超了
     expect(violatesCallOptionLimits(chatGroupId, '')).toBe(true);
+  });
+});
+
+describe('toCallRequest：call() 参数整形', () => {
+  it('布尔 options 等同 isGroup，其余可选项一律省略', () => {
+    expect(toCallRequest(['bob'], 'video', true)).toEqual({
+      args: { callee_ids: ['bob'], media_type: 'video', is_group: true },
+      chatGroupId: '',
+      userData: '',
+    });
+  });
+
+  it('不传 options：is_group 为 false', () => {
+    expect(toCallRequest(['bob'], 'audio').args).toEqual({ callee_ids: ['bob'], media_type: 'audio', is_group: false });
+  });
+
+  it('对象 options：给了的才写进 args（snake_case），空串当没给', () => {
+    const req = toCallRequest(['bob', 'carol'], 'video', {
+      isGroup: true, chatGroupId: 'g-1', userData: '', timeoutSec: 45,
+    });
+    expect(req.args).toEqual({
+      callee_ids: ['bob', 'carol'], media_type: 'video', is_group: true, chat_group_id: 'g-1', timeout_sec: 45,
+    });
+    expect(req.chatGroupId).toBe('g-1');
+    expect(req.userData).toBe('');
   });
 });

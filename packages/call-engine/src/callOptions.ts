@@ -1,4 +1,5 @@
 import { byteLength } from './bytes.js';
+import type { MediaType } from './signaling/enums.js';
 
 /**
  * CallOptions 是 {@link CallEngine.call} 的可选项（HOST_INTEGRATION_DESIGN §3.3）。
@@ -36,4 +37,34 @@ export function violatesCallOptionLimits(chatGroupId: string, userData: string):
     return true;
   }
   return byteLength(userData) > MAX_USER_DATA_BYTES;
+}
+
+/** CallRequest 是 `call()` 整形之后的样子：状态机要的 `args`，外加本地校验要看的两个字段。 */
+export interface CallRequest {
+  readonly args: Record<string, unknown>;
+  readonly chatGroupId: string;
+  readonly userData: string;
+}
+
+/**
+ * toCallRequest 把 `call()` 的参数整形成状态机的 `act` 参数（snake_case）。
+ *
+ * `options` 传布尔值等同旧的 `isGroup`。**没给的可选项省略不写**，不写成空串——
+ * 省略表达「没传」，见 callMachine.ts startCall 的同一条注释。
+ */
+export function toCallRequest(
+  calleeIds: string[],
+  mediaType: MediaType,
+  options?: boolean | CallOptions,
+): CallRequest {
+  const opts: CallOptions = typeof options === 'boolean' ? { isGroup: options } : (options ?? {});
+  const chatGroupId = opts.chatGroupId ?? '';
+  const userData = opts.userData ?? '';
+  const args: Record<string, unknown> = {
+    callee_ids: calleeIds, media_type: mediaType, is_group: opts.isGroup ?? false,
+  };
+  if (chatGroupId !== '') args['chat_group_id'] = chatGroupId;
+  if (userData !== '') args['user_data'] = userData;
+  if (opts.timeoutSec !== undefined) args['timeout_sec'] = opts.timeoutSec;
+  return { args, chatGroupId, userData };
 }

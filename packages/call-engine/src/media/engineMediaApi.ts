@@ -2,6 +2,7 @@ import type { EngineBus } from '../engineBus.js';
 import type { FrameLoop } from '../frameLoop.js';
 import type { Layer } from '../signaling/enums.js';
 import type { MediaAdapter } from './mediaAdapter.js';
+import type { MediaBridge } from './mediaBridge.js';
 
 /**
  * 门面那几个媒体方法的**方法体**。
@@ -17,6 +18,8 @@ export interface MediaApiDeps {
   media: MediaAdapter;
   loop: FrameLoop;
   bus: EngineBus;
+  /** 本端轨道换了（关摄像头停采集 / 重新采集）之后，预览挂载要跟上。 */
+  bridge: MediaBridge;
 }
 
 /** 探麦克风。失败**也走一遍 error 事件**再抛——宿主的契约见 CallEngine.probeMicrophone。 */
@@ -75,8 +78,38 @@ export async function publishCamera(d: MediaApiDeps, simulcast: boolean): Promis
 export async function setMuted(d: MediaApiDeps, cid: string, muted: boolean): Promise<void> {
   await d.media.setMuted(cid, muted);
   const trackId = d.loop.state.room.publishTrackIds[cid];
-  if (trackId === undefined) return;
-  await d.loop.dispatch({ kind: 'act', op: 'mute', args: { track_id: trackId, muted } });
+  if (trackId !== undefined) {
+    await d.loop.dispatch({ kind: 'act', op: 'mute', args: { track_id: trackId, muted } });
+  }
+  d.bridge.refreshLocalViews();
+}
+
+/** LocalSource 是按类型开关的那两路本端轨道。 */
+export type LocalSource = 'microphone' | 'camera';
+
+/**
+ * 「发布过没有」**只问媒体适配器自己的账**，不在门面另记一份：宿主先直接调 `publish*()`
+ * 发布过、再调 `open*()` 的话，门面那份账不知道，会误判成「没发布」再发一次（2026-09-15 iOS 踩过）。
+ */
+function publishedCid(d: MediaApiDeps, source: LocalSource): string | null {
+  return source === 'microphone' ? d.media.publishedMicrophoneCid() : d.media.publishedCameraCid();
+}
+
+/** 按类型开：没发布过就发布（摄像头有预览时复用），发布过就取消静音——**不会重复发布**。 */
+export async function openLocal(d: MediaApiDeps, source: LocalSource): Promise<void> {
+  const cid = publishedCid(d, source);
+  if (cid !== null) {
+    await setMuted(d, cid, false);
+    return;
+  }
+  if (source === 'microphone') await publishMicrophone(d);
+  else await publishCamera(d, true);
+}
+
+/** 按类型关：已发布的那条 `setMuted(cid, true)`，**不 unpublish**；没发布过是空操作。 */
+export async function closeLocal(d: MediaApiDeps, source: LocalSource): Promise<void> {
+  const cid = publishedCid(d, source);
+  if (cid !== null) await setMuted(d, cid, true);
 }
 
 /** 报某人画面的层上界。一个 uid 可能有多条视频轨道，逐条报。 */
