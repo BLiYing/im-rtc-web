@@ -7,7 +7,7 @@
 
 ## 当前焦点
 
-**2026-09-17 下午：旧「下一步」2（destroy 对表）、4、5、6 四条做完，均已提交、未推送，`test.sh` 16 步全绿。**
+**2026-09-17 下午：旧「下一步」2（destroy 对表）、4、5、6 四条做完并推送，`test.sh` 16 步全绿。**
 - `343dcc3` 铃声 `play()` 被本端 `pause()` 打断（`AbortError`）记 debug，只有 `NotAllowedError` 才说「被拦下」。
 - `a9cb938` 体量 / 日志门禁按 `package.json` workspaces 推扫描目录（`scripts/lib/workspaceDirs.sh`），demo-react 不再漏扫；读不出 workspaces 时 exit 2。
 - `2b2017a` `webrtcAdapter.ts` 529 → 449（`media/videoSender.ts`、`media/captureStream.ts`）。
@@ -17,9 +17,9 @@
 
 ## 下一步
 
-1. **用户自测**（服务端先重启）：发起人挂断后，被叫在选人页能选到他并邀请；他那边来电页不出现自己的格子。
-2. `openMicrophone` / `openCamera` 等四个开关没在真浏览器点过（这轮只挪了方法体、行为不变）。
-3. destroy 对表查出的**别端欠账**（不在本仓）：Android 没有 2005、销毁后静默丢弃；iOS 生命周期注释与实际不符、`attachView` 销毁后仍建空视图。见 CLIENT_PARITY `[^destroy]`。
+- 09-17 下午用户验收了旧「下一步」1、2：发起人挂断后被叫能在选人页重新邀请、他那边来电页不出现自己的格子；`openMicrophone` / `openCamera` 等四个开关真浏览器点过。
+  旧 3（destroy 对表查出的别端欠账）不在本仓，已挪进 android / ios 的 `current_task.md`。
+- 暂无本仓待办。会议房 M1、网络质量两行 CLIENT_PARITY 仍是 🟡（09-17 夜已真实验过，改格子时一并确认）。
 
 ## 已知坑 / 限制
 
