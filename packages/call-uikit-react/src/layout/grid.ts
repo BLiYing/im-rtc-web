@@ -86,6 +86,20 @@ export function gridDimensions(count: number, aspect = 1): GridDimensions {
 }
 
 /**
+ * fixedGridDimensions 算**不看容器形状**的方阵行列：`ceil(sqrt(n))` 列。
+ *
+ * 会议分页用它，9 格恒为 3×3（§4.1）。{@link gridDimensions} 那套「按容器形状挑最大格子」
+ * 在这里是错的：宽窗口上 9 格会被排成 5×2、手机上排成 2×5，
+ * 而分页的前提是**每一页的格子位置固定**——左滑一页格子还在原地，只是换了人。
+ * 跟着窗口变行列的话，翻页看起来像整屏重新洗牌，而且最后一页不满时排法还会再变一次。
+ */
+export function fixedGridDimensions(count: number): GridDimensions {
+  const n = Math.min(Math.max(count, 1), MAX_TILES);
+  const cols = Math.ceil(Math.sqrt(n));
+  return { cols, rows: Math.ceil(n / cols) };
+}
+
+/**
  * cellSide 算正方形格子的边长（像素）。
  *
  * **格子必须是正方形**：让它吃满整块区域（`1fr` × `1fr`）的话，

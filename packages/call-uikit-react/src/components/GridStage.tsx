@@ -1,6 +1,13 @@
 import type { ReactNode } from 'react';
 
-import { cellSide, gridDimensions, hiddenCountText, tileLayer, visibleTiles } from '../layout/grid.js';
+import {
+  cellSide,
+  fixedGridDimensions,
+  gridDimensions,
+  hiddenCountText,
+  tileLayer,
+  visibleTiles,
+} from '../layout/grid.js';
 import type { RemoteParticipant } from '../state/viewTypes.js';
 import { useCall } from '../useCall.js';
 import { useElementSize } from '../useElementSize.js';
@@ -52,7 +59,11 @@ export function GridStage(props: GridStageProps = {}): ReactNode {
     退化成老的 `ceil(sqrt(n))`——不至于渲染不出来。
   */
   const aspect = stage.height > 0 ? stage.width / stage.height : 1;
-  const { cols, rows } = gridDimensions(tileCount, aspect);
+  // 分页时**不跟着容器形状变**：格子位置固定，左滑才只是换人而不是整屏重排（§4.1）。
+  const { cols, rows } =
+    props.fixedTileCount === undefined
+      ? gridDimensions(tileCount, aspect)
+      : fixedGridDimensions(tileCount);
   const side = tileCount > 1 ? cellSide({ cols, rows }, stage.width, stage.height, callMetrics.tileGap) : 0;
   const layer = tileLayer(tileCount);
 

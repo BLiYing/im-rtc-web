@@ -150,12 +150,13 @@ function promote(state: FirstPageState, input: FirstPageInput): FirstPageState {
   order[victimIndex] = candidate;
   order[candidateIndex] = victim;
 
-  return {
-    ...state,
-    order,
-    enteredAt: { ...state.enteredAt, [candidate]: input.nowMs },
-    lastSwapAt: input.nowMs,
-  };
+  // 被换下去的人要**清掉**进入时刻：留着的话，等他哪天因为有人离开而补位回第一页，
+  // `syncMembers` 看见这一条已存在就不补新的起点，10 s 驻留判据从那个陈旧的时刻起算
+  // 早就满了——他会被下一个说话的人**立刻**顶掉，位置一闪就没。
+  const enteredAt = { ...state.enteredAt, [candidate]: input.nowMs };
+  delete enteredAt[victim];
+
+  return { ...state, order, enteredAt, lastSwapAt: input.nowMs };
 }
 
 /**

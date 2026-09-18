@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { MAX_REMOTE_TILES, MAX_TILES, cellSide, gridDimensions, tileLayer, visibleTiles } from '../src/layout/grid.js';
+import { MAX_REMOTE_TILES, MAX_TILES, cellSide, gridDimensions, tileLayer, visibleTiles, fixedGridDimensions} from '../src/layout/grid.js';
 
 describe('九宫格布局', () => {
   it('按人数排出尽量接近正方形的格子', () => {
@@ -104,5 +104,14 @@ describe('行列跟着容器形状走', () => {
     expect(cellSide({ cols: 2, rows: 2 }, 408, 600, 8)).toBe(200);
     expect(cellSide({ cols: 2, rows: 2 }, 600, 408, 8)).toBe(200);
     expect(cellSide({ cols: 3, rows: 3 }, 0, 0, 8)).toBe(0);
+  });
+
+  it('分页恒为方阵，不跟着容器形状变', () => {
+    // 9 格在宽窗口上按「格子最大」算是 5×2、在手机上是 2×5；
+    // 分页要的是格子位置固定，左滑只换人。
+    expect(fixedGridDimensions(9)).toEqual({ cols: 3, rows: 3 });
+    expect(gridDimensions(9, 2.2)).not.toEqual({ cols: 3, rows: 3 });
+    // 最后一页不满也按同样的方阵排，格子不放大（§4.1）。
+    expect(fixedGridDimensions(9).cols).toBe(3);
   });
 });

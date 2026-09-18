@@ -109,7 +109,10 @@ export function ActiveCall(): ReactNode {
           networkLevel={state.isGroup ? 0 : (peer?.networkLevel ?? 0)}
           onInvite={handleInvite}
           showsMinimize={!incoming}
-          {...(state.isMeeting && !incoming ? { onMembers: () => setMembers(true) } : {})}
+          {...(state.isMeeting && !incoming && state.phase !== 'ended'
+            // 收场之后不给「👥 N」：会议已经散了，点开是一张名单在数还没走干净的人。
+            ? { onMembers: () => setMembers(true) }
+            : {})}
         />
       </div>
 

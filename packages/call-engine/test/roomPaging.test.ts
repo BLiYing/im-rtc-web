@@ -176,6 +176,48 @@ describe('通话房的护栏：分页那套逻辑一点都不许漏进来', () =
     expect(out.state.subscribe).toEqual({ 't-1': 'subscribed', 't-2': 'subscribed' });
   });
 
+  it('断网重连期间迟滞到点也不发退订，清单留着等回来', () => {
+    // 翻走排上迟滞，然后连接断了。
+    const paged = layer(subscribeAll(meetingCtx(3), 2), 't-1', 'none').state;
+    expect(paged.pendingUnsubscribe).toEqual(['t-1']);
+
+    const cut = reduceRoom(paged, { kind: 'internal', name: 'disconnected', args: {} });
+    expect(cut.state.state).toBe('reconnecting');
+
+    const fired = reduceRoom(cut.state, {
+      kind: 'internal',
+      name: 'unsubscribe_hysteresis_elapsed',
+      args: { track_id: 't-1' },
+    });
+    // 一帧都不许发：退订帧没有回滚路径，扔进死连接会让这条 track 永远卡在 unsubscribing。
+    expect(types(fired)).toEqual([]);
+    expect(fired.state.subscribe['t-1']).toBe('subscribed');
+    // 还在清单上，定时器会重新排一只，等回到 joined 再退。
+    expect(fired.state.pendingUnsubscribe).toEqual(['t-1']);
+  });
+
+  it('订阅被拒时连带把待退订摘掉', () => {
+    // 订上 → 翻走排退订 → 这时订阅的 reject 才回来（两件事各走各的，顺序能排到）。
+    const ctx = layer(meetingCtx(2), 't-1', 'l').state;
+    const paged = { ...ctx, pendingUnsubscribe: ['t-1'] };
+    const out = reduceRoom(paged, {
+      kind: 'internal',
+      name: 'subscribe_failed',
+      args: { track_id: 't-1' },
+    });
+    expect(out.state.subscribe['t-1']).toBeUndefined();
+    // 不摘的话五秒后那条 unsubscribe 会打在空处——人要是翻回来了，退掉的是刚订上的那一路。
+    expect(out.state.pendingUnsubscribe).toEqual([]);
+  });
+
+  it('已经在退订中的不再排一次迟滞', () => {
+    const ctx = subscribeAll(meetingCtx(2), 1);
+    const gone = { ...ctx, subscribe: { ...ctx.subscribe, 't-1': 'unsubscribing' as const } };
+    const out = layer(gone, 't-1', 'none');
+    expect(types(out)).toEqual([]);
+    expect(out.state.pendingUnsubscribe).toEqual([]);
+  });
+
   it('auto_subscribe 认不出的档位兜底成 all，不是 none', () => {
     const out = reduceRoom(initialRoomContext, {
       kind: 'act',

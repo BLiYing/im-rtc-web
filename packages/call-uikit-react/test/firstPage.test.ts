@@ -208,4 +208,28 @@ describe('分页算术', () => {
     expect(pageLabel(0, 7)).toBe('1 / 7');
     expect(pageLabel(6, 7)).toBe('7 / 7');
   });
+
+  it('被换下去的人回到第一页时重新起算 10 秒', () => {
+    const base = settle();
+    const speaking = new Set(['u10']);
+    // u1 最久没说话，被 u10 顶掉。
+    let state = reorderFirstPage(base.state, input({ speaking, nowMs: base.nowMs }));
+    state = reorderFirstPage(
+      state,
+      input({ speaking, nowMs: base.nowMs + PROMOTE_AFTER_MS }),
+    );
+    expect(state.order.slice(0, FIRST_PAGE)).not.toContain('u1');
+    expect(state.enteredAt['u1']).toBeUndefined();
+
+    // u1 因为有人离开补位回第一页：驻留时刻要从此刻重新起算，
+    // 留着旧的那一条的话他会被下一个说话的人立刻再顶掉，位置一闪就没。
+    const back = base.nowMs + PROMOTE_AFTER_MS + 1;
+    state = reorderFirstPage(
+      state,
+      // 走两个人，u1 才从第 10 位补回第一页（换位是跟第 10 位对调，不是挪一格）。
+      input({ uids: names(10).filter((uid) => uid !== 'u2' && uid !== 'u3'), nowMs: back }),
+    );
+    expect(state.order.slice(0, FIRST_PAGE)).toContain('u1');
+    expect(state.enteredAt['u1']).toBe(back);
+  });
 });
