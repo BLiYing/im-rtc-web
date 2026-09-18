@@ -7,6 +7,10 @@
 
 ## 当前焦点
 
+**2026-09-18 晚：回前台 / 网络变化立即重连（五端对齐，未上真浏览器）。** engine 登录后自己听 `visibilitychange` / `online` /
+`navigator.connection`（`browserSignals.ts`），宿主不用写：等着重连的立刻连、退避归零；连着的探 3 s，判死就地收场并立刻重连；两次至少隔 2 s。
+验法：通话中断网再恢复、或把标签页放后台几分钟再切回，控制台看 `系统网络变了` / `App 切到前台` → `计划重连 rule=…立即重连`。状态见 CLIENT_PARITY `[^netchange]`。
+
 **2026-09-18：会议房 M2 真机 / 浏览器验收进行中。M2 的 Engine 与 uikit 两段已在 09-17 夜～09-18 凌晨做完（`389e3af` / `544d4f1`，见 server `docs/design/MEETING_ROOM_DESIGN.md` §7 第 2、5 步）。今天全是联调才暴露的修复，`test.sh` 16 步全绿。**
 
 - **退订再重订之后画面定格**（`1d6fb12`）：M2 第一次让「退订→重订」成为常规动作，
