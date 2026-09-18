@@ -7,20 +7,28 @@
 
 ## 当前焦点
 
-**2026-09-17 夜（第三段）：会议房 M2 的 Engine 那一半已做完并提交（server `docs/design/MEETING_ROOM_DESIGN.md` §7 第 2 步）。`test.sh` 16 步全绿。**
-- 协议 2：`sys.hello` 的 `protocol_version` 默认值 1 → 2；收帧上限拆成两个数（发仍 `MAX_FRAME_BYTES` 64 KiB，收按 `MAX_RECV_FRAME_BYTES` 256 KiB）。
-- `room.join.auto_subscribe` 布尔 → 三档枚举 `all | audio | none`（`AUTO_SUBSCRIBE_MODES`，兜底 `all`）。`joinRoom(roomId, token, autoSubscribe)` 第三个参数跟着改类型，**没有新增公开方法**。
-- 会议房按页订阅（`state/roomPaging.ts`）：`auto_subscribe='audio'` 时 `setRemoteLayer` 就是订阅意图——`l/m/h` = 订阅或换层，`none` = 先停包再等 5 s 退订；翻回来只换层不重协商；同时订阅的视频封顶 16 路，满了先退最早翻走的那一条，一条都腾不出来才本地拒绝。定时器在 `state/unsubscribeTimers.ts`，按 `pendingUnsubscribe` **整体对账**。
-- **远端音频由 Engine 自己播**（`media/remoteAudio.ts`）：每条音频轨一个隐藏 `<audio>`，`attachView` 只管画面，`ViewRegistry` 不再把音频塞进 uid 的 `MediaStream`。uikit 的 `RemoteAudioSink` 已删。进房 / 接听那一次点击顺手 `unlock()` 解自动播放。
-- 新测 `test/roomPaging.test.ts`（10 条）、`test/remoteAudio.test.ts`（11 条）；向量新增两组用例跟着跑。
-- uikit（同一轮，第四段）：**分页画廊 + 钉住 + 只读成员列表**。
-  - `components/MeetingStage.tsx` 是 `GridStage` 的**外层容器**（组件本身只多了几个可选 prop，省略时行为与群通话一模一样）：算这一页有谁、画页码、处理左右滑。≤ 9 人不分页、不挂手势层。
-  - 第一页发言人优先 + 防抖是纯函数 `layout/firstPage.ts`（1.5 s 晋升 / 10 s 驻留 / 2 s 限频），节拍在 `useMeetingOrder.ts`（500ms，**不能只靠事件驱动**：一直说话时成员表不变，事件就不来了）。
-  - 双击格子钉住 → `components/SpeakerStage.tsx`（主画面 h、底部 4 格 l），点 📌 取消；钉住的人走了自动回画廊。
-  - 只读成员列表 `components/MemberList.tsx`（自己 → 进房顺序 + 麦克风 / 摄像头角标），从标题栏的「👥 N」打开——会议房用的正是加人按钮那个位置。
-  - `RemoteAudioSink` 退役后，「页外的人没有格子」不再需要任何元素：`components/OffscreenMembers.tsx` 只报 `none`，画廊与演讲者视图共用。
-  - `joinMeeting` 改发 `auto_subscribe: 'audio'`。
-  - 新测 `test/firstPage.test.ts`（15 条）；`test/meeting.test.tsx` 的 M1 胶囊那一组改写成 M2 的分页 / 钉住 / 成员列表（18 条）。
+**2026-09-18：会议房 M2 真机 / 浏览器验收进行中。M2 的 Engine 与 uikit 两段已在 09-17 夜～09-18 凌晨做完（`389e3af` / `544d4f1`，见 server `docs/design/MEETING_ROOM_DESIGN.md` §7 第 2、5 步）。今天全是联调才暴露的修复，`test.sh` 16 步全绿。**
+
+- **退订再重订之后画面定格**（`1d6fb12`）：M2 第一次让「退订→重订」成为常规动作，
+  协议 `track_id` 不变但媒体层拿到的是**新的轨道对象**，而 `ViewRegistry.addTrack` 只往 uid 的
+  `MediaStream` 上加、不摘已经 `ended` 的那条（退订不会让 `remoteTracks` 少一条，对账扫不到），
+  `<video>` 于是一直播第一条。三端同病。
+  **顺带修了一条一直在空跑的老用例**：`fakeTrack` 没有 `kind`，2.0.0「音频不进画面流」那条分支
+  从没被测到，补上 `kind` 当场变红。
+- **成员列表摄像头图标出界 + 页码压在九宫格上**（`f87913c`）：`sheetRow` 缺 `boxSizing`、
+  页码是 absolute 定位。改成 `flex` 排在网格下方，量尺寸的 ref 从 stage 挪到 grid。
+- **标题栏改成写房号、点一下复制 + 小格子名字牌换紧凑档**（`90d004e`）：人数只留右上角「👥 N」；
+  底部条 84px 的格子里名字只剩 29px，连 `carol` 都放不下，`compact` 由调用方给
+  （React 侧知道底部条恒是 84px，不必上 ResizeObserver）。剪贴板用不了时也要提示，别静默。
+
+**浏览器验过**：翻走 >10 秒再翻回画面恢复且**持续解码**（`getVideoPlaybackQuality` 3 秒 +90 帧，
+每条流只挂一条 `live` 轨道）；新标题栏；成员列表与页码。
+
+**服务端侧与本端相关的一条**（已修，见 server `current_task.md`）：编解码裁剪不幂等，
+Web 发 VP8 而 iOS 发 H.264，一间混着两种端的会议里必然有人永远黑屏。
+
+**待决**：Web 要不要也默认发 H.264（`../im-rtc-server/docs/mechanism/VIDEO_CODECS.md` §5，
+要先实测 `encoderImplementation` 与 CPU）。
 
 **2026-09-17 夜：信令层一次性定时器抽成 `signaling/oneShotTimer.ts`（队列 5 的定时器样板，不导出）**：`Reconnector` / `ResumeDeadline` 改用它；`Heartbeat`（周期）、`TokenExpiryTimer`（注入定时器 + 32 位分段）、`PendingRequests`（按 req 多只）形状不同，没动。行为不变。
 
