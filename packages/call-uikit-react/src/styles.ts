@@ -39,7 +39,14 @@ export const styles = {
     display: 'flex', gap: 6, justifyContent: 'center', alignItems: 'center',
   } satisfies CSSProperties,
 
-  stage: { flex: 1, minHeight: 0, padding: '0 12px 12px', display: 'flex', position: 'relative' } satisfies CSSProperties,
+  /**
+   * 舞台区。**列向**：格子区 `flex:1` 在上、页码那一条在下（见 pagePill）。
+   * 群通话那枚「还有 N 人未显示」胶囊是绝对定位的，不占位，所以行为一字不变。
+   */
+  stage: {
+    flex: 1, minHeight: 0, padding: '0 12px 12px', display: 'flex',
+    flexDirection: 'column', position: 'relative',
+  } satisfies CSSProperties,
 
   /** 语音页 / 拨出中的「谁」区块：96 头像 + 22 名字 + 13 状态（规范 §03）。 */
   who: {
@@ -84,7 +91,14 @@ export const styles = {
    * （MEETING_ROOM_DESIGN §4.5）。不可点——翻页靠左右滑。
    */
   pagePill: {
-    position: 'absolute', left: 0, right: 0, bottom: 20, display: 'flex', justifyContent: 'center',
+    /*
+      **占自己的一条，不是绝对定位压在格子上。**
+
+      原先是 `position:absolute; bottom:20`，而九宫格 `flex:1` 铺满同一个 stage，
+      满页时最后一行必然被它压住（2026-09-18 真机）。改成普通流内元素之后，
+      格子区（`flex:1`）自己会矮下去这一条的高度，两者不再重叠。
+    */
+    flex: 'none', display: 'flex', justifyContent: 'center', padding: '8px 0 2px',
     pointerEvents: 'none',
   } satisfies CSSProperties,
   pagePillText: {
@@ -300,6 +314,9 @@ export const styles = {
   } satisfies CSSProperties,
   sheetList: { flex: 1, overflowY: 'auto', minHeight: 0 } satisfies CSSProperties,
   sheetRow: {
+    // **boxSizing 必须写**：内联样式没有全局 reset，`width:100%` + 左右各 14 padding
+    // 在 content-box 下等于比面板宽 28px，最右边那个摄像头图标正好被切掉（2026-09-18）。
+    boxSizing: 'border-box',
     display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', fontSize: 13.5, width: '100%',
     border: 'none', background: 'none', color: 'inherit', cursor: 'pointer', font: 'inherit', textAlign: 'left',
   } satisfies CSSProperties,

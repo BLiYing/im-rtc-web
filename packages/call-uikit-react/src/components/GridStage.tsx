@@ -72,9 +72,10 @@ export function GridStage(props: GridStageProps = {}): ReactNode {
   const badge = props.badge ?? defaultBadge(offscreen.length);
 
   return (
-    <div style={styles.stage} ref={stage.ref} data-testid="grid-stage">
+    <div style={styles.stage} data-testid="grid-stage">
       <OffscreenMembers members={offscreen} />
       <div
+        ref={stage.ref}
         style={{
           ...styles.grid,
           // **格子恒为正方形**：让它吃满整块区域的话，竖屏两个人就是两条又高又窄的长条。
