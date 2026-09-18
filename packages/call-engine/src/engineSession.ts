@@ -1,3 +1,4 @@
+import { watchBrowserSignals } from './browserSignals.js';
 import type { EngineWiring } from './engineWiring.js';
 import { engineConnectionHandlers, engineMediaDeps } from './engineWiring.js';
 import { ErrorCode, RtcError } from './errors.js';
@@ -27,6 +28,8 @@ export class EngineSession {
   private myUid = '';
   /** 最近一次 hello.ok 喂进状态机的那个 promise，`open()` 要等它。 */
   private helloApplied: Promise<void> = Promise.resolve();
+  /** 摘掉浏览器前后台 / 网络事件的监听（见 `browserSignals.ts`）。登录挂、登出摘。 */
+  private unwatch: () => void = () => undefined;
 
   /** `wiring` 取成函数：门面的接线里要回读本会话的 `connection`，构造时还拿不到。 */
   constructor(
@@ -59,6 +62,7 @@ export class EngineSession {
       }),
     );
     this.conn = connection;
+    this.unwatch = watchBrowserSignals(connection);
     this.bridge.open(mediaEvents(engineMediaDeps(this.wiring())));
 
     let hello: HelloOk;
@@ -68,7 +72,10 @@ export class EngineSession {
       // 收摊：不收的话上面那道「已经登录了」的门会把重试也挡掉。
       connection.close();
       this.bridge.close();
-      if (this.conn === connection) this.conn = null;
+      if (this.conn === connection) {
+        this.unwatch();
+        this.conn = null;
+      }
       throw err;
     }
     this.myUid = hello.uid;
@@ -81,8 +88,17 @@ export class EngineSession {
     this.conn?.updateToken(token, expiresAtMs);
   }
 
+  setAppForeground(foreground: boolean): void {
+    this.conn?.setAppForeground(foreground);
+  }
+
+  notifyNetworkChanged(): void {
+    this.conn?.notifyNetworkChanged();
+  }
+
   /** close 关掉当前连接。媒体与状态机由门面的 `logout()` 一并收。 */
   close(): void {
+    this.unwatch();
     this.conn?.close();
     this.conn = null;
   }

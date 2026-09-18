@@ -172,6 +172,19 @@ export class CallEngine {
     this.session.updateToken(token, expiresAtMs);
   }
 
+  /**
+   * setAppForeground / notifyNetworkChanged：告诉 engine 页面回到前台、网络变了——断线后**不再按退避白等**
+   * （正等着重连的立刻连、连着的探 3 秒）。**浏览器里不用调**：登录后 engine 自己听 `visibilitychange` /
+   * `online` / `navigator.connection`（`browserSignals.ts`）。给 WebView 宿主等拿得到原生信号的场景用。提示类，销毁后空操作。
+   */
+  setAppForeground(foreground: boolean): void {
+    this.session.setAppForeground(foreground);
+  }
+
+  notifyNetworkChanged(): void {
+    this.session.notifyNetworkChanged();
+  }
+
   /** logout 关掉连接与媒体。 */
   logout(): void {
     this.session.close();
@@ -193,7 +206,7 @@ export class CallEngine {
    *
    * `logout()` / `forceEnd()` / `on()` / `uid` / `state`，以及读、清理、提示类的方法
    * （`attachView` / `attachLocalView`、`localTrack`、`stopLocalPreview`、`closeMicrophone` /
-   * `closeCamera`、`updateToken`、`setRemoteLayer`）**不受影响**，销毁后调用仍然安全——宿主卸载时经常无脑清理这几个，
+   * `closeCamera`、`updateToken`、`setAppForeground` / `notifyNetworkChanged`、`setRemoteLayer`）**不受影响**，销毁后调用仍然安全——宿主卸载时经常无脑清理这几个，
    * 不该因为清理顺序先后而报错。逐个方法的归类由 `test/destroyContract.test.ts` 钉住，
    * 新增公开方法不归类那张表就红；与 iOS / Android 的对照见 server `docs/CLIENT_PARITY.md`。
    */

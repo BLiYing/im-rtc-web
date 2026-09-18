@@ -10,6 +10,7 @@ import type { ConnectionOptions, ConnectionState, HelloOk } from './connectionTy
 import { TokenExpiryTimer } from './tokenExpiry.js';
 import { handshakeGiveUpReason } from './handshakeGiveUp.js';
 import { Heartbeat } from './heartbeat.js';
+import { NetworkProbe, PROBE_MS } from './networkProbe.js';
 import { PendingRequests } from './pendingRequests.js';
 import { Reconnector } from './reconnector.js';
 import { ResumeDeadline } from './resumeDeadline.js';
@@ -60,6 +61,8 @@ export class Connection {
   private readonly pending: PendingRequests;
 
   private readonly heartbeat: Heartbeat;
+  /** 回前台 / 网络变化时，连着的那条先探死活。 */
+  private readonly probe = new NetworkProbe();
   private readonly reconnector: Reconnector;
   private token: string;
   /** 连续鉴权失败次数。握手一成功就清零——只有**连续**失败才说明票是死的。 */
@@ -159,6 +162,7 @@ export class Connection {
   close(): void {
     this.state = 'closed';
     this.heartbeat.stop();
+    this.probe.stop();
     this.reconnector.stop();
     // **只有 logout 撤这条倒计时**：鉴权连续失败那条路要让它走完（见 ResumeDeadline）。
     this.resumeDeadline.cancel();
@@ -311,6 +315,7 @@ export class Connection {
     if (typeof raw !== 'string') return;
     // 收到**任何**帧都算对端活着，不只是 pong（§1.3）。
     this.heartbeat.noteFrameReceived();
+    this.probe.noteFrameReceived();
 
     let envelope: Envelope;
     try {
@@ -375,6 +380,7 @@ export class Connection {
 
   private handleClose(event: { code: number; reason: string }): void {
     this.heartbeat.stop();
+    this.probe.stop();
     this.ws = null;
     this.pending.rejectAll(
       new RtcError(ErrorCode.networkUnreachable, { cause: new Error('连接已断开') }),
@@ -411,6 +417,54 @@ export class Connection {
     this.state = 'reconnecting';
     this.resumeDeadline.arm();
     this.reconnector.schedule();
+  }
+
+  /** setAppForeground 标签页回到前台 / 进了后台。回前台按 {@link nudge} 处理，进后台只记一行。 */
+  setAppForeground(foreground: boolean): void {
+    logger.info(foreground ? 'App 切到前台' : 'App 切到后台', { state: this.state });
+    if (foreground) this.nudge('回前台');
+  }
+
+  /** notifyNetworkChanged 系统网络变了（断网恢复、Wi-Fi ⇄ 蜂窝）。按 {@link nudge} 处理。 */
+  notifyNetworkChanged(): void {
+    logger.info('系统网络变了', { state: this.state, waiting: this.reconnector.waiting });
+    this.nudge('网络变化');
+  }
+
+  /**
+   * nudge：回前台、网络变了，**不再按退避白等**（2026-09-18，与 iOS / Android 对齐）。
+   *
+   * 20:45 真机 OPPO：Wi-Fi 重连换了 IP，退避正在 30 秒那一档空等，服务端 30 秒恢复窗口先到期，
+   * 通话被结束。三种处境三种做法：正等着重连 → 退避归零立刻连；连着 → 探 3 秒（{@link NetworkProbe}），
+   * 没回音就判死、立刻重连；正在连 → 让这次跑完，失败了不走退避、立刻再连。
+   * 两次「立刻重连」之间至少隔 2 秒（`Reconnector.nudge`）。
+   */
+  private nudge(rule: string): void {
+    if (this.state === 'idle' || this.state === 'closed') return;
+    if (this.state === 'connected') {
+      this.probe.arm(
+        (): void => this.sendPing(),
+        (): void => this.dropDeadSocket(`${rule}后 ${PROBE_MS}ms 没收到下行`),
+      );
+      return;
+    }
+    if (this.reconnector.waiting) this.reconnector.nudge(`${rule}立即重连`);
+    else this.reconnector.markNudgePending();
+  }
+
+  /**
+   * dropDeadSocket 探测判死：**就地收场**，不等浏览器回 close 事件——
+   * 死掉的 TCP 上关闭握手没人应，close 事件可能要等很久才来。先摘掉旧 socket 的回调，免得迟到的事件再收一次场。
+   */
+  private dropDeadSocket(why: string): void {
+    const socket = this.ws;
+    if (socket === null || this.state !== 'connected') return;
+    logger.warn('旧连接判死', { why });
+    socket.onclose = null;
+    socket.onmessage = null;
+    socket.close(CloseCode.goingAway, 'probe timeout');
+    this.reconnector.markNudgePending();
+    this.handleClose({ code: CloseCode.goingAway, reason: 'probe timeout' });
   }
 
   /** sendPing 发一个心跳帧。连接不可用时静默跳过——心跳失败自有判死逻辑接手。 */

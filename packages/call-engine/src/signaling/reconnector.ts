@@ -2,6 +2,9 @@ import { logger } from '../logger.js';
 import { backoffDelayMs } from './backoff.js';
 import { OneShotTimer } from './oneShotTimer.js';
 
+/** 两次「立刻重连」之间至少隔这么久，网络来回跳时不刷出重连风暴。与 iOS / Android 同一个数。 */
+export const NUDGE_MIN_GAP_MS = 2_000;
+
 /**
  * 重连调度（RTC_PROTOCOL.md §1.4）。
  *
@@ -16,6 +19,10 @@ export class Reconnector {
   private attempt = 0;
   /** 已经彻底放弃。见 stop() —— 这是**闩**，不是一次性的取消。 */
   private stopped = false;
+  /** 回前台 / 网络变化那一刻正在连、或探测判死要断：这一次失败**不走退避**，立刻再连。 */
+  private nudgePending = false;
+  /** 上一次「立刻重连」的时刻（`Date.now()`），给 {@link NUDGE_MIN_GAP_MS} 防抖用。 */
+  private lastNudgeAt = Number.NEGATIVE_INFINITY;
 
   constructor(
     private readonly reconnect: () => Promise<void>,
@@ -33,16 +40,48 @@ export class Reconnector {
    */
   schedule(): void {
     if (this.stopped || this.timer.armed) return;
+    if (this.nudgePending) {
+      this.nudge('网络变化或回前台时正在连，失败后立即再连');
+      return;
+    }
     const delayMs = backoffDelayMs(this.attempt, this.random);
     this.attempt += 1;
     logger.info('计划重连', { attempt: this.attempt, delayMs });
 
+    this.timer.start(delayMs, () => this.run());
+  }
+
+  /** waiting：正等着下一次重连（定时器排着）。 */
+  get waiting(): boolean {
+    return this.timer.armed;
+  }
+
+  /** markNudgePending：正在连的这一次若失败，不走退避、立刻再连。 */
+  markNudgePending(): void {
+    this.nudgePending = true;
+  }
+
+  /**
+   * nudge 回前台 / 网络变化：撤掉正等着的那次，退避归零，立刻连；
+   * 离上一次同样的动作不足 {@link NUDGE_MIN_GAP_MS} 就补足间隔。
+   */
+  nudge(rule: string): void {
+    if (this.stopped) return;
+    this.nudgePending = false;
+    this.attempt = 0;
+    const delayMs = Math.max(0, this.lastNudgeAt + NUDGE_MIN_GAP_MS - Date.now());
+    logger.info('计划重连', { attempt: 0, delayMs, rule });
     this.timer.start(delayMs, () => {
-      void this.reconnect().catch((err: unknown) => {
-        this.onFailed(err);
-        // 失败后继续退避——档位不重置，否则断网期间会退化成每秒重试。
-        this.schedule();
-      });
+      this.lastNudgeAt = Date.now();
+      this.run();
+    });
+  }
+
+  private run(): void {
+    void this.reconnect().catch((err: unknown) => {
+      this.onFailed(err);
+      // 失败后继续退避——档位不重置，否则断网期间会退化成每秒重试。
+      this.schedule();
     });
   }
 
@@ -50,6 +89,7 @@ export class Reconnector {
   succeeded(): void {
     this.attempt = 0;
     this.stopped = false;
+    this.nudgePending = false;
   }
 
   /**
@@ -61,6 +101,7 @@ export class Reconnector {
    */
   stop(): void {
     this.stopped = true;
+    this.nudgePending = false;
     this.cancel();
   }
 
