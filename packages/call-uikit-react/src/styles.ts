@@ -34,6 +34,12 @@ export const styles = {
   } satisfies CSSProperties,
 
   title: { fontSize: 16, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } satisfies CSSProperties,
+  /** 可点的标题（会议房号，点一下复制）。按钮的默认样式全清掉，看上去与 [title] 一模一样。 */
+  titleButton: {
+    fontSize: 16, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+    background: 'none', border: 'none', padding: 0, margin: 0, font: 'inherit',
+    color: 'inherit', cursor: 'pointer',
+  } satisfies CSSProperties,
   subtitle: {
     fontSize: 13, color: callColors.fgDim, fontVariantNumeric: 'tabular-nums',
     display: 'flex', gap: 6, justifyContent: 'center', alignItems: 'center',
@@ -178,6 +184,24 @@ export const styles = {
   tileLabel: {
     height: 20, padding: '0 8px', borderRadius: 6, minWidth: 0,
     background: callColors.scrim, fontSize: 12, display: 'flex', gap: 6, alignItems: 'center',
+    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+  } satisfies CSSProperties,
+
+  /*
+   小格子（演讲者视图底部条 84px）换一档更紧的名字牌。
+
+   常规档的固定件要吃掉 12 + 12（两侧留白）+ 8 + 8（气泡内边距）+ 6 + 9（说话图标）= **55px**，
+   84 的格子里留给名字的只剩 29px——连 `carol` 都放不下，每一格都是「ca…」
+   （2026-09-18 真机，三端同病）。紧凑档把固定件压到 28px。
+   **只动留白与字号，不动结构**：说话图标照旧永远占位。
+  */
+  tileBottomRowCompact: {
+    position: 'absolute', left: 4, bottom: 4, right: 4, display: 'flex', gap: 4,
+    alignItems: 'center', pointerEvents: 'none',
+  } satisfies CSSProperties,
+  tileLabelCompact: {
+    height: 16, padding: '0 4px', borderRadius: 5, minWidth: 0,
+    background: callColors.scrim, fontSize: 10, display: 'flex', gap: 3, alignItems: 'center',
     whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
   } satisfies CSSProperties,
 

@@ -74,6 +74,7 @@ export function SpeakerStage({ pinned, others, onUnpin }: SpeakerStageProps): Re
           hasAudio={state.self.micOn}
           showsSpeaking={false}
           avatarSize={28}
+          compact
           {...(state.localCameraCid === '' ? {} : { localCid: state.localCameraCid })}
         />
         {strip.map((p) => (
@@ -89,6 +90,7 @@ export function SpeakerStage({ pinned, others, onUnpin }: SpeakerStageProps): Re
             networkLevel={p.networkLevel}
             layer="l"
             avatarSize={28}
+            compact
           />
         ))}
       </div>

@@ -38,6 +38,13 @@ export interface CallActions {
   toggleCamera: () => Promise<void>;
   /** inviteMore 往群通话里加人；先摆占位格再发帧。 */
   inviteMore: (uids: readonly string[]) => Promise<void>;
+  /**
+   * 把会议房号复制到剪贴板（标题栏点一下）。
+   *
+   * 房号是这一屏里**要报给别人**的那个东西，光显示不够。反馈走 `hint`：
+   * 状态行的一次性提示本来就是这个用途，且会自己到点撤掉。
+   */
+  copyRoomId: () => Promise<void>;
   setMinimized: (minimized: boolean) => void;
   /** setSwapped 互换 1v1 的两块画面。纯本端行为。 */
   setSwapped: (swapped: boolean) => void;
@@ -370,6 +377,17 @@ export function useCallActions({ engine, state, dispatch, cids, gate, endWatchdo
           dispatch({ type: 'inviteRevoked' });
           if (code === ErrorCode.roomFull) dispatch({ type: 'hint', text: '通话已满员（最多 9 人）' });
           else if (code === ErrorCode.notCallOwner) dispatch({ type: 'inviteDenied' });
+        }
+      },
+      copyRoomId: async (): Promise<void> => {
+        const roomId = state.roomId;
+        if (!state.isMeeting || roomId === '') return;
+        try {
+          await navigator.clipboard.writeText(roomId);
+          dispatch({ type: 'hint', text: `已复制房间号 ${roomId}` });
+        } catch {
+          // 非 https / 没授权时剪贴板用不了。**别静默**——房号还在标题上，让用户自己抄。
+          dispatch({ type: 'hint', text: `复制不了，请手动记下房间号 ${roomId}` });
         }
       },
       setMinimized: (minimized): void => dispatch({ type: 'setMinimized', minimized }),

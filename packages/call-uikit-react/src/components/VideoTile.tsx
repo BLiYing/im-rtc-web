@@ -38,6 +38,14 @@ export interface VideoTileProps {
   readonly settled?: SettledOutcome;
   /** 网络质量 0~6；差的时候右下角出橙色角标。 */
   readonly networkLevel?: number;
+  /**
+   * 小格子（演讲者视图底部条）换一档更紧的名字牌：留白与字号都收一档。
+   *
+   * 不然 84px 的格子里名字只剩 29px，连 `carol` 都放不下。
+   * iOS / Android 那边是量到格子边长 < 110 自动换档（`IMGrid.COMPACT_TILE_DP`），
+   * 这里由调用方给——React 侧知道底部条恒是 84px，不必再上 ResizeObserver。
+   */
+  readonly compact?: boolean;
   /** 这个格子要报的层上界（协议 §3.5）。本端预览不用给。 */
   readonly layer?: Layer;
   /** 本端预览的轨道 cid。本端画面**水平镜像**，远端不镜像。 */
@@ -74,7 +82,7 @@ export interface VideoTileProps {
 export const VideoTile = memo(function VideoTile(props: VideoTileProps): ReactNode {
   const {
     uid, label, hasVideo, isVideoPending = false, hasAudio = true, isSpeaking = false, volume = 0,
-    showsSpeaking = true, isRinging = false, settled = '',
+    showsSpeaking = true, isRinging = false, settled = '', compact = false,
     networkLevel = 0, layer, localCid, avatarSize = 44, style, onActivate,
   } = props;
   const { engine } = useCall();
@@ -200,13 +208,13 @@ export const VideoTile = memo(function VideoTile(props: VideoTileProps): ReactNo
         </div>
       )}
       {/* 名字牌 + 静音角标是左下角同一行（styles.tileBottomRow 的注释说明为什么）。 */}
-      <div style={styles.tileBottomRow}>
+      <div style={compact ? styles.tileBottomRowCompact : styles.tileBottomRow}>
         {/*
           说话 / 静音都收进这一个气泡（2026-09-09 改版）：底色恒为 scrim，
           描边与绿名牌一并删掉——留着就是三处同时表达同一件事。
           图标**永远占位**（拍板：留位），名字不会随说话左右跳。
         */}
-        <div style={styles.tileLabel}>
+        <div style={compact ? styles.tileLabelCompact : styles.tileLabel}>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{displayName}</span>
           <SpeechIcon speaking={isSpeaking} muted={!hasAudio} volume={volume}
             showsSpeaking={showsSpeaking} testUid={testUid} />

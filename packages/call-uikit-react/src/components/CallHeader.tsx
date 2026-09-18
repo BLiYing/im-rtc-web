@@ -28,10 +28,17 @@ export interface CallHeaderProps {
    * （`canShowInvite` 明确排除了 `isMeeting`），两颗按钮不会同时出现。
    */
   readonly onMembers?: () => void;
+  /**
+   * 点标题复制房号。**只有会议房给**——1v1 与群通话的标题是人名，复制它没有意义。
+   *
+   * 会议标题写的就是房号（人数在右上角那颗「👥 N」上，不在标题里重复一遍），
+   * 而房号是这一屏里要念给别人听的那个东西，光显示不够。
+   */
+  readonly onTitleClick?: () => void;
 }
 
 export function CallHeader({
-  title, subtitle, networkLevel, onInvite, showsMinimize = true, onMembers,
+  title, subtitle, networkLevel, onInvite, showsMinimize = true, onMembers, onTitleClick,
 }: CallHeaderProps): ReactNode {
   const { state, actions, engine, invite } = useCall();
   /*
@@ -51,7 +58,12 @@ export function CallHeader({
         </button>
       ) : <span />}
       <div style={styles.headerCenter}>
-        <div style={styles.title}>{title}</div>
+        {onTitleClick !== undefined ? (
+          <button type="button" style={styles.titleButton} data-testid="title-copy"
+            aria-label={`${title}，点一下复制房间号`} onClick={onTitleClick}>
+            {title}
+          </button>
+        ) : <div style={styles.title}>{title}</div>}
         <div style={styles.subtitle}>
           <span>{subtitle}</span>
           {networkLevel > 0 && <NetworkBars level={networkLevel} size={13} />}

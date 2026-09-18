@@ -113,6 +113,10 @@ export function ActiveCall(): ReactNode {
             // 收场之后不给「👥 N」：会议已经散了，点开是一张名单在数还没走干净的人。
             ? { onMembers: () => setMembers(true) }
             : {})}
+          {...(state.isMeeting && !bare && state.phase !== 'ended' && state.roomId !== ''
+            // 标题是房号时才可点（复制）。收场之后不给：房间已经散了。
+            ? { onTitleClick: () => { void actions.copyRoomId(); } }
+            : {})}
         />
       </div>
 
@@ -166,8 +170,14 @@ function AudioWithPreview({ state, seconds }: { readonly state: CallViewState; r
   );
 }
 
+/**
+ * 标题：会议写**房号**，群通话写人数（含自己），1v1 写对方 uid。
+ *
+ * 会议不写人数：右上角那颗「👥 N」已经是人数的出处，标题再写一遍是同一个数字的第二处真相。
+ * 房号才是这一屏里**要念给别人听**的那个东西（点一下复制）。
+ */
 function title(state: CallViewState, others: number): string {
-  if (state.isMeeting) return `会议 · ${others + 1} 人`;
+  if (state.isMeeting) return state.roomId === '' ? '会议' : `会议 ${state.roomId}`;
   if (!state.isGroup) return state.peerUid || '通话中';
   return `群通话 · ${others + 1} 人`;
 }
