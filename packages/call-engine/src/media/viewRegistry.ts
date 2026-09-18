@@ -58,7 +58,24 @@ export class ViewRegistry {
     // 音频只记账不进流：它由引擎自己播（见类注释）。记账仍要做——
     // 对账要靠 owners 知道「这条轨道还在不在」。
     if (track.kind !== 'audio') {
-      this.streamOf(uid).addTrack(track);
+      /*
+        **同一个人同一类轨道只留最新那条。**
+
+        会议分页翻走五秒会退订、翻回来重新订阅：`remoteTracks` 里那一条自始至终都在
+        （发布者没停发），所以 `syncRemoteTracks` 的对账扫不到它，而 `ontrack`
+        会送来一个**全新的** `MediaStreamTrack`。不摘旧的就变成流里同时挂着
+        「已经 ended 的旧轨道 + 新轨道」，`<video>` 播的是第一条——
+        **画面定格在最后一帧**（2026-09-18 真机在 iOS / Android 上先撞到，同一个根因）。
+
+        按 kind 摘而不是按 track_id：新旧两条的协议 track_id 是同一个，
+        浏览器给的对象却不是。2.0.0 一个人只有一路摄像头，所以「同类只留一条」成立；
+        将来加屏幕共享要改成按 source 分。
+      */
+      const stream = this.streamOf(uid);
+      for (const existing of stream.getTracks()) {
+        if (existing.kind === track.kind && existing !== track) stream.removeTrack(existing);
+      }
+      stream.addTrack(track);
       this.refresh(uid);
     }
   }

@@ -26,9 +26,9 @@ class FakeStream {
   }
 }
 
-function fakeTrack(id: string): MediaStreamTrack {
-  // 只用到 id；断言也只看 id，所以断言成 MediaStreamTrack 是安全的。
-  return { id } as MediaStreamTrack;
+function fakeTrack(id: string, kind = 'video'): MediaStreamTrack {
+  // 只用到 id 与 kind；断言也只看 id，所以断言成 MediaStreamTrack 是安全的。
+  return { id, kind } as MediaStreamTrack;
 }
 
 function trackIds(stream: MediaStream | undefined): string[] {
@@ -94,14 +94,19 @@ describe('ViewRegistry 的挂载时序', () => {
     expect(trackIds(el.srcObject ?? undefined)).toEqual(['t-1']);
   });
 
-  it('音视频合到同一条流上（浏览器才会同步播放）', () => {
+  /*
+    2.0.0 起**音频不进这条流**：远端声音由引擎自己播（`RemoteAudioPlayer`），
+    `attachView` 只管画面。这条用例原先叫「音视频合到同一条流上」，
+    而它一直在空跑——假轨道没有 `kind`，音频那条分支从没被走到（2026-09-18 补 kind 才暴露）。
+  */
+  it('音频不进画面流：它由引擎自己播', () => {
     const reg = new ViewRegistry();
     const el = { srcObject: null as MediaStream | null };
     reg.attach('alice', el);
-    reg.addTrack('t-a', fakeTrack('t-a'), 'alice');
+    reg.addTrack('t-a', fakeTrack('t-a', 'audio'), 'alice');
     reg.addTrack('t-v', fakeTrack('t-v'), 'alice');
 
-    expect(trackIds(el.srcObject ?? undefined)).toEqual(['t-a', 't-v']);
+    expect(trackIds(el.srcObject ?? undefined)).toEqual(['t-v']);
   });
 
   it('摘轨道只影响那一个人', () => {
@@ -271,6 +276,21 @@ describe('MediaBridge 与状态机对账（syncRemoteTracks）', () => {
     // 拨出中一次 dispatch：房间还是空的，本端预览不能被顺手摘掉。
     bridge.syncRemoteTracks({});
     expect(trackIds(el.srcObject ?? undefined), '自拍小窗不该被房间对账清掉').toEqual(['cam-1']);
+  });
+
+  it('同一个人重新订阅：换成新轨道，不留旧的那条', () => {
+    const views = new ViewRegistry();
+    const first = fakeTrack('cam-old');
+    views.addTrack('t-1', first, 'alice');
+    expect(trackIds(views.streamFor('alice'))).toEqual(['cam-old']);
+
+    /*
+      翻页退订再重订：协议 track_id 还是 t-1，浏览器给的却是新对象。
+      不摘旧的就是「已 ended 的旧轨道 + 新轨道」同在一条流里，
+      <video> 播第一条 —— 画面定格在最后一帧。
+    */
+    views.addTrack('t-1', fakeTrack('cam-new'), 'alice');
+    expect(trackIds(views.streamFor('alice'))).toEqual(['cam-new']);
   });
 });
 
