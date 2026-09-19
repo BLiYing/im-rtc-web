@@ -36,7 +36,7 @@ export class Heartbeat {
 
     this.timer = setInterval(() => {
       this.missed += 1;
-      if (this.missed > MISS_LIMIT) {
+      if (this.missed >= MISS_LIMIT) {
         logger.warn('心跳超时，判定连接已死', { missed: this.missed });
         this.callbacks.onDead();
         return;

@@ -459,7 +459,9 @@ describe('心跳', () => {
     const h = setup();
     await connect(h);
 
-    await vi.advanceTimersByTimeAsync(15_000 * 4);
+    await vi.advanceTimersByTimeAsync(15_000 * 2);
+    expect(h.sockets[0]?.closedWith).toBeNull(); // 第 2 个周期还不该判死
+    await vi.advanceTimersByTimeAsync(15_000);
     // 不带码关（浏览器不许客户端用 1001，1000 又是 logout），并且要自己重连——不等迟迟不来的 close 事件。
     expect(h.sockets[0]?.closedWith).not.toBeNull();
     expect(h.sockets[0]?.closedWith?.code).toBeUndefined();
