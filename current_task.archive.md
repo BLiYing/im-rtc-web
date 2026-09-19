@@ -885,3 +885,50 @@ tokenExpiry 2 + meeting 2 + interactions 2）。第 10、11 条**注入旧实现
   两条路线二选一：`dev.sh` 后台起、日志进 `dev-logs/`（要 `./scripts/dev.sh logs react` 才看得到
   实时输出），换来的是**端口被残留进程占着会自动回收**，不用手动 lsof + kill。
 - 浏览器实测要点：两个标签页各登一个用户并**勾上「合成音视频源」**（Browser 面板里拿不到真麦克风）。
+
+
+## 2026-09-19（快照整理时移出活快照）：09-18～09-17 夜的「当前焦点」与旧「下一步」
+
+> 原文照录，正文未改。
+
+**2026-09-18 晚：回前台 / 网络变化立即重连（五端对齐，未上真浏览器）。** engine 登录后自己听 `visibilitychange` / `online` /
+`navigator.connection`（`browserSignals.ts`），宿主不用写：等着重连的立刻连、退避归零；连着的探 3 s，判死就地收场并立刻重连；两次至少隔 2 s。
+验法：通话中断网再恢复、或把标签页放后台几分钟再切回，控制台看 `系统网络变了` / `App 切到前台` → `计划重连 rule=…立即重连`。状态见 CLIENT_PARITY `[^netchange]`。
+
+**2026-09-18：会议房 M2 真机 / 浏览器验收进行中。M2 的 Engine 与 uikit 两段已在 09-17 夜～09-18 凌晨做完（`389e3af` / `544d4f1`，见 server `docs/design/MEETING_ROOM_DESIGN.md` §7 第 2、5 步）。今天全是联调才暴露的修复，`test.sh` 16 步全绿。**
+
+- **退订再重订之后画面定格**（`1d6fb12`）：M2 第一次让「退订→重订」成为常规动作，
+  协议 `track_id` 不变但媒体层拿到的是**新的轨道对象**，而 `ViewRegistry.addTrack` 只往 uid 的
+  `MediaStream` 上加、不摘已经 `ended` 的那条（退订不会让 `remoteTracks` 少一条，对账扫不到），
+  `<video>` 于是一直播第一条。三端同病。
+  **顺带修了一条一直在空跑的老用例**：`fakeTrack` 没有 `kind`，2.0.0「音频不进画面流」那条分支
+  从没被测到，补上 `kind` 当场变红。
+- **成员列表摄像头图标出界 + 页码压在九宫格上**（`f87913c`）：`sheetRow` 缺 `boxSizing`、
+  页码是 absolute 定位。改成 `flex` 排在网格下方，量尺寸的 ref 从 stage 挪到 grid。
+- **标题栏改成写房号、点一下复制 + 小格子名字牌换紧凑档**（`90d004e`）：人数只留右上角「👥 N」；
+  底部条 84px 的格子里名字只剩 29px，连 `carol` 都放不下，`compact` 由调用方给
+  （React 侧知道底部条恒是 84px，不必上 ResizeObserver）。剪贴板用不了时也要提示，别静默。
+
+**浏览器验过**：翻走 >10 秒再翻回画面恢复且**持续解码**（`getVideoPlaybackQuality` 3 秒 +90 帧，
+每条流只挂一条 `live` 轨道）；新标题栏；成员列表与页码。
+
+**服务端侧与本端相关的一条**（已修，见 server `current_task.md`）：编解码裁剪不幂等，
+Web 发 VP8 而 iOS 发 H.264，一间混着两种端的会议里必然有人永远黑屏。
+
+**待决**：Web 要不要也默认发 H.264（`../im-rtc-server/docs/mechanism/VIDEO_CODECS.md` §5，
+要先实测 `encoderImplementation` 与 CPU）。
+
+**2026-09-17 夜：信令层一次性定时器抽成 `signaling/oneShotTimer.ts`（队列 5 的定时器样板，不导出）**：`Reconnector` / `ResumeDeadline` 改用它；`Heartbeat`（周期）、`TokenExpiryTimer`（注入定时器 + 32 位分段）、`PendingRequests`（按 req 多只）形状不同，没动。行为不变。
+
+**2026-09-17 夜：「调用结果回给调用方」（server `docs/design/ACTION_RESULT_DESIGN.md`，→ 2.0.0）已提交 `7089978`（未推送），code-review 已过。** `test.sh` 16 步全绿。
+- 向量：`act` 步骤新增 `result`，状态机本地拒绝不再 emit `onError`（`MachineOutput.reject`），两个 FSM runner 比对它。
+- `FrameLoop.request`（宿主调用）/ `dispatch`（找不到调用方）分开：直接帧失败 reject 给调用方、不发 `error` 事件；直接帧 `.ok` 落进状态机就结算，连锁帧失败走 `error`（带 `forType`）。退出类（hangup / reject / cancel / leave）失败本地收场。
+- 门面：`call()` 返回 `callId`；`probe*` 不再双发；`setRemoteLayer` / `close*` 永不 reject；`setRemoteLayer` 归 destroy 后 SAFE。`error` 事件加 `forType`。
+- uikit：删 `joinCall` 临时监听与 `subscribeEngine` 的 `error` 订阅；拨号 1409、加人 1202/1407/1409、主动加入从 reject 取码；其余 catch 只留日志。
+- 新测 `test/actionResult.test.ts`（11 个方法 × 四格 + 连锁帧 / 退出类 / 提示类）。
+
+- 09-17 下午用户验收了旧「下一步」1、2：发起人挂断后被叫能在选人页重新邀请、他那边来电页不出现自己的格子；`openMicrophone` / `openCamera` 等四个开关真浏览器点过。
+  旧 3（destroy 对表查出的别端欠账）不在本仓，已挪进 android / ios 的 `current_task.md`。
+- 真机验收后等用户通知发 2.0.0：版本号改 `packages/call-engine/src/version.ts` + 两个 `package.json`，用户在终端 `npm publish`。
+- 真机（Chrome 5179）：`joinCall` 满员 1202 / 已结束 1402 / 宿主拒绝 1409 三种文案；拨号拿到 `callId`；通话中断网再挂断界面收得掉。
+
