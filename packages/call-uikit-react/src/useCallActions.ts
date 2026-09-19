@@ -5,7 +5,9 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 import type { EndAction } from './redButtonWatchdog.js';
 import { RedButtonWatchdog, endActionFor, endWatchdogReason, timerSchedule } from './redButtonWatchdog.js';
+import { BUSY_NOTICE, newCallAllowed } from './state/busy.js';
 import { defaultCameraOn } from './state/callView.js';
+import { showNotice } from './notice.js';
 import { classifyProbeError, devicesFor, devicesForAnswering } from './state/permissions.js';
 import type { CallViewState, ViewAction } from './state/viewTypes.js';
 import type { PermissionGate } from './usePermissionGate.js';
@@ -191,9 +193,22 @@ export function useCallActions({ engine, state, dispatch, cids, gate, endWatchdo
     [engine, dispatch, watchdog],
   );
 
+  /**
+   * 已在一场里：弹提示并返回 true，调用方直接 return（**不改界面、不发帧**）。
+   * 读 `latest` 不读闭包里的 state：拨号面板的点击可能发生在两次渲染之间。
+   */
+  const blockIfBusy = useCallback((text: string = BUSY_NOTICE): boolean => {
+    const phase = latest.current.phase;
+    if (newCallAllowed(phase)) return false;
+    logger.warn('[uikit] 已在通话中，忽略新的一场', { phase });
+    showNotice(text);
+    return true;
+  }, []);
+
   const actions = useMemo<CallActions>(
     () => ({
       placeCall: async (calleeIds, mediaType, options): Promise<void> => {
+        if (blockIfBusy()) return;
         const opts: CallOptions = typeof options === 'boolean' ? { isGroup: options } : (options ?? {});
         const isGroup = opts.isGroup ?? false;
         dispatch({
@@ -217,9 +232,12 @@ export function useCallActions({ engine, state, dispatch, cids, gate, endWatchdo
           */
           logRejected('拨号', err);
           if (codeOf(err) === ErrorCode.inviteDenied) dispatch({ type: 'inviteRejectedByHost' });
+          // 同账号在别的设备上通话：入口守门拦不到，只能靠服务端回 1408。
+          else if (codeOf(err) === ErrorCode.alreadyInCall) showNotice(BUSY_NOTICE);
         }
       },
       joinMeeting: async (roomId, roomToken): Promise<void> => {
+        if (blockIfBusy()) return;
         const gateResult = await gate.ensure(devicesFor('video', true));
         if (gateResult === 'cancelled' || gateResult === 'mic-blocked') return;
         dispatch({ type: 'meetingJoined', roomId, nowMs: Date.now() });
@@ -397,7 +415,7 @@ export function useCallActions({ engine, state, dispatch, cids, gate, endWatchdo
     }),
     // `state` 已经在依赖里：它每次变化（哪怕是与这堆 action 无关的字段）都会换新引用，
     // 下面单独列的 `state.xxx` 子字段完全被它覆盖，列出来只是死代码。
-    [engine, dispatch, cids, gate, publishFor, startPreview, armEnd, state],
+    [engine, dispatch, cids, gate, publishFor, startPreview, armEnd, state, blockIfBusy],
   );
 
   /**
@@ -411,12 +429,7 @@ export function useCallActions({ engine, state, dispatch, cids, gate, endWatchdo
       **已经在一场里就不接，只提示。** engine 只会本地回一个 2005，而下一步就把界面切成「接通中…」——
       放行的话正在进行的那通电话的界面被盖掉、随后收场成「已结束」，人却还在通话里（2026-09-15 代码审查）。
     */
-    const phase = latest.current.phase;
-    if (phase !== 'idle' && phase !== 'ended') {
-      logger.warn('[uikit] 正在通话中，忽略 joinCall', { call_id: callId, phase });
-      dispatch({ type: 'hint', text: '正在通话中，无法加入' });
-      return;
-    }
+    if (blockIfBusy('正在通话中，无法加入')) return;
     dispatch({ type: 'joinCallRequested', callId });
     // 与接听同一道权限门，但只要麦克风：加入之前不知道这通是不是视频，摄像头等用户在通话里再开。
     const gateResult = await gate.ensure(devicesFor('audio', false));
@@ -431,7 +444,7 @@ export function useCallActions({ engine, state, dispatch, cids, gate, endWatchdo
       logger.warn('joinCall 被拒', { call_id: callId, code });
       dispatch({ type: 'joinCallFailed', code });
     }
-  }, [engine, dispatch, gate]);
+  }, [engine, dispatch, gate, blockIfBusy]);
 
   return { actions, publishFor, joinCall };
 }
