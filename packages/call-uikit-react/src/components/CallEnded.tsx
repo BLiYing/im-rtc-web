@@ -8,6 +8,9 @@ import { styles } from '../styles.js';
 /**
  * 结束画面：**只说一句为什么，别的什么都没有。**
  *
+ * 不带标题：以前这里放 `peerUid`，是没经过名字解析的裸 uid；iOS / Android 的结束画面本来就只有原因一句，
+ * 四端对齐（2026-09-20 联测反馈）。
+ *
  * # 为什么不复用 ActiveCall
  *
  * 结束态原先直接走 `ActiveCall`，于是屏幕上会出现「静音 / 关摄像头 / 小窗 / 挂断」
@@ -24,7 +27,6 @@ export function CallEnded(): ReactNode {
   return (
     <div style={styles.overlay} data-testid="call-ended">
       <div style={styles.endedBox}>
-        <div style={styles.title}>{state.peerUid || title(state.isGroup, state.isMeeting)}</div>
         <div style={styles.endedReason}>{text}</div>
       </div>
     </div>
@@ -45,9 +47,4 @@ function endedText(state: CallViewState): string {
   if (state.endHint !== '') return state.endHint;
   if (state.isMeeting) return '已离开会议';
   return endReasonText(state.endReason, state.role, state.endedDurationSec);
-}
-
-function title(isGroup: boolean, isMeeting: boolean): string {
-  if (isMeeting) return '会议';
-  return isGroup ? '群通话' : '通话';
 }
