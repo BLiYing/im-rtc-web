@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 
 import { avatarGradient, avatarInitial } from '../format/avatar.js';
+import { useDisplayName, useParticipantProfile } from '../profile.js';
 import { useCall } from '../useCall.js';
 import { styles } from '../styles.js';
 import { callColors } from '../theme.js';
@@ -14,6 +15,8 @@ import { NetworkBars, isNetworkBad, networkText } from './Icon.js';
  * 类名带 `imrtc-` 前缀，不会撞宿主。
  */
 export interface AudioStageProps {
+  /** 宿主解析用的 uid；缺省不解析（原样显示 `name`）。 */
+  readonly uid?: string;
   readonly name: string;
   readonly status: string;
   readonly isRinging: boolean;
@@ -31,18 +34,27 @@ export interface AudioStageProps {
 }
 
 export function AudioStage({
-  name, status, isRinging, networkLevel, showsCaption = true, children,
+  uid: whoUid = '', name, status, isRinging, networkLevel, showsCaption = true, children,
 }: AudioStageProps): ReactNode {
   const { state } = useCall();
   const uid = state.peerUid || name;
+  /*
+    名字与头像交给宿主解析（见 profile.tsx）。**1v1 呼叫中 / 来电页的大头像也要走这里**，
+    不只是九宫格的格子——否则宿主注入的名字只在格子里生效，最显眼的这一屏还是 uid。
+    没有 ProfileProvider 或解析不到时，`useDisplayName` 原样返回 `name`。
+  */
+  const shownName = useDisplayName(whoUid, name);
+  const photo = useParticipantProfile(whoUid)?.avatarUrl ?? '';
   return (
     <div style={styles.who} data-testid="audio-stage">
       <style>{BREATHE_CSS}</style>
       <div style={{ ...styles.whoAvatar, background: avatarGradient(uid) }}>
         {isRinging && <span className="imrtc-breathe" aria-hidden="true" />}
-        {avatarInitial(name)}
+        {photo === ''
+          ? avatarInitial(shownName)
+          : <img src={photo} alt="" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} data-testid="audio-stage-avatar" />}
       </div>
-      {showsCaption && <div style={styles.whoName}>{name}</div>}
+      {showsCaption && <div style={styles.whoName}>{shownName}</div>}
       {showsCaption && <div style={styles.whoStatus}>{status}</div>}
       {networkLevel > 0 && (
         <span style={{ ...styles.netChip, ...(isNetworkBad(networkLevel) ? { color: callColors.warning } : {}) }} data-testid="net-chip">

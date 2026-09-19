@@ -12,6 +12,7 @@ import { useElementSize } from '../useElementSize.js';
 import { styles } from '../styles.js';
 import { callMotion } from '../theme.js';
 import { AudioStage } from './AudioStage.js';
+import { useDisplayName } from '../profile.js';
 import { CallHeader } from './CallHeader.js';
 import { ControlBar } from './ControlBar.js';
 import { GridStage } from './GridStage.js';
@@ -82,6 +83,8 @@ export function ActiveCall(): ReactNode {
   };
   const layout = pickLayout(state);
   const peer = state.participants[0];
+  // 标题栏的 1v1 对方名字交给宿主解析；群通话 / 会议的标题与宿主无关（uid 传空串 = 不解析）。
+  const headerTitle = useDisplayName(state.isGroup || state.isMeeting ? '' : state.peerUid, title(state, state.participants.length));
   // 只有视频版式藏控制条：语音页、拨出中、九宫格上没有画面需要让出来。
   const hide = useAutoHide(layout === 'video' && state.phase === 'active');
   const incoming = state.phase === 'incoming';
@@ -104,7 +107,7 @@ export function ActiveCall(): ReactNode {
           接通之后才有真正只属于顶栏的信息（对方名字 + 计时器 + 网络条）。
         */}
         <CallHeader
-          title={bare ? '' : title(state, state.participants.length)}
+          title={bare ? '' : headerTitle}
           subtitle={bare ? '' : statusLine(state, seconds)}
           networkLevel={state.isGroup ? 0 : (peer?.networkLevel ?? 0)}
           onInvite={handleInvite}
@@ -144,10 +147,12 @@ function AudioWithPreview({ state, seconds }: { readonly state: CallViewState; r
   const stage = useElementSize<HTMLDivElement>();
   const peer = state.participants[0];
   const showPreview = state.mediaType === 'video' && state.self.cameraOn && state.localCameraCid !== '';
+  const who = (state.phase === 'incoming' ? state.inviterUid : '') || state.peerUid || peer?.uid || '';
   return (
     <div ref={stage.ref} style={{ ...styles.stage, flexDirection: 'column' }}>
       <AudioStage
-        name={(state.phase === 'incoming' ? state.inviterUid : '') || state.peerUid || peer?.uid || '通话中'}
+        uid={who}
+        name={who || '通话中'}
         status={statusLine(state, seconds)}
         isRinging={state.phase === 'outgoing'}
         networkLevel={peer?.networkLevel ?? 0}

@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -131,5 +131,38 @@ describe('宿主身份解析', () => {
     const { resolver } = fakeResolver({ '4820571639': { name: '小明' } });
     await setup(resolver);
     expect(screen.queryByTestId('incoming-avatar')).toBeNull();
+  });
+
+  /*
+    2026-09-19 联调：横幅里名字头像都对，展开成来电页 / 接通后的标题栏却还是 uid——
+    1v1 的大头像页与标题栏各自从 state 里取字符串，没经过解析器。
+  */
+  it('展开成来电页后大头像页也显示宿主给的名字与头像', async () => {
+    const { resolver } = fakeResolver({
+      '4820571639': { name: '明子', avatarUrl: 'https://example.test/a.jpg' },
+    });
+    await setup(resolver);
+    fireEvent.click(screen.getByTestId('incoming-call'));
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+
+    const stage = screen.getByTestId('audio-stage');
+    expect(stage.textContent).toContain('明子');
+    expect(stage.textContent).not.toContain('4820571639');
+    expect(screen.getByTestId('audio-stage-avatar').getAttribute('src')).toBe('https://example.test/a.jpg');
+  });
+
+  it('接通后 1v1 标题栏显示宿主给的名字', async () => {
+    const { resolver } = fakeResolver({ '4820571639': { name: '明子' } });
+    const engine = await setup(resolver);
+    act(() => {
+      engine.emit('callBegin', {
+        callId: 'c-1', roomId: 'r-1', mediaType: 'audio', isGroup: false, role: 'callee',
+        caller: '4820571639', chatGroupId: '', userData: '',
+      });
+      engine.emit('roomJoined', { roomId: 'r-1' });
+    });
+    const active = screen.getByTestId('active-call');
+    expect(active.textContent).toContain('明子');
+    expect(active.textContent).not.toContain('4820571639');
   });
 });
