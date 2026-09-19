@@ -349,3 +349,93 @@ describe('提示类与清理类不 reject（D3）', () => {
     expect(h.errors).toEqual([{ code: ErrorCode.layerUnavailable, forType: 'room.update_layer' }]);
   });
 });
+
+/*
+  **room.publish 没等到应答不算被拒**（2026-09-18 真机：`room.publish` 超时把一通
+  9 秒后就自己恢复了的电话判成 error 结束，对齐 iOS `ActionResultTests.assertPublishReplayedAfterResume`）。
+
+  两条各验一头：会议房里没有 call 兜底，原先超时会被当成 `publish_failed` 悄悄摘掉、
+  不重试、不通知宿主；通话里原先任何失败都直接 forceEnd，把一通接得回来的电话收场。
+  修复前两条都会在「重连后」这一步失败——要么房间/发布记账没了、要么这通电话已经被结束。
+*/
+describe('room.publish 没等到应答：挂起等重连、resume 后重放', () => {
+  /** advanceReconnect 把 fake timer 推过重连退避（首档最多 1.2s），供应答落地。 */
+  async function advanceReconnect(): Promise<void> {
+    await vi.advanceTimersByTimeAsync(1_400);
+    await flush(6);
+  }
+
+  /** resumeSession 在新连接上补一条 hello.ok，resumed 可控。 */
+  function resumeSession(h: Harness, resumed: boolean): void {
+    const hello = h.latest().lastFrame();
+    h.latest().receive(JSON.stringify({
+      type: 'sys.hello.ok', req_id: hello?.req_id ?? '', ts: 1,
+      data: { ...HELLO_OK_DATA, session_id: 's-2', resumed },
+    }));
+  }
+
+  it('会议房：断线不摘发布记账，恢复窗口内重连后原样重发同一条 room.publish', async () => {
+    const h = await setup();
+    await inMeeting(h);
+
+    const publishing = h.engine.publishMicrophone();
+    await flush(4);
+    const sent = h.latest().frames().filter((f) => f.type === 'room.publish').at(-1);
+    const cid = sent?.data['cid'];
+    expect(cid, '应当发出 room.publish').toBeDefined();
+
+    // 请求方拿到的还是 2003——它不知道、也不该关心这一路后来被挂起重放了。
+    h.latest().closeFromServer(1006);
+    await expect(publishing).rejects.toMatchObject({
+      code: ErrorCode.networkUnreachable, forType: 'room.publish',
+    });
+    await flush(6);
+
+    // 修复前：会议房没有 call 兜底，这一路会被 publish_failed 悄悄摘掉，且不重试。
+    expect(h.roomLefts, '会议房不该被断线收场').toEqual([]);
+    expect(h.engine.state.room.state).toBe('reconnecting');
+
+    await advanceReconnect();
+    resumeSession(h, true);
+    await flush(8);
+
+    const replayed = h.latest().frames().filter((f) => f.type === 'room.publish').at(-1);
+    expect(replayed?.data, '恢复后应当原样重发同一个 cid/kind/source').toEqual(sent?.data);
+    expect(h.engine.state.room.state).toBe('joined');
+    expect(h.engine.state.room.publish[cid as string]).toBe('publishing');
+    expect(h.errors).toEqual([]);
+  });
+
+  it('通话中：断线不结束通话，恢复窗口内重连后原样重发同一条 room.publish', async () => {
+    const h = await setup();
+    await inCall(h);
+    expect(h.engine.state.call.state, '要在通话里才测得出「不该被 forceEnd」').not.toBe('idle');
+
+    const publishing = h.engine.publishMicrophone();
+    await flush(4);
+    const sent = h.latest().frames().filter((f) => f.type === 'room.publish').at(-1);
+    const cid = sent?.data['cid'];
+    expect(cid, '应当发出 room.publish').toBeDefined();
+
+    h.latest().closeFromServer(1006);
+    await expect(publishing).rejects.toMatchObject({
+      code: ErrorCode.networkUnreachable, forType: 'room.publish',
+    });
+    await flush(6);
+
+    // 修复前：这里整通电话已经被 forceEnd(reason=error) 收场了。
+    expect(h.callEnds, '通话不该因为一次没等到应答的 publish 被收场').toEqual([]);
+    expect(h.engine.state.call.state).not.toBe('idle');
+
+    await advanceReconnect();
+    resumeSession(h, true);
+    await flush(8);
+
+    const replayed = h.latest().frames().filter((f) => f.type === 'room.publish').at(-1);
+    expect(replayed?.data, '恢复后应当原样重发同一个 cid/kind/source').toEqual(sent?.data);
+    expect(h.engine.state.call.state, '通话全程没被收场').not.toBe('idle');
+    expect(h.engine.state.room.publish[cid as string]).toBe('publishing');
+    expect(h.callEnds).toEqual([]);
+    expect(h.errors).toEqual([]);
+  });
+});

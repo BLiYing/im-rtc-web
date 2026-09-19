@@ -58,14 +58,19 @@ const ROOM_ACTS = new Set([
 /**
  * ROOM_INTERNALS 是**只归房间机**的内部事件。
  *
- * 前四条是帧循环把「房间帧没送到」翻译过来的回滚；最后一条是会议房翻页退订的五秒
+ * 前五条是帧循环把「房间帧没送到」翻译过来的回滚；最后一条是会议房翻页退订的五秒
  * 迟滞到点（`roomPaging.ts`）。**不显式路由的话它们会落到通话机去，被静默丢掉**——
  * 症状分别是「房间永远停在 joining」和「翻走的人五秒后没退订，订阅位一直占着」。
+ *
+ * `publish_deferred`（发布没等到应答、挂起等重连）同样只归房间机——**iOS 那边最初漏了
+ * 把它加进同一张表，事件被静默路由到通话机丢掉，整个「挂起重放」功能从没生效过，
+ * 2026-09-18 才补上**。三端这张表要一起对：Android 的 `roomInternals` 同理。
  */
 const ROOM_INTERNALS = new Set([
   'join_failed',
   'leave_failed',
   'publish_failed',
+  'publish_deferred',
   'subscribe_failed',
   'unsubscribe_hysteresis_elapsed',
 ]);

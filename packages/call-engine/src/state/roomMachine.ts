@@ -170,6 +170,8 @@ function reduceRoomInternal(
         : roomOut(ctx);
     case 'publish_failed':
       return dropFailedPublish(ctx, str(args, 'cid'));
+    case 'publish_deferred':
+      return deferPublish(ctx, args);
     case 'subscribe_failed':
       return dropFailedSubscribe(ctx, str(args, 'track_id'));
     case 'unsubscribe_hysteresis_elapsed':
@@ -182,7 +184,8 @@ function reduceRoomInternal(
 }
 
 /**
- * dropFailedPublish：`room.publish` 被拒（或没送到）时把那条 `publishing` 摘掉（静默失败审计 §A）。
+ * dropFailedPublish：`room.publish` **被服务端拒绝**时把那条 `publishing` 摘掉（静默失败审计 §A）。
+ * 没送到（超时 / 断线）不走这里，走 {@link deferPublish}。
  *
  * 不摘的话它永远停在 `publishing`：`publish.ok` 不会来，pub offer 永远不产出。
  * **通话里走不到这里**——帧循环直接把整通强制收场（reason=error），因为推不上去的那一端
@@ -194,6 +197,38 @@ function dropFailedPublish(ctx: RoomContext, cid: string): MachineOutput<RoomCon
   const publish = { ...ctx.publish };
   delete publish[cid];
   return roomOut({ ...ctx, publish });
+}
+
+/**
+ * deferPublish：`room.publish` **没等到应答**（2003/2004/2007）时把这一路挂起来等重连，而不是丢掉。
+ *
+ * 与 `dropFailedPublish` 的分别只有一条，但这条是根本的：**服务端拒了**是个答复，重试救不回来
+ * （房间没了、重复发布），该收场；**超时/断线**根本不是答复，它只说明「这一问没能送到」，
+ * 而连接回来之后同一问多半就成了。
+ *
+ * 2026-09-18 真机撞的正是后者：18:18:39 `room.publish` 超时 → 整通电话被本端收成
+ * `reason=error`，而**9 秒后连接就回来了、会话也在恢复窗口内 resume 成功**
+ * （服务端 18:18:48「在恢复窗口内重连，取消离房」）。本来能接着打的一通被我们自己判了死刑；
+ * 更糟的是那时挂断帧也发不出去，服务端与对端完全不知道，对面对着一个幽灵坐了 3 分钟。
+ *
+ * 摘掉 `publishing` 之后把同一个意图塞回 `buffered`：`resumeRoom` 回到 `joined` 时
+ * `replayBuffered` 会原路重走一遍（**走 `reduceRoomAct`，不是补发旧帧**，所以状态与帧永远一致）。
+ * 重连一直不成功的话，`resumeDeadline.ts` 那条给恢复窗口上限的倒计时照样会把通话收场，
+ * 这里只是不再抢在它前面下手。
+ *
+ * **只认 `publishing`**：已经 `published` 的迟到超时、或压根没有这条记账的 cid，
+ * 都不碰——不然一条迟到的超时能把已经成功的发布摘掉，恢复后还会重复发布，
+ * 换回服务端一个「重复发布」的拒绝（见一致性向量 `publish_deferred_ignored_unless_publishing`）。
+ */
+function deferPublish(
+  ctx: RoomContext,
+  args: Readonly<Record<string, unknown>>,
+): MachineOutput<RoomContext> {
+  const cid = str(args, 'cid');
+  if (ctx.publish[cid] !== 'publishing') return roomOut(ctx);
+  const publish = { ...ctx.publish };
+  delete publish[cid];
+  return roomOut({ ...ctx, publish, buffered: [...ctx.buffered, { op: 'publish', args }] });
 }
 
 /**

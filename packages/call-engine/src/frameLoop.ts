@@ -39,6 +39,20 @@ const LATE_MEDIA_FRAMES = new Set(['room.ice_candidate', 'room.offer', 'room.ans
 /** SLOW_REQUEST_MS：请求往返超过这么久记一条。正常是几十毫秒。 */
 const SLOW_REQUEST_MS = 2_000;
 
+/**
+ * UNANSWERED_CODES 是「这一问没能送到 / 没等到回话」的那几个码——**不是服务端的答复**。
+ *
+ * 与它们相对的是服务端真回了一个 `sys.error`（1xxx）：那才叫被拒，重试救不回来。
+ * 这三个都只说明本端与服务端此刻不通，而连接回来之后同一问多半就成了，
+ * 所以 `room.publish` 走 `publish_deferred` 挂起等重连，而不是把整通电话收掉
+ * （见 `rollback`）。四端同一张表（iOS 的 `IMFrameLoop+Rollback.unansweredCodes`）。
+ */
+const UNANSWERED_CODES = new Set<number>([
+  ErrorCode.networkUnreachable,
+  ErrorCode.signalingTimeout,
+  ErrorCode.notLoggedIn,
+]);
+
 /** ActInput 是宿主调用触发的那种输入。 */
 export type ActInput = Extract<MachineInput, { kind: 'act' }>;
 
@@ -307,8 +321,9 @@ export class FrameLoop {
       未连接时就是立刻回 `NOT_LOGGED_IN`，本端这个码定义了却一直没人用。）
     */
     if (connection === null) {
-      this.settleFailure(new RtcError(ErrorCode.notLoggedIn, { forType: frame.type }), settlement);
-      await this.rollback(frame);
+      const err = new RtcError(ErrorCode.notLoggedIn, { forType: frame.type });
+      this.settleFailure(err, settlement);
+      await this.rollback(frame, err);
       return;
     }
     const startedMs = Date.now();
@@ -318,8 +333,9 @@ export class FrameLoop {
     } catch (err) {
       noteSlowRequest(frame.type, startedMs, true);
       // 请求失败不该中断整个事件流：交给调用方，找不到调用方就转成 error 事件。
-      this.settleFailure(withForType(err, frame.type), settlement);
-      await this.rollback(frame);
+      const wrapped = withForType(err, frame.type);
+      this.settleFailure(wrapped, settlement);
+      await this.rollback(frame, wrapped);
       return;
     }
     noteSlowRequest(frame.type, startedMs, false);
@@ -357,8 +373,11 @@ export class FrameLoop {
    * 而之后每一个动作都被不变量本地拒成 2005，宿主只看到一串没头没尾的 2005，
    * 真正的原因早淹在上一条 error 里了。四端同一张表（Android 的
    * `IMCallEngine.onRequestFailed`、iOS 的 `IMFrameLoop.sendFrame`）。
+   *
+   * `error` 是这一帧失败的真实原因，只有 `room.publish` 那一支要看它——
+   * 分清「服务端真回了拒绝」与「没等到应答」（见下面 `UNANSWERED_CODES`）。
    */
-  private async rollback(frame: OutgoingFrame): Promise<void> {
+  private async rollback(frame: OutgoingFrame, error: RtcError): Promise<void> {
     const { type } = frame;
     /*
       呼叫 / 接听 / 主动加入被拒都要退回 idle。
@@ -417,10 +436,32 @@ export class FrameLoop {
       原先这张表不认 `room.publish`，那条轨道永远停在 `publishing`：publish.ok 不来 →
       pub offer 永不产出 → 上行从未协商。界面显示已接通、计时器在走、按钮显示没静音，
       **对方全程听不见看不见，零提示**。留在通话里只报错也不够——Kit 并不展示这类错误，
-      而服务端会拒的几种情形（房间已不在、同一路重复发布、请求超时）重试都救不回来。
+      而服务端会拒的几种情形（房间已不在、同一路重复发布）重试都救不回来。
       收场走 forceEnd：挂断帧不排队、callEnd 只抛一次，各端 Kit 本来就认它。
+
+      **但「没等到应答」不算被拒（2026-09-18 改）。** 原先这段把请求超时也算进
+      「重试救不回来」里，真机打了脸：18:18:39 `room.publish` 超时、整通被收成
+      `reason=error`，而**9 秒后连接就回来了、会话也在恢复窗口内 resume 成功**
+      （服务端 18:18:48「在恢复窗口内重连，取消离房」）。本来能接着打的一通被
+      我们自己判了死刑；更糟的是那时挂断帧也发不出去，服务端与对端完全不知道，
+      对面对着一个幽灵坐了 3 分钟才手动挂断。超时不是服务端的答复，只说明
+      「这一问没送到」，挂起来等重连即可（见 `roomMachine.ts` 的 `deferPublish`）。
+      真连不回来的话 `resumeDeadline.ts` 那条给它上限的倒计时照样会把通话收场
+      （走 `session_unrecoverable`），不需要这里抢在它前面下手。
+
+      **会议房同理**（没有通话、只在房里）：原先这一支只对通话开放，会议房的超时
+      落到 `publish_failed`，这一路被悄悄摘掉、不重试、不通知宿主——信令抖一下
+      用户就静音或黑屏。恢复窗口的倒计时是连接层的，不分通话与会议。
     */
     if (type === 'room.publish') {
+      if (UNANSWERED_CODES.has(error.code)) {
+        logger.warn('发布没等到应答，挂起等重连', {
+          [LogField.callId]: this.ctx.call.callId,
+          code: error.code,
+        });
+        await this.dispatch({ kind: 'internal', name: 'publish_deferred', args: frame.data });
+        return;
+      }
       if (this.ctx.call.state !== 'idle') {
         logger.warn('发布被拒，结束本端通话', { [LogField.callId]: this.ctx.call.callId });
         this.forceEnd(Date.now(), CallEndReason.error);

@@ -26,6 +26,8 @@ interface RoomStep {
   act?: { op: string; args?: Record<string, unknown> };
   recv?: { type: string; data: Record<string, unknown> };
   internal?: string;
+  /** `internal` 步骤的参数，可选，缺省当空对象（如 `publish_deferred` 的 cid/kind/source/simulcast）。 */
+  args?: Record<string, unknown>;
   send?: { type: string; data?: Record<string, unknown> }[];
   emit?: { cb: string; args?: Record<string, unknown> }[];
   /** act 被本地拒绝时回给调用方的结果；省略 = 断言没有本地拒绝。 */
@@ -52,7 +54,9 @@ interface RoomVector {
 function toInput(step: RoomStep): MachineInput {
   if (step.act !== undefined) return { kind: 'act', op: step.act.op, args: step.act.args ?? {} };
   if (step.recv !== undefined) return { kind: 'recv', type: step.recv.type, data: step.recv.data };
-  if (step.internal !== undefined) return { kind: 'internal', name: step.internal };
+  if (step.internal !== undefined) {
+    return { kind: 'internal', name: step.internal, args: step.args ?? {} };
+  }
   throw new Error('一步里必须有 act / recv / internal 之一');
 }
 
