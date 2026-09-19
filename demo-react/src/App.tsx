@@ -239,7 +239,7 @@ export function App(): ReactNode {
             </div>
           </div>
           <Dialer server={session.server} token={session.token} deviceId={session.deviceId} uid={session.uid} />
-          <CallHistory server={session.server} token={session.token} uid={session.uid} />
+          <CallHistory uid={session.uid} />
           <Settings settings={settings} onChange={updateSetting}
                     activeProfile={session.videoProfile} deviceId={session.deviceId} />
           <EngineLog />

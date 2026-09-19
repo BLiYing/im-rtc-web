@@ -24,6 +24,8 @@ export interface SessionOptions {
  */
 export class EngineSession {
   private conn: Connection | null = null;
+  /** 当前在用的接入票（含 `updateToken` 换过的）。没登录为空串；给同一身份的 REST 调用用。 */
+  private ticket = '';
   /** 握手拿到的自己的 uid。用来挡「呼叫自己」，也供宿主读。登出不清。 */
   private myUid = '';
   /** 最近一次 hello.ok 喂进状态机的那个 promise，`open()` 要等它。 */
@@ -47,6 +49,11 @@ export class EngineSession {
     return this.myUid;
   }
 
+  /** REST 调用要用的地址与票；没登录返回 `null`。 */
+  get rest(): { url: string; token: string } | null {
+    return this.conn === null || this.ticket === '' ? null : { url: this.options.url, token: this.ticket };
+  }
+
   /** open 建连并完成握手，等状态机吃完 hello.ok 再返回。已有连接时抛 `2005`。 */
   async open(token: string): Promise<HelloOk> {
     if (this.conn !== null) {
@@ -62,6 +69,7 @@ export class EngineSession {
       }),
     );
     this.conn = connection;
+    this.ticket = token;
     this.unwatch = watchBrowserSignals(connection);
     this.bridge.open(mediaEvents(engineMediaDeps(this.wiring())));
 
@@ -75,6 +83,7 @@ export class EngineSession {
       if (this.conn === connection) {
         this.unwatch();
         this.conn = null;
+        this.ticket = '';
       }
       throw err;
     }
@@ -85,6 +94,7 @@ export class EngineSession {
   }
 
   updateToken(token: string, expiresAtMs?: number): void {
+    if (this.conn !== null) this.ticket = token;
     this.conn?.updateToken(token, expiresAtMs);
   }
 
@@ -101,5 +111,6 @@ export class EngineSession {
     this.unwatch();
     this.conn?.close();
     this.conn = null;
+    this.ticket = '';
   }
 }

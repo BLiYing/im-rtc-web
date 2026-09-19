@@ -13,6 +13,13 @@
 
 export { SDK_VERSION } from './version.js';
 
+export type {
+  CallHistoryMember,
+  CallHistoryPage,
+  CallHistoryRecord,
+  FetchCallHistoryOptions,
+} from './callHistory.js';
+
 export {
   ERROR_DEFINITIONS,
   ErrorCode,

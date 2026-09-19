@@ -7,6 +7,8 @@
 
 ## 当前焦点
 
+- **09-19 新增 `engine.fetchCallHistory({limit, cursor})`**（`callHistory.ts`，`GET /v1/calls`，游标翻页，`nextCursor` 为 `null` 即到底，只返回本人）：`callHistory.test.ts` 过、`./scripts/test.sh` 16 步全绿；demo-react 通话记录改成调它（加「加载更多」），`demo/src/api.ts` 里的 `listCalls` / `CallRecord` 已删。**Chrome 里验过**（bob：首页 20 条、点一次追加到 40）。；记录页版式对齐 Android（图标 | 名字+「来电/呼出 · 结果」| 时间），时间走 `historyTime.ts`（今天 `HH:mm` / `昨天 HH:mm` / `M月d日 HH:mm` / `yyyy年M月d日 HH:mm`，8 条用例 `historyTime.test.ts` 过，Chrome 里看过版式）。
+
 **2026-09-19：两处「判死 / 挂起」缺陷修完，真浏览器已验（Chrome × PKD130，`delay` + `silence` 注入），已推送。**
 - **发布没等到应答不再判死**（`fdd9ebd`）：`room.publish` 报 2003 / 2004 / 2007 时，通话与会议房都发 `publish_deferred`，挂起等重连、恢复后原样补发（对齐 iOS）；服务端真拒仍按 R4 收场。向量 runner 支持 internal `args`。
 - **判死从来没关掉过连接**（`deb7288`）：心跳 / 探测判死调 `close(1001)`，浏览器只认 1000 或 3000–4999，每次抛 `InvalidAccessError`，连接没关也不重连，只能等服务端读超时。

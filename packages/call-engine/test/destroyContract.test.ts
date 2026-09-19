@@ -37,6 +37,7 @@ const THROWS: Readonly<Record<string, Call>> = {
   publishCamera: (e) => e.publishCamera(),
   openCamera: (e) => e.openCamera(),
   setMuted: (e) => e.setMuted('mic-1', true),
+  fetchCallHistory: (e) => e.fetchCallHistory(),
 };
 
 const SAFE: Readonly<Record<string, Call>> = {

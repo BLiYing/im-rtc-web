@@ -1,3 +1,5 @@
+import type { CallHistoryPage, FetchCallHistoryOptions } from './callHistory.js';
+import { fetchCallHistory } from './callHistory.js';
 import { emitLocallyRejectedCall, rejectsBadCallOptions, rejectsSelf } from './callGuards.js';
 import type { CallOptions } from './callOptions.js';
 import { toCallRequest } from './callOptions.js';
@@ -170,6 +172,22 @@ export class CallEngine {
    */
   updateToken(token: string, expiresAtMs?: number): void {
     this.session.updateToken(token, expiresAtMs);
+  }
+
+  /**
+   * fetchCallHistory 查自己的通话记录，按发起时间倒序，**游标翻页**。
+   *
+   * **必须已登录**（用登录那枚票），否则 reject `2007`；票被拒 `1101`；网络不通 `2003`。
+   * 返回的 `nextCursor` 为 `null` 表示已到底，否则传给下一次的 `cursor`。
+   * 服务端只返回本人参与过的通话，所以没有 `uid` 参数。宿主也可以不用它，自己拿 `callEnd` 存。
+   */
+  async fetchCallHistory(options?: FetchCallHistoryOptions): Promise<CallHistoryPage> {
+    this.assertNotDestroyed();
+    const rest = this.session.rest;
+    if (rest === null) {
+      throw new RtcError(ErrorCode.notLoggedIn, { cause: new Error('fetchCallHistory：请先 login') });
+    }
+    return fetchCallHistory(rest.url, rest.token, options);
   }
 
   /**

@@ -29,6 +29,15 @@
       th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #eef1f5; }
       th { color: #5b6472; font-weight: 600; }
       .muted { color: #8b95a3; }
+      /* 通话记录：与 Android Demo 同一个版式——图标 | 两行文字 | 时间，行间细线。 */
+      .history-row { display: flex; align-items: center; gap: 8px; padding: 12px 0; }
+      .history-row + .history-row { border-top: 1px solid #eef1f5; }
+      .history-icon { flex: 0 0 36px; font-size: 20px; }
+      .history-main { flex: 1; min-width: 0; }
+      .history-name { font-size: 16px; font-weight: 700; }
+      .history-name.missed { color: #e5484d; }
+      .history-sub { font-size: 13px; color: #8b95a3; }
+      .history-time { flex: 0 0 auto; font-size: 13px; color: #8b95a3; white-space: nowrap; }
       /* 群呼选人：一排可勾的名字（多选）。到上限的那些置灰，而不是点了没反应。 */
       .picks { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 10px; }
       .pick { background: #eef1f5; color: #14181f; padding: 6px 12px; font-size: 13px; }
