@@ -75,7 +75,7 @@ export class Connection {
     this.token = options.token;
     this.heartbeat = new Heartbeat({
       sendPing: (): void => this.sendPing(),
-      onDead: (): void => this.ws?.close(CloseCode.goingAway, 'heartbeat timeout'),
+      onDead: (): void => this.abandonSocket('heartbeat timeout'),
     });
     this.pending = new PendingRequests(options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS);
     this.tokenExpiry = new TokenExpiryTimer({
@@ -135,6 +135,7 @@ export class Connection {
       throw new RtcError(ErrorCode.invalidState, { cause: new Error('已经连上了') });
     }
     this.state = this.sessionId === '' ? 'connecting' : 'reconnecting';
+    this.retireStaleSocket();
     const socket = this.options.webSocketFactory(this.options.url);
     this.ws = socket;
 
@@ -142,7 +143,11 @@ export class Connection {
       socket.onopen = (): void => resolve();
       socket.onerror = (): void =>
         reject(new RtcError(ErrorCode.networkUnreachable, { cause: new Error('WebSocket 打开失败') }));
-      socket.onclose = (event): void => this.handleClose(event);
+      // **只认当前这条 socket 的关闭事件**：旧的迟到了就丢掉，否则会把新连接当成断了（见 retireStaleSocket）。
+      socket.onclose = (event): void => {
+        if (this.ws === socket) this.handleClose(event);
+        else logger.debug('丢弃旧 socket 的关闭事件', { code: event.code });
+      };
     });
 
     socket.onmessage = (event): void => this.handleMessage(event.data);
@@ -453,18 +458,46 @@ export class Connection {
   }
 
   /**
-   * dropDeadSocket 探测判死：**就地收场**，不等浏览器回 close 事件——
-   * 死掉的 TCP 上关闭握手没人应，close 事件可能要等很久才来。先摘掉旧 socket 的回调，免得迟到的事件再收一次场。
+   * retireStaleSocket 在换新 socket 之前，把上一条还挂着的摘掉回调、关掉。
+   *
+   * 走到这里还有旧 socket，只可能是握手没成（超时）却没人关它：它一直开着，
+   * 等服务端「接管会话」时才被关，那个迟到的关闭事件曾把新连接当成断了——`ws` 被清空、
+   * 新 socket 上在飞的 hello 被拒成 2003，又排一轮重连，如此循环（2026-09-19 真机）。
+   * 不带码关，理由同 abandonSocket。
    */
+  private retireStaleSocket(): void {
+    const stale = this.ws;
+    if (stale === null) return;
+    this.ws = null;
+    stale.onclose = null;
+    stale.onmessage = null;
+    stale.close();
+  }
+
+  /** dropDeadSocket 探测判死：就地收场，并且这一次重连不走退避（见 abandonSocket）。 */
   private dropDeadSocket(why: string): void {
+    if (this.ws === null || this.state !== 'connected') return;
+    this.reconnector.markNudgePending();
+    this.abandonSocket(why);
+  }
+
+  /**
+   * abandonSocket 判死（心跳超时 / 探测超时）之后**就地收场**，不等浏览器回 close 事件——
+   * 死掉的 TCP 上关闭握手没人应，close 事件可能要等很久才来。先摘掉旧 socket 的回调，免得迟到的事件再收一次场。
+   *
+   * **`close()` 不带关闭码**：浏览器只许客户端用 1000 或 3000–4999，原先传的 1001 每次都抛
+   * InvalidAccessError，连接根本没关、也不重连，只能等服务端读超时（2026-09-19 真机）。
+   * 1000 又不行——协议里那是 logout，服务端当场结束会话。不带码时线上是 1005，服务端按掉线处理、留恢复窗口。
+   * 本地收场仍按 1001 走：这里的码只驱动重连判断，不上线路。
+   */
+  private abandonSocket(why: string): void {
     const socket = this.ws;
-    if (socket === null || this.state !== 'connected') return;
+    if (socket === null) return;
     logger.warn('旧连接判死', { why });
     socket.onclose = null;
     socket.onmessage = null;
-    socket.close(CloseCode.goingAway, 'probe timeout');
-    this.reconnector.markNudgePending();
-    this.handleClose({ code: CloseCode.goingAway, reason: 'probe timeout' });
+    socket.close();
+    this.handleClose({ code: CloseCode.goingAway, reason: why });
   }
 
   /** sendPing 发一个心跳帧。连接不可用时静默跳过——心跳失败自有判死逻辑接手。 */

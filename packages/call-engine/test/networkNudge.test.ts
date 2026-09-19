@@ -107,7 +107,8 @@ describe('回前台 / 网络变化立即重连', () => {
     expect(ws.closedWith).toBeNull();
 
     await vi.advanceTimersByTimeAsync(1);
-    expect(ws.closedWith?.code).toBe(CloseCode.goingAway);
+    expect(ws.closedWith).not.toBeNull();
+    expect(ws.closedWith?.code).toBeUndefined(); // 浏览器不许客户端用 1001，见 Connection.abandonSocket
     expect(disconnects).toEqual([CloseCode.goingAway]);
     await vi.advanceTimersByTimeAsync(1); // setTimeout(0) 在计时器里按 1ms 算
     expect(sockets.length).toBe(2);

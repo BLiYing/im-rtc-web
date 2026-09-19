@@ -16,18 +16,29 @@ export class FakeWebSocket implements WebSocketLike {
   onerror: ((event: unknown) => void) | null = null;
   onmessage: ((event: { data: unknown }) => void) | null = null;
 
-  /** closedWith 记下本端主动关闭时用的码，供断言。 */
-  closedWith: { code: number; reason: string } | null = null;
+  /** closedWith 记下本端主动关闭时用的码，供断言。`code` 为 undefined = 不带状态码关闭（线上是 1005）。 */
+  closedWith: { code: number | undefined; reason: string } | null = null;
 
   send(data: string): void {
     this.sent.push(data);
   }
 
+  /**
+   * **照浏览器的规矩校验关闭码**：客户端只许用 1000 或 3000–4999，别的一律抛 InvalidAccessError。
+   * 原先这里什么码都收，于是 `close(1001)` 在单测里一路绿，到了真浏览器里每次都抛——
+   * 心跳 / 探测判死从来没真正关掉过连接（2026-09-19 真机）。
+   */
   close(code?: number, reason?: string): void {
+    if (code !== undefined && code !== 1000 && (code < 3000 || code > 4999)) {
+      throw new DOMException(
+        `Failed to execute 'close' on 'WebSocket': The close code must be either 1000, or between 3000 and 4999. ${code} is neither.`,
+        'InvalidAccessError',
+      );
+    }
     if (this.readyState === 3) return;
     this.readyState = 3;
-    this.closedWith = { code: code ?? 1000, reason: reason ?? '' };
-    this.onclose?.({ code: code ?? 1000, reason: reason ?? '' });
+    this.closedWith = { code, reason: reason ?? '' };
+    this.onclose?.({ code: code ?? 1005, reason: reason ?? '' });
   }
 
   /** open 模拟连接建立。 */

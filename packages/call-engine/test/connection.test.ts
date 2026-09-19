@@ -228,6 +228,41 @@ describe('握手被拒（retryable=false）一次就放弃', () => {
   });
 
   /**
+   * 握手超时的那条 socket **要关掉、它迟到的关闭事件要丢掉**（2026-09-19 真机）。
+   *
+   * 原先它一直开着、onclose 也还挂着：下一次重连换上新 socket 之后，服务端「接管会话」
+   * 顺手关掉旧连接，这个关闭事件被当成**新连接**断了——`ws` 被清空、新 socket 上在飞的
+   * hello 被拒成 2003，又排一轮重连，如此循环；最后补发的发布撞上乱掉的状态，整通电话被收掉。
+   */
+  it('握手超时那条 socket 的迟到关闭事件，不许打断下一次重连', async () => {
+    const h = setup();
+    await connect(h);
+    h.latest().closeFromServer(CloseCode.goingAway, 'restart');
+    await flush();
+    for (let i = 0; i < 20 && h.sockets.length < 2; i++) await vi.advanceTimersByTimeAsync(500);
+    const timedOut = h.latest();
+    // 这一次的 hello 没人应答，等到请求超时，再等下一次重连起新 socket。
+    for (let i = 0; i < 40 && h.sockets.length < 3; i++) await vi.advanceTimersByTimeAsync(500);
+    expect(h.sockets.length).toBe(3);
+    const fresh = h.latest();
+    expect(timedOut.closedWith).not.toBeNull(); // 换 socket 之前先把旧的关掉，不留孤儿连接
+    const disconnectsBefore = h.events.disconnects.length;
+
+    // 服务端接管会话、关掉旧连接——这条关闭事件迟到了。
+    timedOut.onclose?.({ code: 1000, reason: 'taken over' });
+    await flush();
+    expect(h.events.disconnects.length).toBe(disconnectsBefore);
+
+    const hello = fresh.lastFrame();
+    expect(hello?.type).toBe('sys.hello');
+    fresh.receive(
+      JSON.stringify({ type: 'sys.hello.ok', req_id: hello?.req_id, ts: 1, data: { ...HELLO_OK_DATA, resumed: true } }),
+    );
+    await flush();
+    expect(h.conn.currentState).toBe('connected');
+  });
+
+  /**
    * 三类分流：**不可重试 ≠ 参数不对**，三者的处置完全不同。
    *
    * 合成一类就是给宿主一条错的建议：1101 明明换一枚票就能好，报成 configRejected
@@ -425,7 +460,11 @@ describe('心跳', () => {
     await connect(h);
 
     await vi.advanceTimersByTimeAsync(15_000 * 4);
-    expect(h.sockets[0]?.closedWith?.code).toBe(CloseCode.goingAway);
+    // 不带码关（浏览器不许客户端用 1001，1000 又是 logout），并且要自己重连——不等迟迟不来的 close 事件。
+    expect(h.sockets[0]?.closedWith).not.toBeNull();
+    expect(h.sockets[0]?.closedWith?.code).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(h.sockets.length).toBe(2);
   });
 
   it('收到任何帧都算活着 —— 不只是 pong', async () => {
