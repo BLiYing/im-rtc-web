@@ -30,6 +30,18 @@
 | [current_task.md](current_task.md) | 当前进度活快照 |
 | 协议契约 | 在 [im-rtc-server](https://github.com/BLiYing/im-rtc-server) 的 `docs/RTC_PROTOCOL.md`，本仓只读引用 |
 
+## 没有后台时联调
+
+宿主还没有后端签票接口时，可以用 engine 导出的 `generateDebugToken` 在**浏览器里本地签一张票**（调试密钥，`kid` 以 `dbg-` 开头，控制台创建）：
+
+```ts
+import { generateDebugToken } from 'im-rtc-call-engine';
+
+const token = await generateDebugToken({ appId, keyId: 'dbg-1', secret, uid, deviceId });
+```
+
+**这只是联调用**：密钥进了客户端就等于公开，每次调用都会打警告日志。**上线必须换成宿主后端签票（`POST /v1/tokens`）**，并删掉客户端里的密钥。设计与规则见 `im-rtc-server/docs/design/DEBUG_KEY_DESIGN.md` §4；`crypto.subtle` 只在 HTTPS / localhost 可用。
+
 ## 开发
 
 ```bash

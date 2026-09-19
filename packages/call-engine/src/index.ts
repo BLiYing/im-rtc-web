@@ -13,6 +13,9 @@
 
 export { SDK_VERSION } from './version.js';
 
+export { generateDebugToken } from './debugToken.js';
+export type { DebugTokenParams } from './debugToken.js';
+
 export type {
   CallHistoryMember,
   CallHistoryPage,
