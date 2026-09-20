@@ -32,3 +32,6 @@ yarn-error.log*
 
 # scripts/pack-sdk.sh 的产物（本地打的包 / 从 registry 装的包），不进版本库
 .sdk-release/
+
+# 验证自检脚本的一次性变体（temp_verify_*.py）：本机用，不进版本库；temp_verify.py 本体按约定入库
+temp_verify_*.py
