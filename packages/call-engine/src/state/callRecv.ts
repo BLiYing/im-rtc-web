@@ -191,6 +191,8 @@ function handleIncoming(
         inviter,
         // **原样带上**：群通话里被叫要靠它摆占位格（见 events.ts 的字段注释）。
         callee_ids: strArray(data, 'callee_ids'),
+        // 此刻已在通话里的人；旧服务端不带 = 空，界面回落成「只有 caller 在通话里」。
+        joined_ids: strArray(data, 'joined_ids'),
         media_type: mediaType,
         is_group: next.isGroup,
         chat_group_id: next.chatGroupId,

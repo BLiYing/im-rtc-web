@@ -345,4 +345,29 @@ describe('ringtoneFor：此刻该响哪种提示音', () => {
       expect(ringtoneFor(state, false)).toBe('none');
     }
   });
+
+  it('来电展开页：已在通话里的人是正常格子，只有还在响铃的是占位格', () => {
+    const state = reduceCallView(initialCallView, {
+      type: 'callReceived', callId: 'c', caller: 'alice', inviter: 'bob', selfUid: 'dave',
+      calleeIds: ['bob', 'carol'], joinedIds: ['alice', 'bob'], mediaType: 'audio', isGroup: true,
+      chatGroupId: '', userData: '',
+    });
+    expect(Object.fromEntries(state.participants.map((p) => [p.uid, p.hasAccepted])))
+      .toEqual({ alice: true, bob: true, carol: false });
+    // 旧服务端不带 joined_ids：回落成只有发起人在通话里。
+    const old = reduceCallView(initialCallView, {
+      type: 'callReceived', callId: 'c', caller: 'alice', calleeIds: ['bob'], mediaType: 'audio', isGroup: true,
+      chatGroupId: '', userData: '',
+    });
+    expect(old.participants.map((p) => p.hasAccepted)).toEqual([true, false]);
+  });
+
+  it('进房快照：响铃阶段离场的人格子要收掉，还在响铃的留着', () => {
+    const ringing = reduceCallView(initialCallView, {
+      type: 'callReceived', callId: 'c', caller: 'alice', calleeIds: ['bob', 'carol'], joinedIds: ['alice', 'bob'],
+      mediaType: 'audio', isGroup: true, chatGroupId: '', userData: '',
+    });
+    const state = reduceCallView(ringing, { type: 'roomSnapshot', uids: ['alice'] });
+    expect(state.participants.map((p) => p.uid)).toEqual(['alice', 'carol']);
+  });
 });

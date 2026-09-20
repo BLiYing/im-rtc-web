@@ -238,6 +238,8 @@ export type ViewAction =
       readonly inviter?: string;
       /** 这通电话邀了谁，**已去掉自己**。群通话靠它摆占位格。 */
       readonly calleeIds: readonly string[];
+      /** 此刻已在通话里的人（已去掉自己）；不传 / 空 = 只有 `caller` 在通话里。 */
+      readonly joinedIds?: readonly string[];
       readonly mediaType: MediaType; readonly isGroup: boolean;
       readonly chatGroupId: string; readonly userData: string }
   | { readonly type: 'callPlaced'; readonly calleeIds: readonly string[];
@@ -279,6 +281,8 @@ export type ViewAction =
   | { readonly type: 'inviteRejectedByHost' }
   | { readonly type: 'meetingJoined'; readonly roomId: string; readonly nowMs: number }
   | { readonly type: 'roomLeft' }
+  /** 进房快照：已接听却不在快照里的人是响铃阶段离场的，收掉格子；还在响铃的占位格不归它管。 */
+  | { readonly type: 'roomSnapshot'; readonly uids: readonly string[] }
   | { readonly type: 'mediaReady' }
   | { readonly type: 'connection'; readonly status: ConnectionStatus }
   | { readonly type: 'userEnter'; readonly uid: string }

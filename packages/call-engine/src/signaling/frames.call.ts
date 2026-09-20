@@ -70,7 +70,15 @@ export const INCOMING_FIELDS = {
   callId: { kind: 'string', wire: 'call_id' },
   roomId: { kind: 'string', wire: 'room_id' },
   caller: { kind: 'string', wire: 'caller' },
+  /**
+   * 这次邀请是谁发的：首次邀请 = 主叫，`call.invite_more` 加进来的人 = 发那条加人请求的成员。
+   * **必须列在这里**：帧解码只认表里的字段，漏了它服务端发来的 inviter 会被丢掉，
+   * 引擎回落成 caller，被加进来的人看到的就永远是发起人（2026-09-20 联测发现）。
+   */
+  inviter: { kind: 'string', wire: 'inviter' },
   calleeIds: { kind: 'stringArray', wire: 'callee_ids' },
+  /** 此刻已在通话里的人（不含收件人）。同样必须列在这里，否则被丢掉，展开页把已在通话的人画成「呼叫中…」。 */
+  joinedIds: { kind: 'stringArray', wire: 'joined_ids' },
   mediaType: { kind: 'enum', wire: 'media_type', values: MEDIA_TYPES, fallback: 'audio' },
   isGroup: { kind: 'bool', wire: 'is_group' },
   timeoutSec: {

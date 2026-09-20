@@ -97,7 +97,9 @@ function handleJoinOk(
   ctx: RoomContext,
   data: Readonly<Record<string, unknown>>,
 ): MachineOutput<RoomContext> {
-  const emit: EmittedEvent[] = [{ cb: 'onRoomJoined', args: { room_id: str(data, 'room_id') } }];
+  // uids = 进房这一刻房里已有的人（快照）。界面靠它对账：响铃阶段不在房里的人，中途离场收不到 userLeave。
+  const present = asArray(data['participants']).map((p) => str(p, 'uid'));
+  const emit: EmittedEvent[] = [{ cb: 'onRoomJoined', args: { room_id: str(data, 'room_id'), uids: present } }];
   const remoteTracks: Record<string, RemoteTrack> = { ...ctx.remoteTracks };
   const subscribe: Record<string, SubscribeState> = { ...ctx.subscribe };
 

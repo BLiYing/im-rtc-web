@@ -27,6 +27,17 @@ export type {
  * 输入全部来自 `events.ts` 那张表（= 设计文档 §7.5）。uikit 不是特权组件，
  * 没有私有通道——**缺信息就补回调表，不开后门**。
  */
+/*
+  来电展开页的格子：已在通话里的人（joinedIds）是正常格子，其余 callee 才是「呼叫中…」占位格。
+  旧服务端不带 joined_ids：回落成只有发起人在通话里。
+  离场后被重新邀请回来的发起人收到的 caller 就是他自己：「自己」不是远端成员，不摆格子。
+*/
+function incomingParticipants(action: Extract<ViewAction, { type: 'callReceived' }>) {
+  const joined = action.joinedIds?.length ? action.joinedIds : [action.caller];
+  const uids = [...new Set([...joined, ...action.calleeIds])].filter((uid) => uid !== action.selfUid);
+  return uids.map((uid) => newParticipant(uid, joined.includes(uid)));
+}
+
 export function reduceCallView(state: CallViewState, action: ViewAction): CallViewState {
   switch (action.type) {
     case 'callReceived':
@@ -46,11 +57,7 @@ export function reduceCallView(state: CallViewState, action: ViewAction): CallVi
           不摆的话群通话在两侧长得不一样：主叫看到四格（含没接的），被叫只看到两格。
           `calleeIds` 里已经由 subscribeEngine 去掉了自己。
         */
-        participants: [
-          // 离场后被重新邀请回来的发起人收到的 caller 就是他自己：「自己」不是远端成员，不摆格子。
-          ...(action.caller === action.selfUid ? [] : [newParticipant(action.caller, true)]),
-          ...action.calleeIds.filter((uid) => uid !== action.caller).map((uid) => newParticipant(uid, false)),
-        ],
+        participants: incomingParticipants(action),
         self: { ...initialCallView.self, cameraOn: defaultCameraOn(action.mediaType, action.isGroup) },
         connection: state.connection,
         chatGroupId: action.chatGroupId,
@@ -143,6 +150,11 @@ export function reduceCallView(state: CallViewState, action: ViewAction): CallVi
       return state.phase === 'idle' || state.phase === 'ended'
         ? state
         : { ...state, phase: 'ended', isMinimized: false };
+
+    case 'roomSnapshot':
+      // 只有被叫需要：他响铃时不在房里、名单靠来电帧摆的；主叫一路收着裁决帧，无需对账（还免得刚接听的人闪一下）。
+      if (state.role !== 'callee') return state;
+      return { ...state, participants: state.participants.filter((p) => !p.hasAccepted || action.uids.includes(p.uid)) };
 
     case 'mediaReady': {
       const ready = { ...state, isMediaReady: true };

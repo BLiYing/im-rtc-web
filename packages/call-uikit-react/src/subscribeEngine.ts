@@ -16,6 +16,7 @@ export function subscribeEngine(engine: CallEngine, dispatch: (action: ViewActio
       // 名单里含自己，摆格子之前先去掉——「自己」不是远端成员。
       dispatch({ type: 'callReceived', callId: e.callId, caller: e.caller, inviter: e.inviter, selfUid: engine.uid,
         calleeIds: e.calleeIds.filter((uid) => uid !== engine.uid),
+        joinedIds: (e.joinedIds ?? []).filter((uid) => uid !== engine.uid),
         mediaType: e.mediaType, isGroup: e.isGroup,
         chatGroupId: e.chatGroupId, userData: e.userData })),
     engine.on('callBegin', (e) =>
@@ -58,7 +59,10 @@ export function subscribeEngine(engine: CallEngine, dispatch: (action: ViewActio
       // 对端开摄像头后新画面上屏，揭开他的格子（见 RemoteParticipant.isVideoPending）。
       dispatch({ type: 'videoRevealed', uid: e.uid });
     }),
-    engine.on('roomJoined', () => dispatch({ type: 'mediaReady' })),
+    engine.on('roomJoined', (e) => {
+      if (e.uids) dispatch({ type: 'roomSnapshot', uids: e.uids }); // 老引擎不带快照就不对账
+      dispatch({ type: 'mediaReady' });
+    }),
     /*
       会议的收尾。**必须订阅这两个**，否则离房成功了界面还挂在那儿——
       会议没有 `callEnd`（那是振铃通话的出口），漏掉这两条就等于没有出口。

@@ -79,6 +79,11 @@ export interface EngineEvents {
      * 被叫这边只有两格，同一通电话两种样子。
      */
     calleeIds: string[];
+    /**
+     * **此刻已经在通话里的人**（不含自己；发起人没离场就在里面）。展开页据此把他们摆成正常格子，
+     * `calleeIds` 里不在其中的才是「呼叫中…」。旧服务端不带 = 空数组，回落成只有 `caller` 在通话里。
+     */
+    joinedIds: string[];
     mediaType: MediaType;
     isGroup: boolean;
     /** 宿主自己的群号，`call()` 的选项里没给就是空串（HOST_INTEGRATION_DESIGN §3.2）。 */
@@ -159,7 +164,11 @@ export interface EngineEvents {
   remoteTrack: { trackId: string; track: MediaStreamTrack };
 
   // ── 房间 ────────────────────────────────────────────────
-  roomJoined: { roomId: string };
+  /**
+   * 进房成功（会议与通话都抛）。`uids` 是进房这一刻房里已有的人（快照，不含自己），之后进出的人走
+   * `userEnter` / `userLeave`。**响铃阶段就摆好的成员名单要拿它对账**：那段时间不在房里，别人离场收不到通知。
+   */
+  roomJoined: { roomId: string; uids: string[] };
   roomLeft: { roomId: string };
   roomClosed: { roomId: string; reason: string };
 }
