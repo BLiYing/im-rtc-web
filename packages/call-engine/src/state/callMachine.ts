@@ -53,6 +53,13 @@ export interface CallContext {
    */
   readonly chatGroupId: string;
   readonly userData: string;
+  /**
+   * 发起人 uid：被叫来自 `call.incoming` / `call.connected`；主叫在自己那端不记（自己就是）。
+   * 只为 `callSummary` 记下，状态机不据它做决定。
+   */
+  readonly callerUid: string;
+  /** 1v1 的对端 uid（主叫 = 被叫，被叫 = 主叫）；群通话为空。同样只为 `callSummary` 记下。 */
+  readonly peerUid: string;
 }
 
 /** initialCallContext 是 idle 态的初值。 */
@@ -68,6 +75,8 @@ export const initialCallContext: CallContext = {
   cancelPending: false,
   chatGroupId: '',
   userData: '',
+  callerUid: '',
+  peerUid: '',
 };
 
 
@@ -181,7 +190,16 @@ function startCall(
   if (Object.hasOwn(args, 'timeout_sec')) data['timeout_sec'] = num(args, 'timeout_sec');
 
   return out(
-    { ...ctx, state: 'inviting', role: 'caller', mediaType, isGroup, chatGroupId, userData },
+    {
+      ...ctx,
+      state: 'inviting',
+      role: 'caller',
+      mediaType,
+      isGroup,
+      chatGroupId,
+      userData,
+      peerUid: isGroup ? '' : (calleeIds[0] ?? ''),
+    },
     [{ type: FrameType.callInvite, data }],
   );
 }

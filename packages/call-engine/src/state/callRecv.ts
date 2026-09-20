@@ -181,6 +181,8 @@ function handleIncoming(
     // call.connected 自己带的值，这里存的是万一它为空时的回落。
     chatGroupId: str(data, 'chat_group_id'),
     userData: str(data, 'user_data'),
+    callerUid: caller,
+    peerUid: bool(data, 'is_group') ? '' : caller,
   };
   return out(next, [], [
     {
@@ -233,6 +235,7 @@ function handleConnected(
     connectedAtMs: num(data, 'connected_at_ms'),
     chatGroupId,
     userData,
+    callerUid: str(data, 'caller') || ctx.callerUid,
   };
   return out(
     next,

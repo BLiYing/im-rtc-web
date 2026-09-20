@@ -20,7 +20,7 @@ interface LogLine {
  */
 const WATCHED: EngineEventName[] = [
   'error', 'connected', 'disconnected', 'kickedOut',
-  'callReceived', 'callBegin', 'callEnd',
+  'callReceived', 'callBegin', 'callEnd', 'callSummary',
   'callCancelled', 'callRejected', 'callBusy', 'callNoAnswer', 'handledOnOtherDevice',
   'roomJoined', 'roomLeft', 'roomClosed',
   'userEnter', 'userLeave', 'userRinging', 'userAccept', 'userReject', 'userNoResponse',

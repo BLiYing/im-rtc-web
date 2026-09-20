@@ -11,6 +11,7 @@ import { toFrameProps } from './signaling/caseMapping.js';
 import type { Connection } from './signaling/connection.js';
 import type { FrameSender } from './signaling/frameSender.js';
 import { lookupFrame } from './signaling/registry.js';
+import type { CallContext } from './state/callMachine.js';
 import type { EngineContext } from './state/engineMachine.js';
 import { initialEngineContext, reduceEngine } from './state/engineMachine.js';
 import { forceEnd as planForceEnd } from './state/forceEnd.js';
@@ -80,6 +81,8 @@ export interface FrameLoopDeps {
   connection: () => Connection | null;
   /** 媒体接线的依赖袋（见 media/mediaPlane.ts）。 */
   mediaDeps: () => MediaPlaneDeps;
+  /** 自己的 uid，只给 `callSummary.caller` 用：主叫在接通前结束时状态机还不知道发起人是谁。 */
+  selfUid?: () => string;
 }
 
 /** FrameLoop 持有状态机快照，并驱动它。 */
@@ -244,6 +247,7 @@ export class FrameLoop {
     settlement: Settlement | null,
   ): Promise<void> {
     const { bus, bridge } = this.deps;
+    const endingCall = this.ctx.call;
     this.ctx = result.state;
 
     // 认领新到的远端轨道，**并把状态机里已经没有的那些摘掉**（见 syncRemoteTracks）。
@@ -288,6 +292,11 @@ export class FrameLoop {
       */
       if (event.cb === 'onKickedOut') continue;
       bus.emitMachine(event);
+      // 紧跟 onCallEnd、每通有上下文的电话恰好一次（通话记录设计 §4）。
+      if (event.cb === 'onCallEnd') {
+        const summary = callSummaryEvent(endingCall, event, this.deps.selfUid?.() ?? '');
+        if (summary !== null) bus.emitMachine(summary);
+      }
     }
     /*
       有人开了摄像头：等他的**新画面真的上屏**再抛一次 firstVideoFrame（见 `FirstFrameGate`）。
@@ -536,4 +545,33 @@ export function videoTurnedOn(emit: readonly EmittedEvent[]): string[] {
     if (typeof uid === 'string' && uid !== '') uids.push(uid);
   }
   return uids;
+}
+
+/**
+ * callSummaryEvent 用结束前的通话上下文 + onCallEnd 的载荷拼 `onCallSummary`。
+ *
+ * 结束前没有通话，或这通电话还没拿到 call_id（本地就地拒掉 / 发不出去的 `call()`）返回 null：
+ * 服务端没有这通电话，宿主也没有 cid 可写进记录。
+ */
+export function callSummaryEvent(call: CallContext, end: EmittedEvent, selfUid: string): EmittedEvent | null {
+  if (call.state === 'idle') return null;
+  const endedId = end.args['call_id'];
+  const callId = typeof endedId === 'string' && endedId !== '' ? endedId : call.callId;
+  if (callId === '') return null;
+  return {
+    cb: 'onCallSummary',
+    args: {
+      call_id: callId,
+      reason: end.args['reason'],
+      duration_sec: end.args['duration_sec'],
+      ended_by: end.args['ended_by'],
+      media_type: call.mediaType,
+      is_group: call.isGroup,
+      chat_group_id: call.chatGroupId,
+      caller: call.callerUid !== '' ? call.callerUid : call.role === 'caller' ? selfUid : '',
+      role: call.role,
+      peer: call.peerUid,
+      user_data: call.userData,
+    },
+  };
 }

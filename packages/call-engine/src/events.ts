@@ -117,6 +117,27 @@ export interface EngineEvents {
     durationSec: number;
     endedBy: string;
   };
+  /**
+   * 这通电话的事实一次给齐（通话记录设计 §4）。**紧跟 `callEnd`、每通拿到 call_id 的电话恰好一次**；
+   * 未接通、被拒、`*_elsewhere` 也来（看 `reason`）。宿主要发通话记录消息的话，
+   * 只在 `role === 'caller'` 时发，不用自己比对 uid。本地就地拒掉 / 发不出去的 `call()` 不触发。
+   */
+  callSummary: {
+    callId: string;
+    reason: CallEndReasonValue;
+    /** 服务端给的秒数，未接通恒 0。 */
+    durationSec: number;
+    endedBy: string;
+    mediaType: 'audio' | 'video';
+    isGroup: boolean;
+    chatGroupId: string;
+    caller: string;
+    role: 'caller' | 'callee';
+    /** 1v1 的对端 uid；群通话为空串。 */
+    peer: string;
+    /** 主叫拨号时透传的宿主私有字符串，原样返回。 */
+    userData: string;
+  };
   /** 以下四个是**便利事件**，只在 1v1 抛；随后必有 callEnd。 */
   callCancelled: { uid: string };
   callRejected: { uid: string };
@@ -194,6 +215,7 @@ export const MACHINE_EVENT_NAMES: Readonly<Record<string, EngineEventName>> = {
   onCallReceived: 'callReceived',
   onCallBegin: 'callBegin',
   onCallEnd: 'callEnd',
+  onCallSummary: 'callSummary',
   onCallCancelled: 'callCancelled',
   onCallRejected: 'callRejected',
   onCallBusy: 'callBusy',

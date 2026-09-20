@@ -109,6 +109,7 @@ export class CallEngine {
       sender: this.sender,
       connection: (): Connection | null => this.session.connection,
       mediaDeps: (): MediaPlaneDeps => engineMediaDeps(this.wiring()),
+      selfUid: (): string => this.session.uid,
     });
   }
 
