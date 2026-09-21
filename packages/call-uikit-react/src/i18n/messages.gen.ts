@@ -147,7 +147,15 @@ export type MessageKey =
   | "perm.cam.blockedBodyOs"
   | "perm.retry"
   | "perm.notNow"
-  | "perm.settings";
+  | "perm.settings"
+  | "a11y.copyRoomHint"
+  | "hint.inviteNoPermission"
+  | "pip.peerLabel"
+  | "pip.hint"
+  | "invite.loadFailedMsg"
+  | "perm.cam.missingBodyOs"
+  | "perm.mic.blockedBodyIos"
+  | "perm.mic.missingBodyOs";
 
 export const MESSAGES: Record<Locale, Record<MessageKey, string>> = {
   "zh-CN": {
@@ -295,6 +303,14 @@ export const MESSAGES: Record<Locale, Record<MessageKey, string>> = {
     "perm.retry": "再试一次",
     "perm.notNow": "不了",
     "perm.settings": "去设置",
+    "a11y.copyRoomHint": "点两下复制房间号",
+    "hint.inviteNoPermission": "没有权限添加成员",
+    "pip.peerLabel": "对方画面",
+    "pip.hint": "轻点两下互换，轻点两下并按住可移动",
+    "invite.loadFailedMsg": "加载失败：{message}",
+    "perm.cam.missingBodyOs": "摄像头可能被其他应用占用。",
+    "perm.mic.blockedBodyIos": "到「设置 › 隐私 › 麦克风」里打开后重试。",
+    "perm.mic.missingBodyOs": "请检查麦克风是否被其他应用占用。",
   },
   "en": {
     "self": "Me",
@@ -441,5 +457,13 @@ export const MESSAGES: Record<Locale, Record<MessageKey, string>> = {
     "perm.retry": "Try again",
     "perm.notNow": "Not now",
     "perm.settings": "Settings",
+    "a11y.copyRoomHint": "Double-tap to copy room ID",
+    "hint.inviteNoPermission": "You don't have permission to add people",
+    "pip.peerLabel": "Remote video",
+    "pip.hint": "Double-tap to swap, double-tap and hold to move",
+    "invite.loadFailedMsg": "Failed to load: {message}",
+    "perm.cam.missingBodyOs": "The camera may be in use by another app.",
+    "perm.mic.blockedBodyIos": "Turn it on in Settings › Privacy › Microphone, then try again.",
+    "perm.mic.missingBodyOs": "Check that the microphone isn't in use by another app.",
   },
 };
