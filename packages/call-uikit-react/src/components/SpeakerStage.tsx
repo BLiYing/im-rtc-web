@@ -6,6 +6,7 @@ import { useCall } from '../useCall.js';
 import { styles } from '../styles.js';
 import { OffscreenMembers } from './OffscreenMembers.js';
 import { VideoTile } from './VideoTile.js';
+import { t } from '../i18n/index.js';
 
 /** SpeakerStageProps 是演讲者视图要的东西。 */
 export interface SpeakerStageProps {
@@ -69,7 +70,7 @@ export function SpeakerStage({ pinned, others, onUnpin }: SpeakerStageProps): Re
         {/* 底部条第一格恒是自己，与画廊里「自己占第一格」同一条规则。 */}
         <VideoTile
           uid=""
-          label="我"
+          label={t('self')}
           hasVideo={state.self.cameraOn && state.localCameraCid !== ''}
           hasAudio={state.self.micOn}
           showsSpeaking={false}

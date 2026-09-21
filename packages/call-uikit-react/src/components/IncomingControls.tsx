@@ -5,6 +5,7 @@ import { useCall } from '../useCall.js';
 import { styles } from '../styles.js';
 import { showsCameraButton } from './ControlBar.js';
 import { ControlButton } from './ControlButton.js';
+import { t } from '../i18n/index.js';
 
 /**
  * IncomingControls 是来电页底部那一排（草图 §03-F）：摄像头（仅视频）/ 拒绝 / 接听，三格等宽。
@@ -20,23 +21,23 @@ export function IncomingControls(): ReactNode {
       {showsCameraButton(state.mediaType) && (
         <ControlButton
           icon="video-slash"
-          caption={state.self.cameraBlocked ? '无权限' : '开摄像头'}
+          caption={t(state.self.cameraBlocked ? 'ctl.cameraBlocked' : 'ctl.cameraOn')}
           onIcon="video"
-          onCaption="关摄像头"
+          onCaption={t('ctl.cameraOff')}
           isOn={state.self.cameraOn}
           disabled={state.self.cameraBlocked}
           onClick={() => void actions.toggleCamera()}
           testId="incoming-toggle-camera"
         />
       )}
-      <ControlButton role="danger" icon="xmark" caption="拒绝" onClick={() => void actions.reject()} testId="reject-call" />
-      <ControlButton role="accept" icon="phone" caption="接听" onClick={() => void actions.accept()} testId="accept-call" />
+      <ControlButton role="danger" icon="xmark" caption={t('ctl.reject')} onClick={() => void actions.reject()} testId="reject-call" />
+      <ControlButton role="accept" icon="phone" caption={t('ctl.accept')} onClick={() => void actions.accept()} testId="accept-call" />
     </div>
   );
 }
 
 /** incomingInviteText 是来电那一句「邀请你…」。横幅与来电页共用，两处不该各写一份。 */
 export function incomingInviteText(mediaType: MediaType, isGroup: boolean): string {
-  if (isGroup) return '邀请你加入群通话';
-  return `邀请你${mediaType === 'video' ? '视频' : '语音'}通话`;
+  if (isGroup) return t('incoming.group');
+  return t(mediaType === 'video' ? 'incoming.video' : 'incoming.audio');
 }

@@ -10,6 +10,7 @@ import { useElementSize } from '../useElementSize.js';
 import { callMetrics } from '../theme.js';
 import { PipView } from './PipView.js';
 import { VideoTile } from './VideoTile.js';
+import { t } from '../i18n/index.js';
 
 /**
  * VideoStage 是 1v1 视频通话中的画面区（交互稿 §04）：一块全屏（A）+ 一块小窗（B）。
@@ -50,7 +51,7 @@ export function VideoStage({ peer, controlsVisible, onStageTap }: VideoStageProp
   });
   const selfTile = (full: boolean) => ({
     uid: '',
-    label: '我',
+    label: t('self'),
     hasVideo: selfHasVideo,
     hasAudio: state.self.micOn,
     avatarSize: full ? callMetrics.avatarLarge : 44,
@@ -77,7 +78,7 @@ export function VideoStage({ peer, controlsVisible, onStageTap }: VideoStageProp
         onCorner={setCorner}
         lift={controlsVisible ? callMetrics.pipLift : 0}
         onTap={() => actions.setSwapped(!state.isSwapped)}
-        ariaLabel={state.isSwapped ? '对方画面，按钮。轻点两下互换，轻点两下并按住可移动' : '本端画面，按钮。轻点两下互换，轻点两下并按住可移动'}
+        ariaLabel={t(state.isSwapped ? 'aria.peerVideo' : 'aria.selfVideo')}
       />
     </div>
   );

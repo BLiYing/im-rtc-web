@@ -26,6 +26,8 @@ export type { CallActions } from './useCallActions.js';
 export type {
   CanInvite, InviteCandidate, InviteContext, InvitePage, InviteMemberProvider, PresentInvitePicker,
 } from './invite/types.js';
+import type { Locale, MessageOverrides } from './i18n/index.js';
+import { setLocale } from './i18n/index.js';
 
 /**
  * CallProvider 把 engine 的公开事件接成界面状态。
@@ -81,6 +83,8 @@ export interface CallContextValue {
   readonly ringbackTone: string;
   /** 来电铃声 / 回铃音是否静音；见 `CallProviderProps.ringtoneMuted`。 */
   readonly ringtoneMuted: boolean;
+  /** 当前界面语言；切换时随 context 变化，让所有消费者重新出文案。 */
+  readonly locale: Locale;
 }
 
 export const CallContext = createContext<CallContextValue | null>(null);
@@ -142,6 +146,13 @@ export interface CallProviderProps {
    * （见 `redButtonWatchdog.ts`）。默认 3000，与 iOS / Android 同数；测试可调短。
    */
   readonly endWatchdogMs?: number;
+  /**
+   * 界面语言，默认 `'zh-CN'`（与加多语言之前一致）。支持 `'zh-CN'` / `'en'`。
+   * 想跟随系统：`locale={resolveLocale('auto')}`。**已经显示在屏幕上的提示不会回译**，下一条才用新语言。
+   */
+  readonly locale?: Locale;
+  /** 按语言覆盖个别文案（只写要改的 key，key 见 `MessageKey`）。 */
+  readonly messages?: MessageOverrides;
 }
 
 /** 结束画面的默认停留时长。见 `format/endReason.ts`：实际时长按原因分档。 */
@@ -154,8 +165,10 @@ export function CallProvider({
   allowManualUidInput = false,
   permissionQuery = browserPermissionQuery, bannerFirst = true,
   incomingRingtone = DEFAULT_INCOMING_RINGTONE, ringbackTone = DEFAULT_RINGBACK_TONE, ringtoneMuted = false,
-  endWatchdogMs = END_WATCHDOG_MS,
+  endWatchdogMs = END_WATCHDOG_MS, locale = 'zh-CN', messages,
 }: CallProviderProps): ReactNode {
+  // 渲染期同步设置：子组件与 reducer 里的 t() 在同一轮渲染里就要拿到新语言。幂等，重复调用无副作用。
+  setLocale(locale, messages);
   const [state, dispatch] = useReducer(reduceCallView, initialCallView);
   const cids = useRef<PublishedCids>({ mic: '', cam: '' });
   const gate = usePermissionGate(engine, dispatch, permissionQuery);
@@ -283,11 +296,11 @@ export function CallProvider({
   const value = useMemo<CallContextValue>(
     () => ({
       state, engine, actions, joinCall, prompt: gate.prompt, candidates: inviteCandidates, invite, bannerFirst,
-      incomingRingtone, ringbackTone, ringtoneMuted,
+      incomingRingtone, ringbackTone, ringtoneMuted, locale,
     }),
     [
       state, engine, actions, joinCall, gate.prompt, inviteCandidates, invite, bannerFirst,
-      incomingRingtone, ringbackTone, ringtoneMuted,
+      incomingRingtone, ringbackTone, ringtoneMuted, locale,
     ],
   );
   return <CallContext.Provider value={value}>{children}</CallContext.Provider>;

@@ -1,0 +1,361 @@
+// 由 scripts/gen-i18n.mjs 生成，勿手改。源：im-rtc-server/docs/i18n/strings.json
+
+export const LOCALES = ["zh-CN","en"] as const;
+export type Locale = (typeof LOCALES)[number];
+
+export type MessageKey =
+  | "self"
+  | "ctl.mute"
+  | "ctl.muted"
+  | "ctl.cameraOn"
+  | "ctl.cameraOff"
+  | "ctl.cameraBlocked"
+  | "ctl.leave"
+  | "ctl.cancel"
+  | "ctl.hangup"
+  | "ctl.reject"
+  | "ctl.accept"
+  | "incoming.aria"
+  | "incoming.group"
+  | "incoming.video"
+  | "incoming.audio"
+  | "banner.reconnecting"
+  | "banner.lost"
+  | "banner.peerNetwork"
+  | "net.good"
+  | "net.fair"
+  | "net.poor"
+  | "net.reconnecting"
+  | "tile.networkPoor"
+  | "tile.calling"
+  | "tile.rejected"
+  | "tile.noAnswer"
+  | "tile.offline"
+  | "speech.muted"
+  | "speech.micOn"
+  | "speech.speaking"
+  | "aria.peerVideo"
+  | "aria.selfVideo"
+  | "aria.selfView"
+  | "header.minimize"
+  | "header.copyRoom"
+  | "header.invite"
+  | "header.members"
+  | "members.title"
+  | "members.micOn"
+  | "members.micOff"
+  | "members.camOn"
+  | "members.camOff"
+  | "mini.expand"
+  | "call.meeting"
+  | "call.meetingRoom"
+  | "call.ongoing"
+  | "call.group"
+  | "call.status.calling"
+  | "call.status.enteringMeeting"
+  | "call.status.connecting"
+  | "call.status.ended"
+  | "end.hangup"
+  | "end.hangupDuration"
+  | "end.cancelCaller"
+  | "end.cancelCallee"
+  | "end.rejectCaller"
+  | "end.rejectCallee"
+  | "end.busy"
+  | "end.noAnswerCaller"
+  | "end.noAnswerCallee"
+  | "end.offline"
+  | "end.network"
+  | "end.answeredElsewhere"
+  | "end.rejectedElsewhere"
+  | "end.roomClosed"
+  | "end.kicked"
+  | "end.default"
+  | "end.meetingLeft"
+  | "busy.notice"
+  | "busy.joinBlocked"
+  | "grid.hidden"
+  | "hint.inviteDenied"
+  | "hint.inviteRejected"
+  | "hint.joinDenied"
+  | "hint.micFailed"
+  | "hint.cameraDenied"
+  | "hint.roomFull"
+  | "hint.roomIdCopied"
+  | "hint.roomIdCopyFailed"
+  | "hint.peerRejected"
+  | "hint.peerBusy"
+  | "hint.peerNoAnswer"
+  | "hint.peerCancelled"
+  | "hint.missedBusy"
+  | "perm.mic.explainTitle"
+  | "perm.mic.explainBody"
+  | "perm.cam.explainTitle"
+  | "perm.cam.explainBody"
+  | "perm.cam.deniedTitle"
+  | "perm.cam.deniedBody"
+  | "perm.cam.missingTitle"
+  | "perm.cam.missingBody"
+  | "perm.mic.deniedTitle"
+  | "perm.mic.deniedBody"
+  | "perm.mic.missingTitle"
+  | "perm.mic.missingBody"
+  | "perm.ok"
+  | "perm.cancel"
+  | "perm.gotIt"
+  | "invite.title"
+  | "invite.close"
+  | "invite.search"
+  | "invite.typeUid"
+  | "invite.loading"
+  | "invite.loadFailed"
+  | "invite.timeout"
+  | "invite.uid"
+  | "invite.already"
+  | "invite.offlineOk"
+  | "invite.online"
+  | "invite.action"
+  | "invite.actionN"
+  | "invite.retry"
+  | "invite.empty"
+  | "invite.emptyTyping"
+  | "invite.slotsLeft";
+
+export const MESSAGES: Record<Locale, Record<MessageKey, string>> = {
+  "zh-CN": {
+    "self": "我",
+    "ctl.mute": "静音",
+    "ctl.muted": "已静音",
+    "ctl.cameraOn": "开摄像头",
+    "ctl.cameraOff": "关摄像头",
+    "ctl.cameraBlocked": "无权限",
+    "ctl.leave": "离开",
+    "ctl.cancel": "取消",
+    "ctl.hangup": "挂断",
+    "ctl.reject": "拒绝",
+    "ctl.accept": "接听",
+    "incoming.aria": "来电",
+    "incoming.group": "邀请你加入群通话",
+    "incoming.video": "邀请你视频通话",
+    "incoming.audio": "邀请你语音通话",
+    "banner.reconnecting": "正在重连…",
+    "banner.lost": "连接已断开",
+    "banner.peerNetwork": "对方网络不佳",
+    "net.good": "网络良好",
+    "net.fair": "网络一般",
+    "net.poor": "网络很差",
+    "net.reconnecting": "正在重连…",
+    "tile.networkPoor": "网络不佳",
+    "tile.calling": "呼叫中…",
+    "tile.rejected": "已拒绝",
+    "tile.noAnswer": "未接听",
+    "tile.offline": "对方不在线",
+    "speech.muted": "已静音",
+    "speech.micOn": "麦克风已开启",
+    "speech.speaking": "正在说话",
+    "aria.peerVideo": "对方画面，按钮。轻点两下互换，轻点两下并按住可移动",
+    "aria.selfVideo": "本端画面，按钮。轻点两下互换，轻点两下并按住可移动",
+    "aria.selfView": "本端画面",
+    "header.minimize": "收进小窗",
+    "header.copyRoom": "{title}，点一下复制房间号",
+    "header.invite": "添加成员",
+    "header.members": "成员列表",
+    "members.title": "成员（{n}）",
+    "members.micOn": "麦克风开",
+    "members.micOff": "麦克风关",
+    "members.camOn": "摄像头开",
+    "members.camOff": "摄像头关",
+    "mini.expand": "通话中，点击展开",
+    "call.meeting": "会议",
+    "call.meetingRoom": "会议 {room}",
+    "call.ongoing": "通话中",
+    "call.group": "群通话 · {n} 人",
+    "call.status.calling": "正在呼叫…",
+    "call.status.enteringMeeting": "正在进入会议…",
+    "call.status.connecting": "接通中…",
+    "call.status.ended": "通话结束",
+    "end.hangup": "通话结束",
+    "end.hangupDuration": "通话结束 · {duration}",
+    "end.cancelCaller": "已取消",
+    "end.cancelCallee": "对方已取消",
+    "end.rejectCaller": "对方已拒接",
+    "end.rejectCallee": "已拒接",
+    "end.busy": "对方忙线中",
+    "end.noAnswerCaller": "对方无人接听",
+    "end.noAnswerCallee": "未接来电",
+    "end.offline": "对方当前不在线",
+    "end.network": "网络中断",
+    "end.answeredElsewhere": "已在其他设备接听",
+    "end.rejectedElsewhere": "已在其他设备拒绝",
+    "end.roomClosed": "房间已解散",
+    "end.kicked": "已被移出",
+    "end.default": "已结束",
+    "end.meetingLeft": "已离开会议",
+    "busy.notice": "你正在通话中，请先结束当前通话",
+    "busy.joinBlocked": "正在通话中，无法加入",
+    "grid.hidden": "还有 {n} 人未显示",
+    "hint.inviteDenied": "你已不在通话中，无法添加成员",
+    "hint.inviteRejected": "对方暂时无法被邀请",
+    "hint.joinDenied": "无法加入该通话",
+    "hint.micFailed": "麦克风打不开，对方听不到你",
+    "hint.cameraDenied": "没有摄像头权限",
+    "hint.roomFull": "通话已满员（最多 9 人）",
+    "hint.roomIdCopied": "已复制房间号 {room}",
+    "hint.roomIdCopyFailed": "复制不了，请手动记下房间号 {room}",
+    "hint.peerRejected": "{uid} 已拒接",
+    "hint.peerBusy": "{uid} 忙线中",
+    "hint.peerNoAnswer": "{uid} 无应答",
+    "hint.peerCancelled": "{uid} 取消了呼叫",
+    "hint.missedBusy": "{uid} 来电，已自动回复忙线",
+    "perm.mic.explainTitle": "需要用到麦克风",
+    "perm.mic.explainBody": "通话时对方要听见你的声音。接下来浏览器会问你要不要允许。",
+    "perm.cam.explainTitle": "需要用到摄像头",
+    "perm.cam.explainBody": "视频通话时对方要看见你。接下来浏览器会问你要不要允许。",
+    "perm.cam.deniedTitle": "没有摄像头权限，已用语音继续通话",
+    "perm.cam.deniedBody": "要开视频，请点地址栏左侧的图标允许摄像头。",
+    "perm.cam.missingTitle": "找不到可用的摄像头，已用语音继续通话",
+    "perm.cam.missingBody": "摄像头可能被其他程序占用。",
+    "perm.mic.deniedTitle": "没有麦克风权限，无法通话",
+    "perm.mic.deniedBody": "请点地址栏左侧的图标允许麦克风后重试。",
+    "perm.mic.missingTitle": "找不到可用的麦克风",
+    "perm.mic.missingBody": "请检查麦克风是否接好、有没有被其他程序占用。",
+    "perm.ok": "好",
+    "perm.cancel": "取消",
+    "perm.gotIt": "知道了",
+    "invite.title": "添加成员",
+    "invite.close": "关闭",
+    "invite.search": "搜索联系人",
+    "invite.typeUid": "输入对方 uid",
+    "invite.loading": "加载中…",
+    "invite.loadFailed": "加载失败",
+    "invite.timeout": "请求超时",
+    "invite.uid": "邀请 {uid}",
+    "invite.already": "已在通话中",
+    "invite.offlineOk": "离线 · 仍可邀请",
+    "invite.online": "在线",
+    "invite.action": "邀请",
+    "invite.actionN": "邀请 {n} 人",
+    "invite.retry": "重试",
+    "invite.empty": "没有可邀请的成员",
+    "invite.emptyTyping": "可以在上面直接输入对方 uid",
+    "invite.slotsLeft": "还能加 {n} 人",
+  },
+  "en": {
+    "self": "Me",
+    "ctl.mute": "Mute",
+    "ctl.muted": "Muted",
+    "ctl.cameraOn": "Camera on",
+    "ctl.cameraOff": "Camera off",
+    "ctl.cameraBlocked": "No access",
+    "ctl.leave": "Leave",
+    "ctl.cancel": "Cancel",
+    "ctl.hangup": "End",
+    "ctl.reject": "Decline",
+    "ctl.accept": "Accept",
+    "incoming.aria": "Incoming call",
+    "incoming.group": "Invites you to a group call",
+    "incoming.video": "Invites you to a video call",
+    "incoming.audio": "Invites you to a voice call",
+    "banner.reconnecting": "Reconnecting…",
+    "banner.lost": "Disconnected",
+    "banner.peerNetwork": "Poor network on their side",
+    "net.good": "Good connection",
+    "net.fair": "Fair connection",
+    "net.poor": "Poor connection",
+    "net.reconnecting": "Reconnecting…",
+    "tile.networkPoor": "Poor network",
+    "tile.calling": "Calling…",
+    "tile.rejected": "Declined",
+    "tile.noAnswer": "No answer",
+    "tile.offline": "Offline",
+    "speech.muted": "Muted",
+    "speech.micOn": "Microphone on",
+    "speech.speaking": "Speaking",
+    "aria.peerVideo": "Remote video, button. Double-tap to swap, double-tap and hold to move",
+    "aria.selfVideo": "Your video, button. Double-tap to swap, double-tap and hold to move",
+    "aria.selfView": "Your video",
+    "header.minimize": "Minimize",
+    "header.copyRoom": "{title}, tap to copy room ID",
+    "header.invite": "Add people",
+    "header.members": "Members",
+    "members.title": "Members ({n})",
+    "members.micOn": "Microphone on",
+    "members.micOff": "Microphone off",
+    "members.camOn": "Camera on",
+    "members.camOff": "Camera off",
+    "mini.expand": "In a call, tap to expand",
+    "call.meeting": "Meeting",
+    "call.meetingRoom": "Meeting {room}",
+    "call.ongoing": "In a call",
+    "call.group": "Group call · {n}",
+    "call.status.calling": "Calling…",
+    "call.status.enteringMeeting": "Joining meeting…",
+    "call.status.connecting": "Connecting…",
+    "call.status.ended": "Call ended",
+    "end.hangup": "Call ended",
+    "end.hangupDuration": "Call ended · {duration}",
+    "end.cancelCaller": "Cancelled",
+    "end.cancelCallee": "Cancelled by caller",
+    "end.rejectCaller": "Call declined",
+    "end.rejectCallee": "Declined",
+    "end.busy": "User is busy",
+    "end.noAnswerCaller": "No answer",
+    "end.noAnswerCallee": "Missed call",
+    "end.offline": "User is offline",
+    "end.network": "Network lost",
+    "end.answeredElsewhere": "Answered on another device",
+    "end.rejectedElsewhere": "Declined on another device",
+    "end.roomClosed": "Room closed",
+    "end.kicked": "Removed from the call",
+    "end.default": "Ended",
+    "end.meetingLeft": "Left the meeting",
+    "busy.notice": "You're already on a call. End it first.",
+    "busy.joinBlocked": "You're on a call and can't join",
+    "grid.hidden": "{n} more not shown",
+    "hint.inviteDenied": "You've left the call and can't add people",
+    "hint.inviteRejected": "This person can't be invited right now",
+    "hint.joinDenied": "Can't join this call",
+    "hint.micFailed": "Can't open the microphone. They can't hear you",
+    "hint.cameraDenied": "No camera access",
+    "hint.roomFull": "The call is full (max 9)",
+    "hint.roomIdCopied": "Room ID {room} copied",
+    "hint.roomIdCopyFailed": "Couldn't copy. Room ID: {room}",
+    "hint.peerRejected": "{uid} declined",
+    "hint.peerBusy": "{uid} is busy",
+    "hint.peerNoAnswer": "{uid} didn't answer",
+    "hint.peerCancelled": "{uid} cancelled the call",
+    "hint.missedBusy": "Call from {uid}, auto-replied busy",
+    "perm.mic.explainTitle": "Microphone access needed",
+    "perm.mic.explainBody": "They need to hear you on the call. Your browser will ask for permission next.",
+    "perm.cam.explainTitle": "Camera access needed",
+    "perm.cam.explainBody": "They need to see you on a video call. Your browser will ask for permission next.",
+    "perm.cam.deniedTitle": "No camera access. Continuing with voice only",
+    "perm.cam.deniedBody": "To use video, click the icon at the left of the address bar and allow the camera.",
+    "perm.cam.missingTitle": "No camera found. Continuing with voice only",
+    "perm.cam.missingBody": "The camera may be in use by another app.",
+    "perm.mic.deniedTitle": "No microphone access. Can't start the call",
+    "perm.mic.deniedBody": "Click the icon at the left of the address bar, allow the microphone, then try again.",
+    "perm.mic.missingTitle": "No microphone found",
+    "perm.mic.missingBody": "Check that it's plugged in and not in use by another app.",
+    "perm.ok": "OK",
+    "perm.cancel": "Cancel",
+    "perm.gotIt": "Got it",
+    "invite.title": "Add people",
+    "invite.close": "Close",
+    "invite.search": "Search contacts",
+    "invite.typeUid": "Enter user ID",
+    "invite.loading": "Loading…",
+    "invite.loadFailed": "Failed to load",
+    "invite.timeout": "Request timed out",
+    "invite.uid": "Invite {uid}",
+    "invite.already": "Already in the call",
+    "invite.offlineOk": "Offline · can still invite",
+    "invite.online": "Online",
+    "invite.action": "Invite",
+    "invite.actionN": "Invite {n}",
+    "invite.retry": "Retry",
+    "invite.empty": "No one to invite",
+    "invite.emptyTyping": "You can type a user ID above",
+    "invite.slotsLeft": "{n} more can be added",
+  },
+};

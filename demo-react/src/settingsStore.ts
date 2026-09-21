@@ -1,5 +1,6 @@
 import type { LogLevel } from 'im-rtc-call-engine';
 import { VideoProfiles } from 'im-rtc-call-engine';
+import type { Locale } from 'im-rtc-call-uikit-react';
 
 /** VideoProfileKey 是 engine 导出的采集档位的键（p360 / p720 / p1080）。 */
 export type VideoProfileKey = keyof typeof VideoProfiles;
@@ -13,11 +14,17 @@ export type DemoLogLevel = Extract<LogLevel, 'debug' | 'info'>;
  * `bannerFirst` / `ringtoneMuted` 不带 is/should 前缀是**有意的**：它们就是 `<CallProvider>` 上同名的开关，
  * 与 iOS / Android Kit 配置同名同义，换个名字反而对不上。
  */
+/** LanguageChoice 是设置里的语言：跟随系统，或固定一种（与桌面 Demo 的三选一同形）。 */
+export type LanguageChoice = 'auto' | Locale;
+
+export const LANGUAGE_CHOICES: readonly LanguageChoice[] = ['auto', 'zh-CN', 'en'];
+
 export interface DemoSettings {
   readonly bannerFirst: boolean;
   readonly ringtoneMuted: boolean;
   readonly logLevel: DemoLogLevel;
   readonly videoProfile: VideoProfileKey;
+  readonly language: LanguageChoice;
 }
 
 /** DEFAULT_SETTINGS 是读不到存储时的值——与加设置卡片之前的行为一致（debug、720p、先出横幅、响铃）。 */
@@ -26,6 +33,7 @@ export const DEFAULT_SETTINGS: DemoSettings = {
   ringtoneMuted: false,
   logLevel: 'debug',
   videoProfile: 'p720',
+  language: 'auto',
 };
 
 /** 采集档位的显示顺序。 */
@@ -77,11 +85,13 @@ function isVideoProfileKey(value: string | null): value is VideoProfileKey {
 export function loadSettings(store: KeyValueStore | null): DemoSettings {
   const level = read(store, 'logLevel');
   const profile = read(store, 'videoProfile');
+  const language = read(store, 'language');
   return {
     bannerFirst: readBool(store, 'bannerFirst'),
     ringtoneMuted: readBool(store, 'ringtoneMuted'),
     logLevel: level === 'debug' || level === 'info' ? level : DEFAULT_SETTINGS.logLevel,
     videoProfile: isVideoProfileKey(profile) ? profile : DEFAULT_SETTINGS.videoProfile,
+    language: LANGUAGE_CHOICES.find((c) => c === language) ?? DEFAULT_SETTINGS.language,
   };
 }
 

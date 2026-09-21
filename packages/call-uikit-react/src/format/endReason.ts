@@ -1,6 +1,7 @@
 import type { CallEndReasonValue } from 'im-rtc-call-engine';
 
 import { formatDuration } from './duration.js';
+import { t } from '../i18n/index.js';
 
 /**
  * 结束原因的人话。**结束画面必须说清为什么**——只写「通话结束」然后一闪而过，
@@ -19,31 +20,31 @@ export function endReasonText(
   switch (reason) {
     case 'hangup':
       // 接通过才有时长；没接通的 hangup 不该出现，真出现了也别显示 00:00。
-      return durationSec > 0 ? `通话结束 · ${formatDuration(durationSec)}` : '通话结束';
+      return durationSec > 0 ? t('end.hangupDuration', { duration: formatDuration(durationSec) }) : t('end.hangup');
     case 'cancel':
-      return role === 'caller' ? '已取消' : '对方已取消';
+      return t(role === 'caller' ? 'end.cancelCaller' : 'end.cancelCallee');
     case 'reject':
-      return role === 'caller' ? '对方已拒接' : '已拒接';
+      return t(role === 'caller' ? 'end.rejectCaller' : 'end.rejectCallee');
     case 'busy':
-      return '对方忙线中';
+      return t('end.busy');
     case 'no_answer':
-      return role === 'caller' ? '对方无人接听' : '未接来电';
+      return t(role === 'caller' ? 'end.noAnswerCaller' : 'end.noAnswerCallee');
     case 'offline':
       // 服务端在被叫一台在线设备都没有时立刻结束，**不振铃**（协议 §4.3）——
       // 对着一个不在的人响 30 秒没有意义。但界面必须说清楚。
-      return '对方当前不在线';
+      return t('end.offline');
     case 'network':
-      return '网络中断';
+      return t('end.network');
     case 'answered_elsewhere':
-      return '已在其他设备接听';
+      return t('end.answeredElsewhere');
     case 'rejected_elsewhere':
-      return '已在其他设备拒绝';
+      return t('end.rejectedElsewhere');
     case 'room_closed':
-      return '房间已解散';
+      return t('end.roomClosed');
     case 'kicked':
-      return '已被移出';
+      return t('end.kicked');
     default:
-      return '已结束';
+      return t('end.default');
   }
 }
 

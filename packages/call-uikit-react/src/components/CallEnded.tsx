@@ -4,6 +4,7 @@ import { endReasonText } from '../format/endReason.js';
 import type { CallViewState } from '../state/viewTypes.js';
 import { useCall } from '../useCall.js';
 import { styles } from '../styles.js';
+import { t } from '../i18n/index.js';
 
 /**
  * 结束画面：**只说一句为什么，别的什么都没有。**
@@ -45,6 +46,6 @@ export function CallEnded(): ReactNode {
 function endedText(state: CallViewState): string {
   if (state.joinDeniedText !== '') return state.joinDeniedText;
   if (state.endHint !== '') return state.endHint;
-  if (state.isMeeting) return '已离开会议';
+  if (state.isMeeting) return t('end.meetingLeft');
   return endReasonText(state.endReason, state.role, state.endedDurationSec);
 }

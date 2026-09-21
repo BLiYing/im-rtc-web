@@ -5,6 +5,7 @@ import { canShowInvite } from '../state/callView.js';
 import { useCall } from '../useCall.js';
 import { styles } from '../styles.js';
 import { Icon, NetworkBars } from './Icon.js';
+import { t } from '../i18n/index.js';
 
 /**
  * CallHeader 是通话页顶部那条（规范 §04）：左 32 圆「小窗」、中间标题 + 副标题、右 32 圆「加人」。
@@ -52,7 +53,7 @@ export function CallHeader({
   return (
     <div style={styles.header}>
       {showsMinimize ? (
-        <button type="button" style={styles.headerButton} aria-label="收进小窗" data-testid="minimize"
+        <button type="button" style={styles.headerButton} aria-label={t('header.minimize')} data-testid="minimize"
           onClick={() => actions.setMinimized(true)}>
           <Icon name="pip" size={18} />
         </button>
@@ -60,7 +61,7 @@ export function CallHeader({
       <div style={styles.headerCenter}>
         {onTitleClick !== undefined ? (
           <button type="button" style={styles.titleButton} data-testid="title-copy"
-            aria-label={`${title}，点一下复制房间号`} onClick={onTitleClick}>
+            aria-label={t('header.copyRoom', { title })} onClick={onTitleClick}>
             {title}
           </button>
         ) : <div style={styles.title}>{title}</div>}
@@ -70,11 +71,11 @@ export function CallHeader({
         </div>
       </div>
       {showInvite ? (
-        <button type="button" style={styles.headerButton} aria-label="添加成员" data-testid="invite-button" onClick={onInvite}>
+        <button type="button" style={styles.headerButton} aria-label={t('header.invite')} data-testid="invite-button" onClick={onInvite}>
           <Icon name="person-add" size={18} />
         </button>
       ) : onMembers !== undefined ? (
-        <button type="button" style={styles.headerButton} aria-label="成员列表" data-testid="members-button" onClick={onMembers}>
+        <button type="button" style={styles.headerButton} aria-label={t('header.members')} data-testid="members-button" onClick={onMembers}>
           <span style={{ fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
             👥{state.participants.length + 1}
           </span>

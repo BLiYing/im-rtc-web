@@ -23,6 +23,7 @@ import { MemberList } from './MemberList.js';
 import { PipView } from './PipView.js';
 import { TopBanner } from './TopBanner.js';
 import { VideoStage } from './VideoStage.js';
+import { t } from '../i18n/index.js';
 
 /**
  * ActiveCall 是通话主界面，三种版式（规范 §03 / §04）：
@@ -96,7 +97,7 @@ export function ActiveCall(): ReactNode {
       style={{ ...styles.overlay, ...(layout === 'audio' ? styles.overlayAudio : {}) }}
       data-testid={incoming ? 'incoming-page' : 'active-call'}
       data-layout={layout}
-      {...(incoming ? { role: 'dialog', 'aria-label': '来电' } : {})}
+      {...(incoming ? { role: 'dialog', 'aria-label': t('incoming.aria') } : {})}
       onPointerMove={hide.poke}
     >
       <TopBanner />
@@ -152,7 +153,7 @@ function AudioWithPreview({ state, seconds }: { readonly state: CallViewState; r
     <div ref={stage.ref} style={{ ...styles.stage, flexDirection: 'column' }}>
       <AudioStage
         uid={who}
-        name={who || '通话中'}
+        name={who || t('call.ongoing')}
         status={statusLine(state, seconds)}
         isRinging={state.phase === 'outgoing'}
         networkLevel={peer?.networkLevel ?? 0}
@@ -161,14 +162,14 @@ function AudioWithPreview({ state, seconds }: { readonly state: CallViewState; r
       />
       {showPreview && (
         <PipView
-          tile={{ uid: '', label: '我', hasVideo: true, hasAudio: state.self.micOn, localCid: state.localCameraCid }}
+          tile={{ uid: '', label: t('self'), hasVideo: true, hasAudio: state.self.micOn, localCid: state.localCameraCid }}
           size={pipSizeFor(stage.width, stage.height)}
           bounds={{ width: stage.width, height: stage.height }}
           corner={defaultPipCorner}
           onCorner={() => undefined}
           lift={0}
           onTap={() => undefined}
-          ariaLabel="本端画面"
+          ariaLabel={t('aria.selfView')}
         />
       )}
     </div>
@@ -182,16 +183,16 @@ function AudioWithPreview({ state, seconds }: { readonly state: CallViewState; r
  * 房号才是这一屏里**要念给别人听**的那个东西（点一下复制）。
  */
 function title(state: CallViewState, others: number): string {
-  if (state.isMeeting) return state.roomId === '' ? '会议' : `会议 ${state.roomId}`;
-  if (!state.isGroup) return state.peerUid || '通话中';
-  return `群通话 · ${others + 1} 人`;
+  if (state.isMeeting) return state.roomId === '' ? t('call.meeting') : t('call.meetingRoom', { room: state.roomId });
+  if (!state.isGroup) return state.peerUid || t('call.ongoing');
+  return t('call.group', { n: others + 1 });
 }
 
 function statusLine(state: CallViewState, seconds: number): string {
   if (state.hint !== '') return state.hint;
-  if (state.phase === 'outgoing') return '正在呼叫…';
+  if (state.phase === 'outgoing') return t('call.status.calling');
   if (state.phase === 'incoming') return incomingInviteText(state.mediaType, state.isGroup);
-  if (state.phase === 'connecting') return state.isMeeting ? '正在进入会议…' : '接通中…';
-  if (state.phase === 'ended') return state.isMeeting ? '已离开会议' : '通话结束';
+  if (state.phase === 'connecting') return t(state.isMeeting ? 'call.status.enteringMeeting' : 'call.status.connecting');
+  if (state.phase === 'ended') return t(state.isMeeting ? 'end.meetingLeft' : 'call.status.ended');
   return formatDuration(seconds);
 }

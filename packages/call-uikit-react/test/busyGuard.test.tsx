@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { CallProvider } from '../src/CallProvider.js';
 import { CallOverlay } from '../src/components/CallOverlay.js';
 import type { CallViewState } from '../src/state/viewTypes.js';
-import { BUSY_NOTICE, newCallAllowed } from '../src/state/busy.js';
+import { busyNotice, newCallAllowed } from '../src/state/busy.js';
 import { useCall } from '../src/useCall.js';
 import { FakeEngine, asEngine } from './fakeEngine.js';
 
@@ -71,7 +71,7 @@ describe('通话中再发起 / 进会议', () => {
     await flush();
     expect(engine.calls.some((c) => c.startsWith('call:'))).toBe(false);
     expect(screen.getByTestId('active-call').textContent).toBe(before);
-    expect(document.body.textContent).toContain(BUSY_NOTICE);
+    expect(document.body.textContent).toContain(busyNotice());
   });
 
   it('joinMeeting：同样不动当前通话、不进房', async () => {
@@ -81,7 +81,7 @@ describe('通话中再发起 / 进会议', () => {
     fireEvent.click(screen.getByTestId('join-meeting'));
     await flush();
     expect(engine.calls.some((c) => c.startsWith('join:'))).toBe(false);
-    expect(document.body.textContent).toContain(BUSY_NOTICE);
+    expect(document.body.textContent).toContain(busyNotice());
   });
 
   it('空闲时照常发起（守门不能误伤）', async () => {
@@ -90,6 +90,6 @@ describe('通话中再发起 / 进会议', () => {
     fireEvent.click(screen.getByTestId('place-group'));
     await flush();
     expect(engine.calls.some((c) => c.startsWith('call:carol'))).toBe(true);
-    expect(document.body.textContent).not.toContain(BUSY_NOTICE);
+    expect(document.body.textContent).not.toContain(busyNotice());
   });
 });

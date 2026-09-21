@@ -6,6 +6,7 @@ import type { RemoteParticipant } from '../state/viewTypes.js';
 import { useCall } from '../useCall.js';
 import { styles } from '../styles.js';
 import { Icon } from './Icon.js';
+import { t } from '../i18n/index.js';
 
 /**
  * MemberList 是**只读**的成员列表（MEETING_ROOM_DESIGN §4.6）。
@@ -31,16 +32,16 @@ export function MemberList({
   const { state } = useCall();
 
   return (
-    <div style={styles.sheet} role="dialog" aria-label="成员列表" data-testid="member-list">
+    <div style={styles.sheet} role="dialog" aria-label={t('header.members')} data-testid="member-list">
       <div style={styles.sheetHeader}>
-        <strong style={{ flex: 1 }}>成员（{members.length + 1}）</strong>
+        <strong style={{ flex: 1 }}>{t('members.title', { n: members.length + 1 })}</strong>
         <button type="button" style={styles.smallButton} onClick={onClose} data-testid="member-list-close">
           关闭
         </button>
       </div>
       <div style={styles.sheetList}>
         {/* 自己恒在第一行，与画廊「自己占第一格」同一条规则。 */}
-        <MemberRow uid="" label="我" hasAudio={state.self.micOn} hasVideo={state.self.cameraOn} />
+        <MemberRow uid="" label={t('self')} hasAudio={state.self.micOn} hasVideo={state.self.cameraOn} />
         {members.map((p) => (
           <MemberRow key={p.uid} uid={p.uid} label={p.uid} hasAudio={p.hasAudio} hasVideo={p.hasVideo} />
         ))}
@@ -80,7 +81,7 @@ function MemberRow({
         {/* 关着的那个变暗而不是消失：位置固定，一眼扫得出来谁关了什么。 */}
         <span
           style={hasAudio ? {} : styles.memberStatusOff}
-          aria-label={hasAudio ? '麦克风开' : '麦克风关'}
+          aria-label={t(hasAudio ? 'members.micOn' : 'members.micOff')}
           data-testid={`${testId}-mic`}
           data-on={hasAudio ? 'true' : 'false'}
         >
@@ -88,7 +89,7 @@ function MemberRow({
         </span>
         <span
           style={hasVideo ? {} : styles.memberStatusOff}
-          aria-label={hasVideo ? '摄像头开' : '摄像头关'}
+          aria-label={t(hasVideo ? 'members.camOn' : 'members.camOff')}
           data-testid={`${testId}-cam`}
           data-on={hasVideo ? 'true' : 'false'}
         >

@@ -1,4 +1,5 @@
 import type { Layer } from 'im-rtc-call-engine';
+import { t } from '../i18n/index.js';
 
 /**
  * 九宫格布局与**层上界**的计算。
@@ -141,7 +142,7 @@ export const focusedLayer: Layer = 'h';
  * 三端同一句文案。
  */
 export function hiddenCountText(hidden: number): string {
-  return hidden > 0 ? `还有 ${hidden} 人未显示` : '';
+  return hidden > 0 ? t('grid.hidden', { n: hidden }) : '';
 }
 
 /**

@@ -1,5 +1,6 @@
 import type { MediaType } from 'im-rtc-call-engine';
 import { ErrorCode, isRtcError } from 'im-rtc-call-engine';
+import { t } from '../i18n/index.js';
 
 /**
  * 权限申请的决策逻辑（交互稿 §01–§02），**纯函数 + 一个可注入的查询器**。
@@ -90,18 +91,18 @@ export function classifyProbeError(err: unknown): PermissionFailure | null {
 /** explanationCopy 是说明卡的文案（规范 §08）：说清**用来做什么**，不说「请授权」。 */
 export function explanationCopy(kind: DeviceKind): { title: string; body: string } {
   return kind === 'microphone'
-    ? { title: '需要用到麦克风', body: '通话时对方要听见你的声音。接下来浏览器会问你要不要允许。' }
-    : { title: '需要用到摄像头', body: '视频通话时对方要看见你。接下来浏览器会问你要不要允许。' };
+    ? { title: t('perm.mic.explainTitle'), body: t('perm.mic.explainBody') }
+    : { title: t('perm.cam.explainTitle'), body: t('perm.cam.explainBody') };
 }
 
 /** blockedCopy 是被拒 / 无设备时的文案。麦克风走不下去；摄像头降级为语音继续。 */
 export function blockedCopy(kind: DeviceKind, failure: PermissionFailure): { title: string; body: string } {
   if (kind === 'camera') {
     return failure === 'denied'
-      ? { title: '没有摄像头权限，已用语音继续通话', body: '要开视频，请点地址栏左侧的图标允许摄像头。' }
-      : { title: '找不到可用的摄像头，已用语音继续通话', body: '摄像头可能被其他程序占用。' };
+      ? { title: t('perm.cam.deniedTitle'), body: t('perm.cam.deniedBody') }
+      : { title: t('perm.cam.missingTitle'), body: t('perm.cam.missingBody') };
   }
   return failure === 'denied'
-    ? { title: '没有麦克风权限，无法通话', body: '请点地址栏左侧的图标允许麦克风后重试。' }
-    : { title: '找不到可用的麦克风', body: '请检查麦克风是否接好、有没有被其他程序占用。' };
+    ? { title: t('perm.mic.deniedTitle'), body: t('perm.mic.deniedBody') }
+    : { title: t('perm.mic.missingTitle'), body: t('perm.mic.missingBody') };
 }

@@ -7,6 +7,7 @@ import { ControlButton } from './ControlButton.js';
 import { incomingInviteText } from './IncomingControls.js';
 import { useCall } from '../useCall.js';
 import { styles } from '../styles.js';
+import { t } from '../i18n/index.js';
 
 /**
  * IncomingCall 是来电横幅（规范 §06「来电横幅」）：头像 38 + 两行字 + 摄像头 / 拒绝 / 接听。
@@ -33,7 +34,7 @@ export function IncomingCall(): ReactNode {
     <div
       style={{ ...styles.toast, cursor: 'pointer' }}
       role="alertdialog"
-      aria-label="来电"
+      aria-label={t('incoming.aria')}
       data-testid="incoming-call"
       onClick={() => actions.expandIncoming()}
     >
@@ -61,9 +62,9 @@ export function IncomingCall(): ReactNode {
         {showsCameraButton(state.mediaType) && (
           <ControlButton
             icon="video-slash"
-            caption="开摄像头"
+            caption={t('ctl.cameraOn')}
             onIcon="video"
-            onCaption="关摄像头"
+            onCaption={t('ctl.cameraOff')}
             isOn={state.self.cameraOn}
             size="small"
             onClick={() => void actions.toggleCamera()}
@@ -73,7 +74,7 @@ export function IncomingCall(): ReactNode {
         <ControlButton
           role="danger"
           icon="xmark"
-          caption="拒绝"
+          caption={t('ctl.reject')}
           size="small"
           onClick={() => void actions.reject()}
           testId="reject-call"
@@ -81,7 +82,7 @@ export function IncomingCall(): ReactNode {
         <ControlButton
           role="accept"
           icon="phone"
-          caption="接听"
+          caption={t('ctl.accept')}
           size="small"
           onClick={() => void actions.accept()}
           testId="accept-call"

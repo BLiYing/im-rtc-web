@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { callColors, callMetrics } from '../theme.js';
 import type { IconName } from './iconShapes.js';
 import { iconShape } from './iconShapes.js';
+import { t } from '../i18n/index.js';
 
 export type { IconName } from './iconShapes.js';
 
@@ -98,10 +99,10 @@ export function barsLit(level: number): number {
 /** networkText 是网络质量的人话（规范 §08）。 */
 export function networkText(level: number): string {
   if (level <= 0) return '';
-  if (level <= 2) return '网络良好';
-  if (level <= 4) return '网络一般';
-  if (level === 5) return '网络很差';
-  return '正在重连…';
+  if (level <= 2) return t('net.good');
+  if (level <= 4) return t('net.fair');
+  if (level === 5) return t('net.poor');
+  return t('net.reconnecting');
 }
 
 /** isNetworkPoor 判断要不要出「对方网络不佳」的提示（3 以上）。 */

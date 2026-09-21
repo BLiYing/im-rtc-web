@@ -24,9 +24,17 @@ const throwingStore: KeyValueStore = {
   },
 };
 
+describe('语言', () => {
+  it('存的值不认识就回落跟随系统', () => {
+    const store = memoryStore();
+    store.setItem('im-rtc-demo.settings.language', 'klingon');
+    expect(loadSettings(store).language).toBe('auto');
+  });
+});
+
 describe('默认值', () => {
   it('没有存储时与加设置卡片之前的行为一致：先出横幅、响铃、debug、720p', () => {
-    expect(loadSettings(null)).toEqual({ bannerFirst: true, ringtoneMuted: false, logLevel: 'debug', videoProfile: 'p720' });
+    expect(loadSettings(null)).toEqual({ bannerFirst: true, ringtoneMuted: false, logLevel: 'debug', videoProfile: 'p720', language: 'auto' });
     expect(VideoProfiles[DEFAULT_SETTINGS.videoProfile].name).toBe('720p');
   });
 
@@ -57,14 +65,16 @@ describe('持久化', () => {
     expect(saveSetting(store, 'ringtoneMuted', true)).toBe(true);
     expect(saveSetting(store, 'logLevel', 'info')).toBe(true);
     expect(saveSetting(store, 'videoProfile', 'p1080')).toBe(true);
+    expect(saveSetting(store, 'language', 'en')).toBe(true);
 
     expect([...store.items.keys()].sort()).toEqual([
       'im-rtc-demo.settings.bannerFirst',
+      'im-rtc-demo.settings.language',
       'im-rtc-demo.settings.logLevel',
       'im-rtc-demo.settings.ringtoneMuted',
       'im-rtc-demo.settings.videoProfile',
     ]);
-    expect(loadSettings(store)).toEqual({ bannerFirst: false, ringtoneMuted: true, logLevel: 'info', videoProfile: 'p1080' });
+    expect(loadSettings(store)).toEqual({ bannerFirst: false, ringtoneMuted: true, logLevel: 'info', videoProfile: 'p1080', language: 'en' });
   });
 
   it('只改一项时其余项仍是默认值', () => {

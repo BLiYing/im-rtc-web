@@ -4,6 +4,7 @@ import { ControlButton } from './ControlButton.js';
 import { useCall } from '../useCall.js';
 import { styles } from '../styles.js';
 import { callMotion } from '../theme.js';
+import { t } from '../i18n/index.js';
 
 /**
  * ControlBar 是通话中的控制条。
@@ -56,9 +57,9 @@ export function ControlBar({ onVideo = false, visible = true }: ControlBarProps)
     >
       <ControlButton
         icon="mic"
-        caption="静音"
+        caption={t('ctl.mute')}
         onIcon="mic-slash"
-        onCaption="已静音"
+        onCaption={t('ctl.muted')}
         isOn={!state.self.micOn}
         onClick={() => void actions.toggleMic()}
         testId="toggle-mic"
@@ -67,9 +68,9 @@ export function ControlBar({ onVideo = false, visible = true }: ControlBarProps)
       {showsCameraButton(state.mediaType) && (
         <ControlButton
           icon="video-slash"
-          caption={state.self.cameraBlocked ? '无权限' : '开摄像头'}
+          caption={t(state.self.cameraBlocked ? 'ctl.cameraBlocked' : 'ctl.cameraOn')}
           onIcon="video"
-          onCaption="关摄像头"
+          onCaption={t('ctl.cameraOff')}
           isOn={state.self.cameraOn}
           disabled={state.self.cameraBlocked}
           onClick={() => void actions.toggleCamera()}
@@ -80,7 +81,7 @@ export function ControlBar({ onVideo = false, visible = true }: ControlBarProps)
       <ControlButton
         role="danger"
         icon="phone-down"
-        caption={isLeave ? '离开' : state.phase === 'outgoing' ? '取消' : '挂断'}
+        caption={t(isLeave ? 'ctl.leave' : state.phase === 'outgoing' ? 'ctl.cancel' : 'ctl.hangup')}
         onClick={() => void actions.end()}
         testId="end-call"
       />

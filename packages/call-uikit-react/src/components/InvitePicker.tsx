@@ -8,6 +8,7 @@ import type { InviteCandidate } from '../invite/types.js';
 import { useCall } from '../useCall.js';
 import { styles } from '../styles.js';
 import { Icon } from './Icon.js';
+import { t } from '../i18n/index.js';
 
 /**
  * InvitePicker 是「添加成员」的选人半屏（交互稿 §05 G2，HOST_INTEGRATION_DESIGN §3.4）。
@@ -147,13 +148,13 @@ export function InvitePicker({ onClose }: InvitePickerProps): ReactNode {
   };
 
   return (
-    <div style={styles.sheet} role="dialog" aria-label="添加成员" data-testid="invite-picker">
+    <div style={styles.sheet} role="dialog" aria-label={t('invite.title')} data-testid="invite-picker">
       <div style={styles.sheetHeader}>
-        <b style={{ fontSize: 15 }}>添加成员</b>
+        <b style={{ fontSize: 15 }}>{t('invite.title')}</b>
         <span style={{ fontSize: 11, opacity: 0.7, fontVariantNumeric: 'tabular-nums' }} data-testid="invite-slots">
-          还能加 {Math.max(slots, 0)} 人
+          {t('invite.slotsLeft', { n: Math.max(slots, 0) })}
         </span>
-        <button type="button" style={{ ...styles.headerButton, marginLeft: 'auto' }} aria-label="关闭" onClick={onClose} data-testid="invite-close">
+        <button type="button" style={{ ...styles.headerButton, marginLeft: 'auto' }} aria-label={t('invite.close')} onClick={onClose} data-testid="invite-close">
           <Icon name="xmark" size={16} />
         </button>
       </div>
@@ -161,7 +162,7 @@ export function InvitePicker({ onClose }: InvitePickerProps): ReactNode {
         <Icon name="magnifyingglass" size={15} />
         <input
           style={styles.sheetSearchInput}
-          placeholder={usesProvider || items.length > 0 ? '搜索联系人' : '输入对方 uid'}
+          placeholder={usesProvider || items.length > 0 ? t('invite.search') : t('invite.typeUid')}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
@@ -171,15 +172,15 @@ export function InvitePicker({ onClose }: InvitePickerProps): ReactNode {
         />
       </label>
       <div style={styles.sheetList} onScroll={onScroll} data-testid="invite-list">
-        {listState === 'loading' && <StateBlock text="加载中…" />}
-        {listState === 'error' && <StateBlock text="加载失败" onRetry={retry} />}
-        {listState === 'timeout' && <StateBlock text="请求超时" onRetry={retry} />}
+        {listState === 'loading' && <StateBlock text={t('invite.loading')} />}
+        {listState === 'error' && <StateBlock text={t('invite.loadFailed')} onRetry={retry} />}
+        {listState === 'timeout' && <StateBlock text={t('invite.timeout')} onRetry={retry} />}
         {listState === 'ready' && (
           <>
             {canTypeIn && (
               <button type="button" style={styles.sheetRow} onClick={() => { toggle(typedUid, true); setQuery(''); }} data-testid="invite-typed">
                 <span style={{ ...styles.avatarDisc, width: 32, height: 32, fontSize: 12, background: avatarGradient(typedUid) }}>{avatarInitial(typedUid)}</span>
-                <span>邀请 {typedUid}</span>
+                <span>{t('invite.uid', { uid: typedUid })}</span>
               </button>
             )}
             {picked.filter((uid) => !items.some((c) => c.uid === uid)).map((uid) => (
@@ -188,9 +189,9 @@ export function InvitePicker({ onClose }: InvitePickerProps): ReactNode {
             {shown.map((c) => {
               const already = inCall.has(c.uid);
               const selectable = !already && c.selectable !== false;
-              const sub = already ? '已在通话中'
+              const sub = already ? t('invite.already')
                 : c.selectable === false ? (c.unselectableReason ?? '')
-                  : c.subtitle ?? (c.isOnline === false ? '离线 · 仍可邀请' : c.isOnline === true ? '在线' : '');
+                  : c.subtitle ?? (c.isOnline === false ? t('invite.offlineOk') : c.isOnline === true ? t('invite.online') : '');
               return (
                 <Row
                   key={c.uid}
@@ -206,7 +207,7 @@ export function InvitePicker({ onClose }: InvitePickerProps): ReactNode {
               );
             })}
             {shown.length === 0 && !canTypeIn && picked.length === 0 && <EmptyState allowsTyping={invite.allowManualUidInput} />}
-            {loadingMore && <div style={styles.sheetFooter}>加载中…</div>}
+            {loadingMore && <div style={styles.sheetFooter}>{t('invite.loading')}</div>}
           </>
         )}
       </div>
@@ -217,7 +218,7 @@ export function InvitePicker({ onClose }: InvitePickerProps): ReactNode {
         aria-disabled={picked.length === 0 || undefined}
         data-testid="invite-go"
       >
-        {picked.length === 0 ? '邀请' : `邀请 ${picked.length} 人`}
+        {picked.length === 0 ? t('invite.action') : t('invite.actionN', { n: picked.length })}
       </button>
     </div>
   );
@@ -229,7 +230,7 @@ function StateBlock({ text, onRetry }: { readonly text: string; readonly onRetry
     <div style={styles.sheetState} data-testid="invite-state">
       <span>{text}</span>
       {onRetry !== undefined && (
-        <button type="button" style={styles.sheetRetry} onClick={onRetry} data-testid="invite-retry">重试</button>
+        <button type="button" style={styles.sheetRetry} onClick={onRetry} data-testid="invite-retry">{t('invite.retry')}</button>
       )}
     </div>
   );
@@ -238,8 +239,8 @@ function StateBlock({ text, onRetry }: { readonly text: string; readonly onRetry
 function EmptyState({ allowsTyping }: { readonly allowsTyping: boolean }): ReactNode {
   return (
     <div style={styles.sheetState} data-testid="invite-empty">
-      <span>没有可邀请的成员</span>
-      {allowsTyping && <span style={{ fontSize: 11.5, opacity: 0.7 }}>可以在上面直接输入对方 uid</span>}
+      <span>{t('invite.empty')}</span>
+      {allowsTyping && <span style={{ fontSize: 11.5, opacity: 0.7 }}>{t('invite.emptyTyping')}</span>}
     </div>
   );
 }

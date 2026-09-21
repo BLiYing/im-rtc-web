@@ -10,6 +10,7 @@ import { usePipDrag } from '../usePipDrag.js';
 import { styles } from '../styles.js';
 import { callMetrics, callMotion } from '../theme.js';
 import { VideoTile } from './VideoTile.js';
+import { t } from '../i18n/index.js';
 
 /**
  * MiniWindow 是收起后的页内小窗（规范 §04 / 交互稿 §03）：180 宽，视频 16:9 + 底栏（时长 + 挂断）。
@@ -61,7 +62,7 @@ export function MiniWindow(): ReactNode {
       }}
       role="button"
       tabIndex={0}
-      aria-label="通话中，点击展开"
+      aria-label={t('mini.expand')}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') actions.setMinimized(false);
       }}
@@ -91,7 +92,7 @@ export function MiniWindow(): ReactNode {
           }}
           data-testid="mini-end"
         >
-          {state.isGroup || state.isMeeting ? '离开' : '挂断'}
+          {t(state.isGroup || state.isMeeting ? 'ctl.leave' : 'ctl.hangup')}
         </button>
       </div>
     </div>

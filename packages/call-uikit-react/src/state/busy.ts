@@ -1,7 +1,8 @@
 import type { CallViewState } from './viewTypes.js';
+import { t } from '../i18n/index.js';
 
 /** 已在一场里又想开始新的一场时的提示。 */
-export const BUSY_NOTICE = '你正在通话中，请先结束当前通话';
+export const busyNotice = (): string => t('busy.notice');
 
 /**
  * 此刻能不能开始**新的一场**（拨出 / 主动加入 / 进会议房）：只有界面空闲、或停在上一通的结束画面时才行。

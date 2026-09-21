@@ -5,6 +5,7 @@ import { useCallback, useMemo, useState } from 'react';
 import type { DeviceKind, PermissionFailure, PermissionQuery } from './state/permissions.js';
 import { blockedCopy, classifyProbeError, explanationCopy, needsExplanation } from './state/permissions.js';
 import type { ViewAction } from './state/viewTypes.js';
+import { t } from './i18n/index.js';
 
 /**
  * usePermissionGate 是权限申请的三段式（交互稿 §02）：前置说明卡 → 系统框 → 结果分支。
@@ -80,7 +81,7 @@ export function usePermissionGate(
       // 首次才出说明卡：系统框只有一次机会，说明卡是为它做铺垫。已授权 / 已拒绝 / 查不到都直接探。
       if (needsExplanation(status)) {
         const copy = explanationCopy(kind);
-        const go = await ask({ kind: 'explain', device: kind, ...copy }, '好', '取消');
+        const go = await ask({ kind: 'explain', device: kind, ...copy }, t('perm.ok'), t('perm.cancel'));
         if (!go) return 'cancelled';
       }
       let failure: PermissionFailure | null = null;
@@ -92,7 +93,7 @@ export function usePermissionGate(
         logger.warn('设备探测失败', { device: kind, failure });
       }
       if (failure === null) continue;
-      await ask({ kind: 'blocked', device: kind, ...blockedCopy(kind, failure) }, '知道了');
+      await ask({ kind: 'blocked', device: kind, ...blockedCopy(kind, failure) }, t('perm.gotIt'));
       if (kind === 'microphone') return 'mic-blocked';
       dispatch({ type: 'cameraBlocked' });
       result = 'camera-blocked';

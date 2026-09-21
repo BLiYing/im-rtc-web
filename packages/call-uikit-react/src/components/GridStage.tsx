@@ -15,6 +15,7 @@ import { styles } from '../styles.js';
 import { callMetrics } from '../theme.js';
 import { OffscreenMembers } from './OffscreenMembers.js';
 import { VideoTile } from './VideoTile.js';
+import { t } from '../i18n/index.js';
 
 /**
  * GridStage 是群通话的九宫格（交互稿 §05）。本端也占一格；邀请中的人立刻占一个占位格。
@@ -86,7 +87,7 @@ export function GridStage(props: GridStageProps = {}): ReactNode {
         {/* 本端那格**只表达麦克风开 / 关两态**（2026-09-09 拍板）：自己在不在说话自己知道。 */}
         <VideoTile
           uid=""
-          label="我"
+          label={t('self')}
           hasVideo={state.self.cameraOn && state.localCameraCid !== ''}
           // 本端的静音角标读的是**本端开关**，不是回调——自己的 mute 不会绕一圈发回来。
           hasAudio={state.self.micOn}

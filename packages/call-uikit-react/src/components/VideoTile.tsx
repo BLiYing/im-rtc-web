@@ -12,6 +12,7 @@ import { NetworkBars, isNetworkPoor } from './Icon.js';
 
 /** VideoTileProps 是一个格子。 */
 import { SpeechIcon } from './SpeechIcon.js';
+import { t } from '../i18n/index.js';
 
 export interface VideoTileProps {
   /** 远端成员的 uid；本端预览传空串并给 localCid。 */
@@ -199,11 +200,11 @@ export const VideoTile = memo(function VideoTile(props: VideoTileProps): ReactNo
       )}
       {isRinging && (
         <div style={styles.tileRingingText} data-testid={`ringing-${testUid}`}>
-          {settled === '' ? '呼叫中…' : settledText(settled)}
+          {settled === '' ? t('tile.calling') : settledText(settled)}
         </div>
       )}
       {isNetworkPoor(networkLevel) && (
-        <div style={styles.tileNetBadge} role="img" aria-label="网络不佳" data-testid={`net-${testUid}`}>
+        <div style={styles.tileNetBadge} role="img" aria-label={t('tile.networkPoor')} data-testid={`net-${testUid}`}>
           <NetworkBars level={networkLevel} />
         </div>
       )}

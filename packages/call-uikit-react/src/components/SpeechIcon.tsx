@@ -2,6 +2,7 @@ import { memo, useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 
 import { callColors, callMotion } from '../theme.js';
+import { t } from '../i18n/index.js';
 
 /**
  * 名牌气泡里那枚说话 / 静音的小信号。**九宫格与会议里才有，1v1 不用**（2026-09-09 拍板）。
@@ -131,7 +132,7 @@ export const SpeechIcon = memo(function SpeechIcon(
   // **静音优先**：静音的人不可能在说话，两者互斥。
   if (muted) {
     return (
-      <span style={mutedWrap} role="img" aria-label="已静音" data-testid={`muted-${testUid}`}>
+      <span style={mutedWrap} role="img" aria-label={t('speech.muted')} data-testid={`muted-${testUid}`}>
         <svg width={W} height={H} viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <path d="M8 1.6a2 2 0 0 1 2 2v3.1L6 3.9V3.6a2 2 0 0 1 2-2Z" fill="currentColor" />
           <path d="M6 6.9v1.5a2 2 0 0 0 3.1 1.67L10.2 11.2A3.9 3.9 0 0 1 4.1 8V7.3" fill="currentColor" />
@@ -148,7 +149,7 @@ export const SpeechIcon = memo(function SpeechIcon(
   */
   if (!held) {
     return (
-      <span style={micOnWrap} role="img" aria-label="麦克风已开启" data-testid={`micon-${testUid}`}>
+      <span style={micOnWrap} role="img" aria-label={t('speech.micOn')} data-testid={`micon-${testUid}`}>
         <svg width={W} height={H} viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <rect x="6" y="1.6" width="4" height="7.2" rx="2" fill="currentColor" />
           <path d="M4.1 7.3V8a3.9 3.9 0 0 0 7.8 0v-.7" stroke="currentColor" strokeWidth="1.3"
@@ -162,7 +163,7 @@ export const SpeechIcon = memo(function SpeechIcon(
 
   const peak = 0.5 + 0.5 * Math.min(Math.max(volume, 0), 100) / 100;
   return (
-    <span style={wrap} role="img" aria-label="正在说话" data-testid={`speaking-${testUid}`}>
+    <span style={wrap} role="img" aria-label={t('speech.speaking')} data-testid={`speaking-${testUid}`}>
       {DELAYS.map((delay, i) => (
         <i
           key={i}

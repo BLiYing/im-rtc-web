@@ -1,6 +1,7 @@
 import type { CallEngine } from 'im-rtc-call-engine';
 
 import type { ViewAction } from './state/viewTypes.js';
+import { t } from './i18n/index.js';
 
 /**
  * subscribeEngine 把 engine 事件接到 reducer 上，返回退订函数。
@@ -46,12 +47,12 @@ export function subscribeEngine(engine: CallEngine, dispatch: (action: ViewActio
       dispatch({ type: 'activeSpeakers', speakers: e.speakers, selfUid: engine.uid })),
     engine.on('networkQuality', (e) => dispatch({ type: 'networkQuality', entries: e.entries })),
     // 四个便利事件只在 1v1 抛，随后必有 callEnd——所以这里只做提示，不改阶段。
-    engine.on('callRejected', (e) => dispatch({ type: 'hint', text: `${e.uid} 已拒接` })),
-    engine.on('callBusy', (e) => dispatch({ type: 'hint', text: `${e.uid} 忙线中` })),
-    engine.on('callNoAnswer', (e) => dispatch({ type: 'hint', text: `${e.uid} 无应答` })),
-    engine.on('callCancelled', (e) => dispatch({ type: 'hint', text: `${e.uid} 取消了呼叫` })),
+    engine.on('callRejected', (e) => dispatch({ type: 'hint', text: t('hint.peerRejected', { uid: e.uid }) })),
+    engine.on('callBusy', (e) => dispatch({ type: 'hint', text: t('hint.peerBusy', { uid: e.uid }) })),
+    engine.on('callNoAnswer', (e) => dispatch({ type: 'hint', text: t('hint.peerNoAnswer', { uid: e.uid }) })),
+    engine.on('callCancelled', (e) => dispatch({ type: 'hint', text: t('hint.peerCancelled', { uid: e.uid }) })),
     // 通话中有人打进来，服务端已经替我们回了忙线——**只提示，不动当前通话**。
-    engine.on('callMissed', (e) => dispatch({ type: 'hint', text: `${e.caller} 来电，已自动回复忙线` })),
+    engine.on('callMissed', (e) => dispatch({ type: 'hint', text: t('hint.missedBusy', { uid: e.caller }) })),
     // 他设备处理了：来电页会随后收到 callEnd 而静默消失，这里不弹提示（交互稿 §06）。
     engine.on('handledOnOtherDevice', () => undefined),
     engine.on('firstVideoFrame', (e) => {

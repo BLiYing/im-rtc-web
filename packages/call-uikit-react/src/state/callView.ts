@@ -12,6 +12,7 @@ export { initialCallView } from './viewTypes.js';
 export type {
   CallPhase, CallViewState, ConnectionStatus, RemoteParticipant, RingtoneKind, SelfState, SettledOutcome, ViewAction,
 } from './viewTypes.js';
+import { t } from '../i18n/index.js';
 
 /**
  * 通话界面的视图模型 —— **纯 reducer，不碰 React、不碰 DOM**。
@@ -217,7 +218,7 @@ export function reduceCallView(state: CallViewState, action: ViewAction): CallVi
       return settleParticipant(state, action.uid, action.outcome);
 
     case 'inviteDenied':
-      return { ...state, canInvite: false, hint: '你已不在通话中，无法添加成员' };
+      return { ...state, canInvite: false, hint: t('hint.inviteDenied') };
 
     case 'inviteRevoked':
       return revokeLastInvited(state);
@@ -237,8 +238,8 @@ export function reduceCallView(state: CallViewState, action: ViewAction): CallVi
         不写 `endHint`——它只应该在真的要收场的那一次被点亮。
       */
       return state.phase === 'outgoing' || state.phase === 'ended'
-        ? { ...revoked, hint: '对方暂时无法被邀请', endHint: '对方暂时无法被邀请' }
-        : { ...revoked, hint: '对方暂时无法被邀请' };
+        ? { ...revoked, hint: t('hint.inviteRejected'), endHint: t('hint.inviteRejected') }
+        : { ...revoked, hint: t('hint.inviteRejected') };
     }
 
     case 'userAudio':
@@ -372,5 +373,5 @@ export function inviteSlotsLeft(state: CallViewState, maxParticipants = MAX_TILE
  * 这里单独收着方便以后按码拆细，不必再回头改调用点。
  */
 export function joinDeniedTextFor(_code: number): string {
-  return '无法加入该通话';
+  return t('hint.joinDenied');
 }

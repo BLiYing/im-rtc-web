@@ -5,6 +5,7 @@ import { useCall } from '../useCall.js';
 import { styles } from '../styles.js';
 import { callMotion } from '../theme.js';
 import { isNetworkPoor } from './Icon.js';
+import { t } from '../i18n/index.js';
 
 /**
  * TopBanner 是通话页顶部的橙条（规范 §08）：「正在重连…」「连接已断开」「对方网络不佳」。
@@ -31,13 +32,13 @@ export function TopBanner(): ReactNode {
   }, [poorUid]);
 
   if (state.connection === 'reconnecting') {
-    return <div style={styles.topBanner} role="status" data-testid="banner-reconnecting">正在重连…</div>;
+    return <div style={styles.topBanner} role="status" data-testid="banner-reconnecting">{t('banner.reconnecting')}</div>;
   }
   if (state.connection === 'lost') {
-    return <div style={styles.topBanner} role="status" data-testid="banner-lost">连接已断开</div>;
+    return <div style={styles.topBanner} role="status" data-testid="banner-lost">{t('banner.lost')}</div>;
   }
   if (showPoor) {
-    return <div style={styles.topBanner} role="status" data-testid="banner-network">对方网络不佳</div>;
+    return <div style={styles.topBanner} role="status" data-testid="banner-network">{t('banner.peerNetwork')}</div>;
   }
   return null;
 }

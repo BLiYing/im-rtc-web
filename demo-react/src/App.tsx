@@ -1,6 +1,6 @@
 import type { CallEngine } from 'im-rtc-call-engine';
 import { CallEngine as Engine, VideoProfiles, WebRTCAdapter, setLogLevel, setLogSink } from 'im-rtc-call-engine';
-import { CallOverlay, CallProvider } from 'im-rtc-call-uikit-react';
+import { CallOverlay, CallProvider, resolveLocale } from 'im-rtc-call-uikit-react';
 import { SyntheticMediaSource, browserMediaSource } from '@demo/synthetic';
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -219,7 +219,8 @@ export function App(): ReactNode {
         restoring ? <div className="card">正在恢复登录…</div> : <LoginPanel onLogin={login} />
       ) : (
         <CallProvider engine={session.engine} inviteMemberProvider={fakeInviteMemberProvider}
-                      bannerFirst={settings.bannerFirst} ringtoneMuted={settings.ringtoneMuted}>
+                      bannerFirst={settings.bannerFirst} ringtoneMuted={settings.ringtoneMuted}
+                      locale={resolveLocale(settings.language)}>
           <div className="card">
             <h2>已登录</h2>
             <div>

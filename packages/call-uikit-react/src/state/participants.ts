@@ -1,4 +1,5 @@
 import type { CallViewState, RemoteParticipant, SettledOutcome } from './viewTypes.js';
+import { t } from '../i18n/index.js';
 
 /**
  * 成员列表上的叠加逻辑：进房、发言、网络、邀请中的终局。纯函数，配 `callView.test.ts`。
@@ -180,11 +181,11 @@ export function applyNetwork(
 export function settledText(outcome: SettledOutcome): string {
   switch (outcome) {
     case 'rejected':
-      return '已拒绝';
+      return t('tile.rejected');
     case 'no_answer':
-      return '未接听';
+      return t('tile.noAnswer');
     case 'offline':
-      return '对方不在线';
+      return t('tile.offline');
     default:
       return '';
   }

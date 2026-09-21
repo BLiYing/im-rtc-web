@@ -1,8 +1,8 @@
 import { SDK_VERSION, VideoProfiles } from 'im-rtc-call-engine';
 import type { ReactNode } from 'react';
 
-import type { DemoSettings, VideoProfileKey } from './settingsStore.js';
-import { VIDEO_PROFILE_KEYS } from './settingsStore.js';
+import type { DemoSettings, LanguageChoice, VideoProfileKey } from './settingsStore.js';
+import { LANGUAGE_CHOICES, VIDEO_PROFILE_KEYS } from './settingsStore.js';
 import type { UpdateSetting } from './useDemoSettings.js';
 import { describeBrowser } from './userAgent.js';
 
@@ -15,6 +15,8 @@ export interface SettingsProps {
   readonly deviceId: string;
 }
 
+/** 语言各用自己的名字显示，任何语言的界面里都认得出。 */
+const LANGUAGE_NAMES: Record<LanguageChoice, string> = { auto: '跟随系统 / Auto', 'zh-CN': '简体中文', en: 'English' };
 const CHECK_ROW = { display: 'flex', gap: 6, alignItems: 'center', fontSize: 14, color: 'inherit' } as const;
 const CHECKBOX = { width: 'auto' } as const;
 
@@ -53,6 +55,17 @@ export function Settings({ settings, onChange, activeProfile, deviceId }: Settin
         详细日志
       </label>
       <div className="note" style={{ marginTop: 2 }}>打开是 debug 级，关掉是 info 级。立即生效。</div>
+
+      <label style={{ marginTop: 12 }}>语言 / Language</label>
+      <div className="picks">
+        {LANGUAGE_CHOICES.map((choice) => (
+          <button key={choice} type="button" className="pick" aria-pressed={settings.language === choice}
+                  data-testid={`language-${choice}`} onClick={() => onChange('language', choice)}>
+            {LANGUAGE_NAMES[choice]}
+          </button>
+        ))}
+      </div>
+      <div className="note" style={{ marginTop: 2 }}>切换通话界面的语言，立即生效；已经显示的提示不回译。</div>
 
       <label style={{ marginTop: 12 }}>采集画质</label>
       <div className="picks">
