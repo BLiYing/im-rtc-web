@@ -119,7 +119,35 @@ export type MessageKey =
   | "invite.retry"
   | "invite.empty"
   | "invite.emptyTyping"
-  | "invite.slotsLeft";
+  | "invite.slotsLeft"
+  | "ctl.speaker"
+  | "ctl.flip"
+  | "label.room"
+  | "call.default"
+  | "incoming.bannerAria"
+  | "pip.peer"
+  | "pip.self"
+  | "hint.cameraBusy"
+  | "hint.inviteNotAllowed"
+  | "meeting.unpinLabel"
+  | "meeting.unpin"
+  | "invite.loadTimeout"
+  | "invite.loadFailedRetry"
+  | "invite.pageError"
+  | "a11y.muted"
+  | "a11y.speaking"
+  | "a11y.micOn"
+  | "perm.mic.explainBodyOs"
+  | "perm.cam.explainBodyOs"
+  | "perm.mic.retryTitle"
+  | "perm.mic.retryBody"
+  | "perm.cam.retryTitle"
+  | "perm.cam.retryBody"
+  | "perm.mic.blockedBodyOs"
+  | "perm.cam.blockedBodyOs"
+  | "perm.retry"
+  | "perm.notNow"
+  | "perm.settings";
 
 export const MESSAGES: Record<Locale, Record<MessageKey, string>> = {
   "zh-CN": {
@@ -239,6 +267,34 @@ export const MESSAGES: Record<Locale, Record<MessageKey, string>> = {
     "invite.empty": "没有可邀请的成员",
     "invite.emptyTyping": "可以在上面直接输入对方 uid",
     "invite.slotsLeft": "还能加 {n} 人",
+    "ctl.speaker": "扬声器",
+    "ctl.flip": "翻转",
+    "label.room": "房间号",
+    "call.default": "通话",
+    "incoming.bannerAria": "来电，点击展开",
+    "pip.peer": "对方画面。轻点互换，长按可移动",
+    "pip.self": "本端画面。轻点互换，长按可移动",
+    "hint.cameraBusy": "摄像头被占用或不可用，已关闭",
+    "hint.inviteNotAllowed": "当前不允许添加成员",
+    "meeting.unpinLabel": "📌 取消钉住",
+    "meeting.unpin": "取消钉住",
+    "invite.loadTimeout": "加载超时",
+    "invite.loadFailedRetry": "加载失败，点击重试",
+    "invite.pageError": "{message} · 点击重试",
+    "a11y.muted": "{name}，已静音",
+    "a11y.speaking": "{name}，正在说话",
+    "a11y.micOn": "{name}，麦克风已开启",
+    "perm.mic.explainBodyOs": "通话时对方要听见你的声音。接下来系统会问你要不要允许。",
+    "perm.cam.explainBodyOs": "视频通话时对方要看见你。接下来系统会问你要不要允许。",
+    "perm.mic.retryTitle": "没有麦克风就没法通话",
+    "perm.mic.retryBody": "再试一次？这次请选「允许」。",
+    "perm.cam.retryTitle": "没有摄像头就看不到你",
+    "perm.cam.retryBody": "再试一次？不允许的话会用语音继续通话。",
+    "perm.mic.blockedBodyOs": "到「设置 › 应用 › 权限」里打开麦克风后重试。",
+    "perm.cam.blockedBodyOs": "要开视频，请到系统设置里打开摄像头权限。",
+    "perm.retry": "再试一次",
+    "perm.notNow": "不了",
+    "perm.settings": "去设置",
   },
   "en": {
     "self": "Me",
@@ -357,5 +413,33 @@ export const MESSAGES: Record<Locale, Record<MessageKey, string>> = {
     "invite.empty": "No one to invite",
     "invite.emptyTyping": "You can type a user ID above",
     "invite.slotsLeft": "{n} more can be added",
+    "ctl.speaker": "Speaker",
+    "ctl.flip": "Flip",
+    "label.room": "Room ID",
+    "call.default": "Call",
+    "incoming.bannerAria": "Incoming call, tap to expand",
+    "pip.peer": "Remote video. Tap to swap, long-press to move",
+    "pip.self": "Your video. Tap to swap, long-press to move",
+    "hint.cameraBusy": "Camera is busy or unavailable and was turned off",
+    "hint.inviteNotAllowed": "Adding people isn't allowed right now",
+    "meeting.unpinLabel": "📌 Unpin",
+    "meeting.unpin": "Unpin",
+    "invite.loadTimeout": "Load timed out",
+    "invite.loadFailedRetry": "Failed to load. Tap to retry",
+    "invite.pageError": "{message} · Tap to retry",
+    "a11y.muted": "{name}, muted",
+    "a11y.speaking": "{name}, speaking",
+    "a11y.micOn": "{name}, microphone on",
+    "perm.mic.explainBodyOs": "They need to hear you on the call. The system will ask for permission next.",
+    "perm.cam.explainBodyOs": "They need to see you on a video call. The system will ask for permission next.",
+    "perm.mic.retryTitle": "Calls need a microphone",
+    "perm.mic.retryBody": "Try again? Choose “Allow” this time.",
+    "perm.cam.retryTitle": "They can't see you without a camera",
+    "perm.cam.retryBody": "Try again? If you don't allow it, the call continues with voice only.",
+    "perm.mic.blockedBodyOs": "Turn on the microphone in Settings › Apps › Permissions, then try again.",
+    "perm.cam.blockedBodyOs": "To use video, turn on camera permission in system Settings.",
+    "perm.retry": "Try again",
+    "perm.notNow": "Not now",
+    "perm.settings": "Settings",
   },
 };
