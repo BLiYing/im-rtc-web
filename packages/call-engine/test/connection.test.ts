@@ -111,7 +111,7 @@ describe('握手', () => {
     expect(hello?.data['session_id']).toBe(''); // 首次连接没有会话可恢复
     // 宿主没传 sdk 时，版本号取 SDK_VERSION——不许在 connection.ts 里另写一份再漂掉。
     expect(hello?.data['sdk']).toBe(`web/${SDK_VERSION}`);
-    expect(SDK_VERSION).toBe('2.0.0');
+    expect(SDK_VERSION).toBe('2.1.0');
 
     h.latest().receive(
       JSON.stringify({ type: 'sys.hello.ok', req_id: hello?.req_id, ts: 1, data: HELLO_OK_DATA }),

@@ -7,4 +7,4 @@
  *
  * 升版本时要同步改 `packages/call-engine/package.json` 与 `packages/call-uikit-react/package.json`。
  */
-export const SDK_VERSION = '2.0.0';
+export const SDK_VERSION = '2.1.0';
