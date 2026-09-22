@@ -1,6 +1,6 @@
 import type { CallEngine } from 'im-rtc-call-engine';
 import { CallEngine as Engine, VideoProfiles, WebRTCAdapter, setLogLevel, setLogSink } from 'im-rtc-call-engine';
-import { CallOverlay, CallProvider, resolveLocale } from 'im-rtc-call-uikit-react';
+import { CallOverlay, CallProvider, resolveLocale, setLocale } from 'im-rtc-call-uikit-react';
 import { SyntheticMediaSource, browserMediaSource } from '@demo/synthetic';
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -19,16 +19,15 @@ import { Settings } from './Settings.js';
 import type { VideoProfileKey } from './settingsStore.js';
 import { browserStore, loadSettings } from './settingsStore.js';
 import { useDemoSettings } from './useDemoSettings.js';
+import { dt } from './demoText.js';
 
 // 启动时按存下的档位设（默认 debug）。**要早于任何 engine 创建**，所以放在模块顶部而不是 effect 里。
 setLogLevel(loadSettings(browserStore()).logLevel);
 
-const CONN_LABEL: Readonly<Record<ConnPhase, string>> = {
-  connected: '● 已连接',
-  reconnecting: '◌ 重连中',
-  refreshing: '◌ 正在换接入票',
-  dead: '○ 已断开',
-};
+/** 连接状态文案；函数而非常量，语言切换后才跟得上。 */
+function connLabel(phase: ConnPhase): string {
+  return dt(`demo.conn.${phase}`);
+}
 
 interface Session {
   readonly engine: CallEngine;
@@ -108,6 +107,8 @@ export function App(): ReactNode {
   });
   const [notice, setNotice] = useState('');
   const { settings, settingsRef, update: updateSetting } = useDemoSettings();
+  // 登录页在 <CallProvider> 之外，语言要在这里就设好。
+  setLocale(resolveLocale(settings.language));
 
   const login = useCallback(
     async (server: string, username: string, synthetic: boolean): Promise<void> => {
@@ -161,7 +162,7 @@ export function App(): ReactNode {
       */
       remember({ server, username, synthetic });
       setNotice('');
-      setConn({ phase: 'connected', detail: '新会话' });
+      setConn({ phase: 'connected', detail: dt('demo.conn.newSession') });
       setSession({ engine, server, token, uid: username, deviceId, videoProfile });
     },
     [settingsRef],
@@ -189,7 +190,7 @@ export function App(): ReactNode {
       return;
     }
     void login(saved.server, saved.username, saved.synthetic)
-      .catch((err: unknown) => setNotice(`自动重登失败：${String(err)}`))
+      .catch((err: unknown) => setNotice(dt('demo.app.autoLoginFailed', { err: String(err) })))
       .finally(() => setRestoring(false));
   }, [restoring, login]);
 
@@ -203,7 +204,7 @@ export function App(): ReactNode {
 
   return (
     <>
-      <h1>im-rtc · 引 uikit 的 Demo</h1>
+      <h1>{dt('demo.app.title')}</h1>
       <p className="lead">
         通话界面全部来自 <code>im-rtc-call-uikit-react</code>，这一页只写了登录、拨号与记录——
         也就是<b>宿主本来就该自己写的那部分</b>。
@@ -216,13 +217,13 @@ export function App(): ReactNode {
       )}
 
       {session === null ? (
-        restoring ? <div className="card">正在恢复登录…</div> : <LoginPanel onLogin={login} />
+        restoring ? <div className="card">{dt('demo.app.restoring')}</div> : <LoginPanel onLogin={login} />
       ) : (
         <CallProvider engine={session.engine} inviteMemberProvider={fakeInviteMemberProvider}
                       bannerFirst={settings.bannerFirst} ringtoneMuted={settings.ringtoneMuted}
                       locale={resolveLocale(settings.language)}>
           <div className="card">
-            <h2>已登录</h2>
+            <h2>{dt('demo.app.loggedIn')}</h2>
             <div>
               <b>{session.uid}</b> <span className="muted">（{session.deviceId}）</span>
             </div>
@@ -232,10 +233,10 @@ export function App(): ReactNode {
             */}
             <button type="button" className="ghost" onClick={logout}
                     style={{ marginTop: 8 }} data-testid="logout">
-              退出登录
+              {dt('demo.app.logout')}
             </button>
             <div className="note" data-testid="conn-status">
-              {CONN_LABEL[conn.phase]}
+              {connLabel(conn.phase)}
               {conn.detail !== '' && <span className="muted"> · {conn.detail}</span>}
             </div>
           </div>

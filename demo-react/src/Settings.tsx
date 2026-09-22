@@ -5,6 +5,7 @@ import type { DemoSettings, LanguageChoice, VideoProfileKey } from './settingsSt
 import { LANGUAGE_CHOICES, VIDEO_PROFILE_KEYS } from './settingsStore.js';
 import type { UpdateSetting } from './useDemoSettings.js';
 import { describeBrowser } from './userAgent.js';
+import { dt } from './demoText.js';
 
 /** SettingsProps 是设置卡片的参数。 */
 export interface SettingsProps {
@@ -33,28 +34,28 @@ export function Settings({ settings, onChange, activeProfile, deviceId }: Settin
 
   return (
     <div className="card" data-testid="settings">
-      <h2>设置</h2>
+      <h2>{dt('demo.settings.title')}</h2>
 
       <label style={CHECK_ROW}>
         <input type="checkbox" style={CHECKBOX} checked={settings.bannerFirst}
                onChange={(e) => onChange('bannerFirst', e.target.checked)} />
-        来电先出横幅
+        {dt('demo.settings.bannerFirst')}
       </label>
-      <div className="note" style={{ marginTop: 2 }}>关掉则来电直接进来电页。立即生效。</div>
+      <div className="note" style={{ marginTop: 2 }}>{dt('demo.settings.bannerFirstNote')}</div>
 
       <label style={{ ...CHECK_ROW, marginTop: 12 }}>
         <input type="checkbox" style={CHECKBOX} checked={settings.ringtoneMuted}
                onChange={(e) => onChange('ringtoneMuted', e.target.checked)} />
-        静音来电铃声
+        {dt('demo.settings.ringtoneMuted')}
       </label>
-      <div className="note" style={{ marginTop: 2 }}>打开后来电铃声与回铃音都不响，通话本身不受影响。立即生效。</div>
+      <div className="note" style={{ marginTop: 2 }}>{dt('demo.settings.ringtoneMutedNote')}</div>
 
       <label style={{ ...CHECK_ROW, marginTop: 12 }}>
         <input type="checkbox" style={CHECKBOX} checked={settings.logLevel === 'debug'}
                onChange={(e) => onChange('logLevel', e.target.checked ? 'debug' : 'info')} />
-        详细日志
+        {dt('demo.settings.verboseLog')}
       </label>
-      <div className="note" style={{ marginTop: 2 }}>打开是 debug 级，关掉是 info 级。立即生效。</div>
+      <div className="note" style={{ marginTop: 2 }}>{dt('demo.settings.verboseLogNote')}</div>
 
       <label style={{ marginTop: 12 }}>语言 / Language</label>
       <div className="picks">
@@ -65,9 +66,9 @@ export function Settings({ settings, onChange, activeProfile, deviceId }: Settin
           </button>
         ))}
       </div>
-      <div className="note" style={{ marginTop: 2 }}>切换通话界面的语言，立即生效；已经显示的提示不回译。</div>
+      <div className="note" style={{ marginTop: 2 }}>{dt('demo.settings.languageNote')}</div>
 
-      <label style={{ marginTop: 12 }}>采集画质</label>
+      <label style={{ marginTop: 12 }}>{dt('demo.settings.profile')}</label>
       <div className="picks">
         {VIDEO_PROFILE_KEYS.map((key) => (
           <button key={key} type="button" className="pick" aria-pressed={settings.videoProfile === key}
@@ -77,8 +78,8 @@ export function Settings({ settings, onChange, activeProfile, deviceId }: Settin
         ))}
       </div>
       <div className="note" style={{ marginTop: 2, color: isProfilePending ? '#e5484d' : undefined }}>
-        换了要<b>退出重登</b>才生效（登录时按这一档建采集）。
-        本次登录用的是 {VideoProfiles[activeProfile].name}。
+        {dt('demo.settings.profileNote')}
+        {dt('demo.settings.profileActive', { name: VideoProfiles[activeProfile].name })}
       </div>
 
       <table style={{ marginTop: 16 }}>
@@ -87,10 +88,10 @@ export function Settings({ settings, onChange, activeProfile, deviceId }: Settin
           <tr>
             <th>WebRTC</th>
             <td title={navigator.userAgent}>
-              浏览器内置，版本跟随浏览器{browser !== '' && <span className="muted">（{browser}）</span>}
+              {dt('demo.settings.webrtcValue')}{browser !== '' && <span className="muted">（{browser}）</span>}
             </td>
           </tr>
-          <tr><th>设备 ID</th><td>{deviceId}</td></tr>
+          <tr><th>{dt('demo.settings.deviceId')}</th><td>{deviceId}</td></tr>
         </tbody>
       </table>
     </div>

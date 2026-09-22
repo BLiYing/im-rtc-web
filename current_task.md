@@ -7,7 +7,8 @@
 
 ## 当前焦点
 
-- **09-21 多语言（zh-CN / en）web 已做**：文案表在 server `docs/i18n/strings.json`（跨端单一真相源），`scripts/gen-i18n.mjs` 生成 `i18n/messages.gen.ts`；`<CallProvider locale messages>`，Demo 设置页「语言 / Language」三选一。252 + demo 测试与 `test.sh` 16 步绿；**没在真浏览器里看过英文版式**。设计与其余四端进度见 server `docs/design/I18N_DESIGN.md`。Demo 各页自己的文案还没进表。
+- **09-22 Demo 各页自己的文案也进表了**：`gen-i18n.mjs` 拆成两份生成物——SDK 表 `packages/call-uikit-react/src/i18n/messages.gen.ts`（`t()`）与 Demo 表 `demo-react/src/demoMessages.gen.ts`（`demoText.ts` 的 `dt()`），避免单文件超 600 行体量门禁。登录/拨号/记录/设置/连接状态等 8 个 Demo 文件接入。`test.sh` 17 步绿。
+- **09-21 多语言（zh-CN / en）web 已做**：文案表在 server `docs/i18n/strings.json`（跨端单一真相源）。`<CallProvider locale messages>`，Demo 设置页「语言 / Language」三选一。**没在真浏览器里看过英文版式**。设计与其余四端进度见 server `docs/design/I18N_DESIGN.md`。
 
 - **09-19 新增 `engine.fetchCallHistory({limit, cursor})`**（`callHistory.ts`，`GET /v1/calls`，游标翻页，`nextCursor` 为 `null` 即到底，只返回本人）：`callHistory.test.ts` 过、`./scripts/test.sh` 16 步全绿；demo-react 通话记录改成调它（加「加载更多」），`demo/src/api.ts` 里的 `listCalls` / `CallRecord` 已删。**Chrome 里验过**（bob：首页 20 条、点一次追加到 40）。；记录页版式对齐 Android（图标 | 名字+「来电/呼出 · 结果」| 时间），时间走 `historyTime.ts`（今天 `HH:mm` / `昨天 HH:mm` / `M月d日 HH:mm` / `yyyy年M月d日 HH:mm`，8 条用例 `historyTime.test.ts` 过，Chrome 里看过版式）。
 

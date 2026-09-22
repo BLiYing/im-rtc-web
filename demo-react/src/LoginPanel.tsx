@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { useState } from 'react';
+import { dt } from './demoText.js';
 
 /** remembered 读上次填过的值。刷新/重开标签页不用再敲一遍。 */
 function remembered(key: string, fallback: string): string {
@@ -43,18 +44,18 @@ export function LoginPanel({ onLogin }: LoginPanelProps): ReactNode {
 
   return (
     <div className="card">
-      <h2>登录</h2>
+      <h2>{dt('demo.login.title')}</h2>
       <div className="row">
         <div>
-          <label htmlFor="server">服务端</label>
+          <label htmlFor="server">{dt('demo.login.server')}</label>
           <input id="server" value={server} onChange={(e) => setServer(e.target.value)} />
         </div>
         <div>
-          <label htmlFor="username">用户名</label>
+          <label htmlFor="username">{dt('demo.login.username')}</label>
           <input id="username" value={username} onChange={(e) => setUsername(e.target.value)} />
         </div>
         <button type="button" onClick={submit} disabled={busy || username.trim() === ''}>
-          {busy ? '登录中…' : '登录'}
+          {busy ? dt('demo.login.busy') : dt('demo.login.submit')}
         </button>
       </div>
       <div className="note">
@@ -65,7 +66,7 @@ export function LoginPanel({ onLogin }: LoginPanelProps): ReactNode {
             style={{ width: 'auto' }}
             onChange={(e) => setSynthetic(e.target.checked)}
           />
-          用合成音视频源（不碰摄像头/麦克风）——<b>同一台机器双开标签页对拨时勾上</b>，跨设备联调请保持关闭
+          {dt('demo.login.synthetic.a')}<b>{dt('demo.login.synthetic.b')}</b>{dt('demo.login.synthetic.c')}
         </label>
       </div>
       {error !== '' && <div className="note" style={{ color: '#e5484d' }}>{error}</div>}

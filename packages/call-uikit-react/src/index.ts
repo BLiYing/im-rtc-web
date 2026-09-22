@@ -20,7 +20,7 @@ export type {
 } from './invite/types.js';
 export { buildInviteContext } from './invite/inviteContext.js';
 export { useCall } from './useCall.js';
-export { resolveLocale, t } from './i18n/index.js';
+export { getLocale, resolveLocale, setLocale, t } from './i18n/index.js';
 export type { Locale, MessageKey, MessageOverrides } from './i18n/index.js';
 export { useElapsed } from './useElapsed.js';
 export { useAutoHide } from './useAutoHide.js';

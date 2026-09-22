@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { formatCallTime } from './historyTime.js';
+import { dt } from './demoText.js';
 
 const PAGE_SIZE = 20;
 
@@ -66,9 +67,9 @@ export function CallHistory({ uid }: CallHistoryProps): ReactNode {
 
   return (
     <div className="card">
-      <h2>通话记录</h2>
+      <h2>{dt('demo.history.title')}</h2>
       {records.length === 0 ? (
-        <div className="muted">{loading ? '加载中…' : '还没有记录。打一通就有了。'}</div>
+        <div className="muted">{loading ? dt('demo.history.loading') : dt('demo.history.empty')}</div>
       ) : (
         <div>
           {records.map((r) => {
@@ -81,7 +82,7 @@ export function CallHistory({ uid }: CallHistoryProps): ReactNode {
                 <div className="history-main">
                   <div className={missed ? 'history-name missed' : 'history-name'}>{peerText(r, uid)}</div>
                   <div className="history-sub">
-                    {role === 'callee' ? '来电' : '呼出'} · {reasonText(r, role)}
+                    {role === 'callee' ? dt('demo.history.incoming') : dt('demo.history.outgoing')} · {reasonText(r, role)}
                   </div>
                 </div>
                 <div className="history-time">{formatCallTime(r.startedAtMs, now)}</div>
@@ -92,7 +93,7 @@ export function CallHistory({ uid }: CallHistoryProps): ReactNode {
       )}
       {nextCursor !== null && (
         <button type="button" disabled={loading} onClick={(): void => load(false, nextCursor)}>
-          {loading ? '加载中…' : '加载更多'}
+          {loading ? dt('demo.history.loading') : dt('demo.history.loadMore')}
         </button>
       )}
       {error !== '' && <div className="note" style={{ color: '#e5484d' }}>{error}</div>}
@@ -112,10 +113,10 @@ function iconOf(record: CallHistoryRecord): string {
 function peerText(record: CallHistoryRecord, me: string): string {
   if (record.isGroup) {
     const extra = record.members.some((m) => m.uid === record.caller) ? 0 : 1;
-    return `群通话 · ${Math.max(record.members.length, 1) + extra} 人`;
+    return dt('demo.history.groupCall', { n: Math.max(record.members.length, 1) + extra });
   }
-  if (record.caller !== me) return record.caller === '' ? '（未知）' : record.caller;
-  return record.members.find((m) => m.uid !== me)?.uid ?? '（未知）';
+  if (record.caller !== me) return record.caller === '' ? dt('demo.history.unknown') : record.caller;
+  return record.members.find((m) => m.uid !== me)?.uid ?? dt('demo.history.unknown');
 }
 
 /**

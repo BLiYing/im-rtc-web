@@ -1,3 +1,5 @@
+import { dt } from './demoText.js';
+
 /**
  * 通话记录的时间文案（四端统一的规则，用例表也四端一致）：
  *
@@ -46,7 +48,7 @@ export function formatCallTime(startedAtMs: number, nowMs: number, timeZone?: st
   const daysAgo = dayNumber(now) - dayNumber(started);
 
   if (startedAtMs >= nowMs || daysAgo <= 0) return time;
-  if (daysAgo === 1) return `昨天 ${time}`;
-  if (started.year === now.year) return `${started.month}月${started.day}日 ${time}`;
-  return `${started.year}年${started.month}月${started.day}日 ${time}`;
+  if (daysAgo === 1) return dt('demo.time.yesterday', { time });
+  if (started.year === now.year) return dt('demo.time.sameYear', { month: started.month, day: started.day, time });
+  return dt('demo.time.otherYear', { year: started.year, month: started.month, day: started.day, time });
 }

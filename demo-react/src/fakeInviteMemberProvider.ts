@@ -1,6 +1,7 @@
 import type { InviteMemberProvider } from 'im-rtc-call-uikit-react';
 
 import { DEMO_CONTACTS } from './contacts.js';
+import { dt } from './demoText.js';
 
 /**
  * fakeInviteMemberProvider 是 Demo 验收用的假 provider（HOST_INTEGRATION_DESIGN §3.4）。
@@ -30,7 +31,7 @@ function allCandidates(): readonly Candidate[] {
   const real = DEMO_CONTACTS.map((c) => ({ uid: c.uid, name: c.uid }));
   const fake = Array.from({ length: FAKE_MEMBER_COUNT }, (_, i) => ({
     uid: `fake-${i + 1}`,
-    name: `群成员 ${i + 1}`,
+    name: dt('demo.fakeMember', { n: i + 1 }),
   }));
   return [...real, ...fake];
 }

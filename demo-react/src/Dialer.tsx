@@ -4,6 +4,7 @@ import { useState } from 'react';
 
 import { createMeetingRoom, fetchRoomToken } from '@demo/api';
 import { DEMO_CONTACTS, GROUP_PICK_LIMIT, calleesFor } from './contacts.js';
+import { dt } from './demoText.js';
 
 /** DialerProps 是拨号面板的参数。 */
 export interface DialerProps {
@@ -61,18 +62,18 @@ export function Dialer({ server, token, deviceId, uid }: DialerProps): ReactNode
 
   return (
     <div className="card">
-      <h2>拨号</h2>
+      <h2>{dt('demo.dial.title')}</h2>
 
       <div className="dial-section">
-        <label className="dial-title" htmlFor="callee">1v1 通话</label>
+        <label className="dial-title" htmlFor="callee">{dt('demo.dial.oneToOne')}</label>
         <div className="dial-row">
           <input id="callee" className="dial-field" value={callee} onChange={(e) => setCallee(e.target.value)}
-            placeholder="对方 uid" />
+            placeholder={dt('demo.dial.calleeHint')} />
           <div className="dial-actions">
             <button type="button" className="ghost" disabled={busy}
-              onClick={guard(() => actions.placeCall([callee.trim()], 'audio'))}>语音呼叫</button>
+              onClick={guard(() => actions.placeCall([callee.trim()], 'audio'))}>{dt('demo.dial.audioCall')}</button>
             <button type="button" disabled={busy}
-              onClick={guard(() => actions.placeCall([callee.trim()], 'video'))}>视频呼叫</button>
+              onClick={guard(() => actions.placeCall([callee.trim()], 'video'))}>{dt('demo.dial.videoCall')}</button>
           </div>
         </div>
       </div>
@@ -87,7 +88,7 @@ export function Dialer({ server, token, deviceId, uid }: DialerProps): ReactNode
       */}
       <div className="dial-section">
         <div className="dial-title">
-          多人通话<span className="muted">已选 {callees.length} / {GROUP_PICK_LIMIT}</span>
+          {dt('demo.dial.group')}<span className="muted">{dt('demo.dial.picked', { n: callees.length, max: GROUP_PICK_LIMIT })}</span>
         </div>
         <div className="dial-row top">
           <div className="dial-field">
@@ -112,31 +113,31 @@ export function Dialer({ server, token, deviceId, uid }: DialerProps): ReactNode
           <div className="dial-actions">
             <button type="button" disabled={busy || callees.length === 0}
               onClick={guard(() => actions.placeCall(callees, 'video', { isGroup: true, chatGroupId: DEMO_CHAT_GROUP_ID }))}>
-              群视频呼叫
+              {dt('demo.dial.groupVideo')}
             </button>
           </div>
         </div>
       </div>
 
       <div className="dial-section">
-        <label className="dial-title" htmlFor="room">会议</label>
+        <label className="dial-title" htmlFor="room">{dt('demo.dial.meeting')}</label>
         <div className="dial-row">
           <input id="room" className="dial-field" value={roomId} onChange={(e) => setRoomId(e.target.value)}
-            placeholder="房间号" />
+            placeholder={dt('demo.dial.roomHint')} />
           <div className="dial-actions">
             <button type="button" className="ghost" disabled={busy || roomId.trim() === ''}
               onClick={guard(joinMeeting)} data-testid="join-meeting">
-              加入
+              {dt('demo.dial.join')}
             </button>
             <button type="button" disabled={busy}
               onClick={guard(createMeeting)} data-testid="create-meeting">
-              新建会议
+              {dt('demo.dial.newMeeting')}
             </button>
           </div>
         </div>
         <div className="dial-hint">
-          会议不振铃，点进去就在房里。新建后把房间号发到另一个标签页，粘进来点「加入」即可双开。<br />
-          最后一个人离开，房间就销毁了；旧房间号再加入会提示「房间不存在」，重新新建一个。
+          {dt('demo.dial.meetingHint1')}<br />
+          {dt('demo.dial.meetingHint2')}
         </div>
       </div>
 
@@ -149,14 +150,14 @@ export function Dialer({ server, token, deviceId, uid }: DialerProps): ReactNode
         call_id 只在 engine 事件流里看得到（`callBegin` 的 `callId`；通话记录表没有这一列）。
       */}
       <div className="dial-section">
-        <label className="dial-title" htmlFor="join-call-id">加入进行中的群通话</label>
+        <label className="dial-title" htmlFor="join-call-id">{dt('demo.dial.joinGroupCall')}</label>
         <div className="dial-row">
           <input id="join-call-id" className="dial-field" value={callId} onChange={(e) => setCallId(e.target.value)}
             placeholder="call_id" />
           <div className="dial-actions">
             <button type="button" className="ghost" disabled={busy || callId.trim() === ''}
               onClick={guard(() => joinCall(callId.trim()))} data-testid="join-call">
-              加入
+              {dt('demo.dial.join')}
             </button>
           </div>
         </div>

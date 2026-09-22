@@ -2,6 +2,7 @@ import type { EngineEventName } from 'im-rtc-call-engine';
 import { useCall } from 'im-rtc-call-uikit-react';
 import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
+import { dt } from './demoText.js';
 
 /** LogLine 是一条事件记录。 */
 interface LogLine {
@@ -56,9 +57,9 @@ export function EngineLog(): ReactNode {
 
   return (
     <div className="card">
-      <h2>engine 事件流</h2>
+      <h2>{dt('demo.log.title')}</h2>
       {lines.length === 0 ? (
-        <div className="muted">还没有事件。</div>
+        <div className="muted">{dt('demo.log.empty')}</div>
       ) : (
         <ol style={{ margin: 0, padding: 0, listStyle: 'none', maxHeight: 220, overflow: 'auto' }}>
           {lines.map((line) => (
