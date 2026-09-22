@@ -7,6 +7,8 @@
 
 ## 当前焦点
 
+- **09-22 SDK 2.1.0 已发版**（`im-rtc-call-engine@2.1.0`、`im-rtc-call-uikit-react@2.1.0`，用户在终端 npm publish；tag `485347e`）：本次内容即下面这些条目——多语言、通话记录端到端。协议版本未变（仍为 2）。**英文版式还没在真浏览器里看过**，是已知缺口。
+
 - **09-22 Demo 各页自己的文案也进表了**：`gen-i18n.mjs` 拆成两份生成物——SDK 表 `packages/call-uikit-react/src/i18n/messages.gen.ts`（`t()`）与 Demo 表 `demo-react/src/demoMessages.gen.ts`（`demoText.ts` 的 `dt()`），避免单文件超 600 行体量门禁。登录/拨号/记录/设置/连接状态等 8 个 Demo 文件接入。`test.sh` 17 步绿。
 - **09-21 多语言（zh-CN / en）web 已做**：文案表在 server `docs/i18n/strings.json`（跨端单一真相源）。`<CallProvider locale messages>`，Demo 设置页「语言 / Language」三选一。**没在真浏览器里看过英文版式**。设计与其余四端进度见 server `docs/design/I18N_DESIGN.md`。
 
@@ -28,7 +30,6 @@
 ## 下一步
 
 - **`ping_interval_sec` 钳到 [5,60]（缺省 / 非正数按 15）**：Android、iOS 已做，Web 没做（`connection.ts` 把 `hello.pingIntervalSec` 原样喂给 `heartbeat.start` 与 `resumeDeadline.connected`；`Heartbeat.start` 只做了 `max(1, …)`）。做的时候配单测，并与 iOS 的 `Heartbeat.clampedIntervalSec` 同值。
-- 2.0.0：真机验收后等用户通知发版：版本号改 `packages/call-engine/src/version.ts` + 两个 `package.json`，用户在终端 `npm publish`。
 - 真机（Chrome 5179）：`joinCall` 满员 1202 / 已结束 1402 / 宿主拒绝 1409 三种文案；拨号拿到 `callId`；通话中断网再挂断界面收得掉。
 - 会议房 25 人验收（与 server 2.0.0 回归合并做）。
 
