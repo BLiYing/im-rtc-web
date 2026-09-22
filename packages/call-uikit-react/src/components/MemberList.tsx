@@ -36,7 +36,7 @@ export function MemberList({
       <div style={styles.sheetHeader}>
         <strong style={{ flex: 1 }}>{t('members.title', { n: members.length + 1 })}</strong>
         <button type="button" style={styles.smallButton} onClick={onClose} data-testid="member-list-close">
-          关闭
+          {t('invite.close')}
         </button>
       </div>
       <div style={styles.sheetList}>

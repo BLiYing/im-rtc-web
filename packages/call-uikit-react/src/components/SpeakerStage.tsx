@@ -48,7 +48,7 @@ export function SpeakerStage({ pinned, others, onUnpin }: SpeakerStageProps): Re
       <OffscreenMembers members={offscreen} />
       <button type="button" style={styles.pinBadge} onClick={onUnpin} data-testid="unpin">
         <span aria-hidden="true">📌</span>
-        取消钉住
+        {t('meeting.unpin')}
       </button>
       <div style={styles.speakerMain}>
         <VideoTile
