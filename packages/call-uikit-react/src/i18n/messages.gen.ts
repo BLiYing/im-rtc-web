@@ -121,6 +121,11 @@ export type MessageKey =
   | "invite.emptyTyping"
   | "invite.slotsLeft"
   | "ctl.speaker"
+  | "route.earpiece"
+  | "route.speaker"
+  | "route.wiredHeadset"
+  | "route.bluetooth"
+  | "route.title"
   | "ctl.flip"
   | "label.room"
   | "call.default"
@@ -276,6 +281,11 @@ export const MESSAGES: Record<Locale, Record<MessageKey, string>> = {
     "invite.emptyTyping": "可以在上面直接输入对方 uid",
     "invite.slotsLeft": "还能加 {n} 人",
     "ctl.speaker": "扬声器",
+    "route.earpiece": "听筒",
+    "route.speaker": "扬声器",
+    "route.wiredHeadset": "有线耳机",
+    "route.bluetooth": "蓝牙耳机",
+    "route.title": "声音输出",
     "ctl.flip": "翻转",
     "label.room": "房间号",
     "call.default": "通话",
@@ -430,6 +440,11 @@ export const MESSAGES: Record<Locale, Record<MessageKey, string>> = {
     "invite.emptyTyping": "You can type a user ID above",
     "invite.slotsLeft": "{n} more can be added",
     "ctl.speaker": "Speaker",
+    "route.earpiece": "Earpiece",
+    "route.speaker": "Speaker",
+    "route.wiredHeadset": "Wired Headset",
+    "route.bluetooth": "Bluetooth",
+    "route.title": "Audio Output",
     "ctl.flip": "Flip",
     "label.room": "Room ID",
     "call.default": "Call",
