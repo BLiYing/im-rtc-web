@@ -13,7 +13,7 @@ function remembered(key: string, fallback: string): string {
 
 /** LoginPanelProps 是登录面板的参数。 */
 export interface LoginPanelProps {
-  readonly onLogin: (server: string, username: string, synthetic: boolean) => Promise<void>;
+  readonly onLogin: (server: string, username: string, synthetic: boolean, debugKeyLogin: boolean) => Promise<void>;
 }
 
 /**
@@ -26,18 +26,25 @@ export interface LoginPanelProps {
  * 但默认打开会骗人——**跨设备联调时你对着麦克风说话，对端听到的却是 440Hz 正弦波**，
  * 而且「摄像头没亮」看起来像权限出了问题。实测就是这么误判了一轮。
  * 所以默认走真实设备，要双开时自己勾。
+ *
+ * 「调试密钥登录」**同样默认关**：勾上就跳过服务端 `/v1/demo/login`，改用固定的
+ * 调试密钥（`DEBUG_APP_ID`）在本机直接签票——四端 Demo 共用同一套常量，
+ * 是专给「不同端之间对拨、要落在同一个 SDKAppID 下」这种联调场景用的开关。
+ * 默认关是因为它换了租户：不小心开着会把「登录失败是不是配置错了」这类
+ * 排查引到错误的应用号上。
  */
 export function LoginPanel({ onLogin }: LoginPanelProps): ReactNode {
   const [server, setServer] = useState(remembered('server', 'http://127.0.0.1:8787'));
   const [username, setUsername] = useState(remembered('username', 'alice'));
   const [synthetic, setSynthetic] = useState(false);
+  const [debugKeyLogin, setDebugKeyLogin] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
   const submit = (): void => {
     setBusy(true);
     setError('');
-    void onLogin(server.trim(), username.trim(), synthetic)
+    void onLogin(server.trim(), username.trim(), synthetic, debugKeyLogin)
       .catch((err: unknown) => setError(String(err)))
       .finally(() => setBusy(false));
   };
@@ -67,6 +74,17 @@ export function LoginPanel({ onLogin }: LoginPanelProps): ReactNode {
             onChange={(e) => setSynthetic(e.target.checked)}
           />
           {dt('demo.login.synthetic.a')}<b>{dt('demo.login.synthetic.b')}</b>{dt('demo.login.synthetic.c')}
+        </label>
+      </div>
+      <div className="note">
+        <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+          <input
+            type="checkbox"
+            checked={debugKeyLogin}
+            style={{ width: 'auto' }}
+            onChange={(e) => setDebugKeyLogin(e.target.checked)}
+          />
+          {dt('demo.login.debugKey.a')}<b>{dt('demo.login.debugKey.b')}</b>{dt('demo.login.debugKey.c')}
         </label>
       </div>
       {error !== '' && <div className="note" style={{ color: '#e5484d' }}>{error}</div>}

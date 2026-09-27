@@ -1,5 +1,12 @@
 import type { CallEngine } from 'im-rtc-call-engine';
-import { CallEngine as Engine, VideoProfiles, WebRTCAdapter, setLogLevel, setLogSink } from 'im-rtc-call-engine';
+import {
+  CallEngine as Engine,
+  VideoProfiles,
+  WebRTCAdapter,
+  generateDebugToken,
+  setLogLevel,
+  setLogSink,
+} from 'im-rtc-call-engine';
 import { CallOverlay, CallProvider, resolveLocale, setLocale } from 'im-rtc-call-uikit-react';
 import { SyntheticMediaSource, browserMediaSource } from '@demo/synthetic';
 import type { ReactNode } from 'react';
@@ -24,6 +31,26 @@ import { dt } from './demoText.js';
 // 启动时按存下的档位设（默认 debug）。**要早于任何 engine 创建**，所以放在模块顶部而不是 effect 里。
 setLogLevel(loadSettings(browserStore()).logLevel);
 
+/**
+ * 调试密钥登录：跳过服务端 `/v1/demo/login`，本地用固定的调试密钥签票。
+ *
+ * **四端 Demo 共用同一套常量**（与 Android/iOS/桌面对齐，也是跟宿主
+ * `rongxin_android` 那边 `TencentTUIUtils.IMRTC_APP_ID/IMRTC_DEBUG_KEY_ID/IMRTC_DEBUG_KEY_SECRET`
+ * 联调用的同一套），专给「不同端之间要落在同一个 SDKAppID 下对拨」这种场景用。
+ * 是否启用由登录面板的开关决定（见 LoginPanel），默认关。
+ */
+export const DEBUG_APP_ID = '10000003';
+const DEBUG_KEY_ID = 'dbg-1';
+const DEBUG_KEY_SECRET = '4d2a7de87c2cde231ce2100918145beae7d7805a1d0334e6416ac0c320dacc70';
+
+/** getLoginToken 按登录面板的开关二选一：调试密钥本地签票，或走服务端 /v1/demo/login。 */
+async function getLoginToken(server: string, username: string, debugKeyLogin: boolean): Promise<string> {
+  if (debugKeyLogin) {
+    return generateDebugToken({ appId: DEBUG_APP_ID, keyId: DEBUG_KEY_ID, secret: DEBUG_KEY_SECRET, uid: username });
+  }
+  return demoLogin(server, username);
+}
+
 /** 连接状态文案；函数而非常量，语言切换后才跟得上。 */
 function connLabel(phase: ConnPhase): string {
   return dt(`demo.conn.${phase}`);
@@ -37,6 +64,8 @@ interface Session {
   readonly deviceId: string;
   /** 这次登录建采集时用的档位。设置卡片里改了档位要重登才生效，拿它来提示。 */
   readonly videoProfile: VideoProfileKey;
+  /** 这次登录是不是走的调试密钥。**只用来在身份卡上提示**，不影响任何业务逻辑。 */
+  readonly debugKeyLogin: boolean;
 }
 
 /**
@@ -51,6 +80,7 @@ interface SavedLogin {
   server: string;
   username: string;
   synthetic: boolean;
+  debugKeyLogin: boolean;
 }
 
 const SAVED_KEY = 'im-rtc-demo.login';
@@ -111,8 +141,8 @@ export function App(): ReactNode {
   setLocale(resolveLocale(settings.language));
 
   const login = useCallback(
-    async (server: string, username: string, synthetic: boolean): Promise<void> => {
-      const token = await demoLogin(server, username);
+    async (server: string, username: string, synthetic: boolean, debugKeyLogin: boolean): Promise<void> => {
+      const token = await getLoginToken(server, username, debugKeyLogin);
       const deviceId = `demo-react-${username}`;
 
       /*
@@ -140,7 +170,7 @@ export function App(): ReactNode {
         （见 connectionGuard.ts 开头）。这也是这个 Demo 存在的意义之一：
         证明协议 §1.5 那条规则宿主真的做得到。
       */
-      guardConnection(engine, () => demoLogin(server, username), {
+      guardConnection(engine, () => getLoginToken(server, username, debugKeyLogin), {
         onPhase: (phase, detail) => setConn({ phase, detail }),
         onDead: (reason) => {
           // 被踢 / 换票换不上：**把记住的登录也清掉**，否则刷新后会拿同一套
@@ -160,10 +190,10 @@ export function App(): ReactNode {
         而且刷新之后本来就该走一次正常的换票流程（真实宿主也是这样——
         它有自己的会话，刷新后用会话换一枚新的 RTC token）。
       */
-      remember({ server, username, synthetic });
+      remember({ server, username, synthetic, debugKeyLogin });
       setNotice('');
       setConn({ phase: 'connected', detail: dt('demo.conn.newSession') });
-      setSession({ engine, server, token, uid: username, deviceId, videoProfile });
+      setSession({ engine, server, token, uid: username, deviceId, videoProfile, debugKeyLogin });
     },
     [settingsRef],
   );
@@ -189,7 +219,7 @@ export function App(): ReactNode {
       setRestoring(false);
       return;
     }
-    void login(saved.server, saved.username, saved.synthetic)
+    void login(saved.server, saved.username, saved.synthetic, saved.debugKeyLogin)
       .catch((err: unknown) => setNotice(dt('demo.app.autoLoginFailed', { err: String(err) })))
       .finally(() => setRestoring(false));
   }, [restoring, login]);
@@ -227,6 +257,11 @@ export function App(): ReactNode {
             <div>
               <b>{session.uid}</b> <span className="muted">（{session.deviceId}）</span>
             </div>
+            {session.debugKeyLogin && (
+              <div className="note" style={{ color: '#f5a623' }}>
+                {dt('demo.identity.debugBadge', { appId: DEBUG_APP_ID })}
+              </div>
+            )}
             {/*
               连接状态必须画出来。**服务端重启后页面一直显示「已登录」**、
               其实什么都发不出去——这个毛病之所以能藏那么久，就是因为界面上看不见。

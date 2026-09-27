@@ -7,6 +7,14 @@
 
 ## 当前焦点
 
+- **09-27 demo-react 登录面板加「调试密钥登录」开关**：原先 `App.tsx` 里是个 `USE_DEBUG_KEY_LOGIN=true`
+  的临时常量（`org.webrtc` 改名联调用，本该验完就改回 `demoLogin`、不该提交），这次正式收成
+  `LoginPanel` 里一个默认关的勾选框（跟「合成音视频源」同一处、同一种写法），勾上才跳过服务端
+  `/v1/demo/login`、改用固定调试密钥（`App.tsx` 的 `DEBUG_APP_ID` 等常量）本地签票。登录后身份卡
+  多一行 SDKAppID 提示（`demo.identity.debugBadge`，橙色）。四端 Demo（Web/Android/iOS/桌面）常量
+  同值、同一套调试租户，方便跨端对拨联调。文案表新增 `demo.login.debugKey.*` /
+  `demo.identity.debugBadge`（server `docs/i18n/strings.json`，已跑 `gen-i18n.mjs`）。
+  `./scripts/test.sh` 17 步全绿。
 - **09-22 SDK 2.1.0 已发版**（`im-rtc-call-engine@2.1.0`、`im-rtc-call-uikit-react@2.1.0`，用户在终端 npm publish；tag `485347e`）：本次内容即下面这些条目——多语言、通话记录端到端。协议版本未变（仍为 2）。英文版式已在真浏览器里核对过（用户 09-22 确认）。
 
 - **09-22 Demo 各页自己的文案也进表了**：`gen-i18n.mjs` 拆成两份生成物——SDK 表 `packages/call-uikit-react/src/i18n/messages.gen.ts`（`t()`）与 Demo 表 `demo-react/src/demoMessages.gen.ts`（`demoText.ts` 的 `dt()`），避免单文件超 600 行体量门禁。登录/拨号/记录/设置/连接状态等 8 个 Demo 文件接入。`test.sh` 17 步绿。
