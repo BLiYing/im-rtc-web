@@ -20,6 +20,8 @@ export type {
 } from './invite/types.js';
 export { buildInviteContext } from './invite/inviteContext.js';
 export { useCall } from './useCall.js';
+// Kit 取票登录（KIT_TOKEN_PROVIDER_DESIGN）：`<CallProvider tokenProvider>` 的参数类型。
+export type { KitToken, TokenProvider } from './session/kitSession.js';
 export { getLocale, resolveLocale, setLocale, t } from './i18n/index.js';
 export type { Locale, MessageKey, MessageOverrides } from './i18n/index.js';
 export { useElapsed } from './useElapsed.js';

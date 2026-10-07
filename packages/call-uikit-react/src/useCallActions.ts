@@ -11,6 +11,7 @@ import { showNotice } from './notice.js';
 import { classifyProbeError, devicesFor, devicesForAnswering } from './state/permissions.js';
 import type { CallViewState, ViewAction } from './state/viewTypes.js';
 import type { PermissionGate } from './usePermissionGate.js';
+import type { FailureKind } from './session/kitSession.js';
 import { t } from './i18n/index.js';
 
 /** CallActions 是界面能做的全部动作。 */
@@ -54,6 +55,11 @@ export interface CallActions {
   /** expandIncoming 把来电横幅展开成来电页（点横幅本体）。 */
   expandIncoming: () => void;
   dismiss: () => void;
+  /**
+   * ensureReady 确保已登录（配了 `tokenProvider` 时由 Kit 补一次取票登录）。
+   * 宿主自己直接用 engine 的地方（`fetchCallHistory`）先调它。没配 `tokenProvider` 时恒为 `true`。
+   */
+  ensureReady: () => Promise<boolean>;
 }
 
 /** PublishedCids 是本端已发布轨道的 cid。放 ref 不放 state：它不参与渲染。 */
@@ -70,6 +76,8 @@ export interface CallActionsDeps {
   readonly gate: PermissionGate;
   /** 红键看门狗等多久（见 `RedButtonWatchdog`）。 */
   readonly endWatchdogMs: number;
+  /** 确保已登录，见 `session/useKitSession.ts`。`null` = 可以用了。 */
+  readonly ensureReady: () => Promise<FailureKind | null>;
 }
 
 /**
@@ -82,6 +90,11 @@ function codeOf(err: unknown): number | null {
   return isRtcError(err) ? err.code : null;
 }
 
+/** serviceNotice 是登不上时给用户的那句话（设计 §5）。 */
+function serviceNotice(failure: FailureKind): string {
+  return t(failure === 'network' ? 'hint.serviceUnreachable' : 'hint.serviceUnavailable');
+}
+
 /** logRejected 给「界面收起靠事件、这里只留痕」的那几处 catch 用。 */
 function logRejected(what: string, err: unknown): void {
   logger.warn(`[uikit] ${what}失败`, { code: codeOf(err), err: String(err) });
@@ -90,7 +103,7 @@ function logRejected(what: string, err: unknown): void {
 /**
  * useCallActions 把界面动作接到 engine 上。逻辑与渲染分离（CONVENTIONS §2）。
  */
-export function useCallActions({ engine, state, dispatch, cids, gate, endWatchdogMs }: CallActionsDeps): {
+export function useCallActions({ engine, state, dispatch, cids, gate, endWatchdogMs, ensureReady }: CallActionsDeps): {
   readonly actions: CallActions;
   readonly publishFor: (mediaType: MediaType, withCamera: boolean) => Promise<void>;
   readonly joinCall: (callId: string) => Promise<void>;
@@ -206,6 +219,19 @@ export function useCallActions({ engine, state, dispatch, cids, gate, endWatchdo
     return true;
   }, []);
 
+  /**
+   * 发帧之前确保已登录（KIT_TOKEN_PROVIDER_DESIGN §6）：等待期间界面照常是「正在呼叫…」/「接通中…」。
+   * 登不上就收起 `screen` 这一屏（还在的话）并说人话，返回 false。
+   */
+  const readyOrNotice = useCallback(async (screen: CallViewState['phase'] | null): Promise<boolean> => {
+    const failure = await ensureReady();
+    if (failure === null) return true;
+    logger.warn('[uikit] 通话服务没登上，不发帧', { failure });
+    if (screen !== null && latest.current.phase === screen) dispatch({ type: 'dismiss' });
+    showNotice(serviceNotice(failure));
+    return false;
+  }, [ensureReady, dispatch]);
+
   const actions = useMemo<CallActions>(
     () => ({
       placeCall: async (calleeIds, mediaType, options): Promise<void> => {
@@ -222,6 +248,9 @@ export function useCallActions({ engine, state, dispatch, cids, gate, endWatchdo
           dispatch({ type: 'dismiss' });
           return;
         }
+        if (!(await readyOrNotice('outgoing'))) return;
+        // 等登录期间用户可能已经按了红键：这一屏不在了就不发 invite。
+        if (latest.current.phase !== 'outgoing') return;
         // 群通话默认关着摄像头进来：权限照问（交互稿 §01），摄像头不开。
         if (gateResult === 'ok' && defaultCameraOn(mediaType, isGroup)) await startPreview();
         try {
@@ -235,12 +264,15 @@ export function useCallActions({ engine, state, dispatch, cids, gate, endWatchdo
           if (codeOf(err) === ErrorCode.inviteDenied) dispatch({ type: 'inviteRejectedByHost' });
           // 同账号在别的设备上通话：入口守门拦不到，只能靠服务端回 1408。
           else if (codeOf(err) === ErrorCode.alreadyInCall) showNotice(busyNotice());
+          // 没登录（没配 tokenProvider 的宿主没登上 / 刚好断了）：原先只有笼统的结束画面。
+          else if (codeOf(err) === ErrorCode.notLoggedIn) showNotice(t('hint.serviceUnreachable'));
         }
       },
       joinMeeting: async (roomId, roomToken): Promise<void> => {
         if (blockIfBusy()) return;
         const gateResult = await gate.ensure(devicesFor('video', true));
         if (gateResult === 'cancelled' || gateResult === 'mic-blocked') return;
+        if (!(await readyOrNotice(null))) return;
         dispatch({ type: 'meetingJoined', roomId, nowMs: Date.now() });
         /*
           **进房这一步抛了就要把界面收回来。** 先摆界面是对的（不然点下去几百毫秒没反应），
@@ -413,10 +445,11 @@ export function useCallActions({ engine, state, dispatch, cids, gate, endWatchdo
       setSwapped: (swapped): void => dispatch({ type: 'setSwapped', swapped }),
       expandIncoming: (): void => dispatch({ type: 'expandIncoming' }),
       dismiss: (): void => dispatch({ type: 'dismiss' }),
+      ensureReady: async (): Promise<boolean> => (await ensureReady()) === null,
     }),
     // `state` 已经在依赖里：它每次变化（哪怕是与这堆 action 无关的字段）都会换新引用，
     // 下面单独列的 `state.xxx` 子字段完全被它覆盖，列出来只是死代码。
-    [engine, dispatch, cids, gate, publishFor, startPreview, armEnd, state, blockIfBusy],
+    [engine, dispatch, cids, gate, publishFor, startPreview, armEnd, state, blockIfBusy, readyOrNotice, ensureReady],
   );
 
   /**
@@ -438,6 +471,7 @@ export function useCallActions({ engine, state, dispatch, cids, gate, endWatchdo
       dispatch({ type: 'dismiss' });
       return;
     }
+    if (!(await readyOrNotice('connecting'))) return;
     try {
       await engine.joinCall(callId);
     } catch (err) {
@@ -445,7 +479,7 @@ export function useCallActions({ engine, state, dispatch, cids, gate, endWatchdo
       logger.warn('joinCall 被拒', { call_id: callId, code });
       dispatch({ type: 'joinCallFailed', code });
     }
-  }, [engine, dispatch, gate, blockIfBusy]);
+  }, [engine, dispatch, gate, blockIfBusy, readyOrNotice]);
 
   return { actions, publishFor, joinCall };
 }

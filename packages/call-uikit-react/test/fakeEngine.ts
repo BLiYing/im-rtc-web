@@ -162,6 +162,21 @@ export class FakeEngine {
     this.state.room.publishTrackIds['cam-1'] = 't-cam';
     return 'cam-1';
   }
+  /** 登录失败由测试控制：设 `loginError`。Kit 取票登录（`tokenProvider`）才会调到这几个。 */
+  loginError: unknown = null;
+  async login(token: string): Promise<void> {
+    this.calls.push(`login:${token}`);
+    if (this.loginError !== null) throw this.loginError;
+  }
+  logout(): void {
+    this.calls.push('logout');
+  }
+  updateToken(token: string): void {
+    this.calls.push(`updateToken:${token}`);
+  }
+  notifyNetworkChanged(): void {
+    this.calls.push('notifyNetworkChanged');
+  }
   /** 通话中重新打开摄像头失败由测试控制：设 `unmuteError` 让「打开」那一下抛（重新采集被拒）。 */
   unmuteError: unknown = null;
   async setMuted(cid: string, muted: boolean): Promise<void> {

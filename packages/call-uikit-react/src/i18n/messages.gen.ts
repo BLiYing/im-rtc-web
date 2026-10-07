@@ -81,6 +81,8 @@ export type MessageKey =
   | "hint.micFailed"
   | "hint.cameraDenied"
   | "hint.roomFull"
+  | "hint.serviceUnreachable"
+  | "hint.serviceUnavailable"
   | "hint.roomIdCopied"
   | "hint.roomIdCopyFailed"
   | "hint.peerRejected"
@@ -241,6 +243,8 @@ export const MESSAGES: Record<Locale, Record<MessageKey, string>> = {
     "hint.micFailed": "麦克风打不开，对方听不到你",
     "hint.cameraDenied": "没有摄像头权限",
     "hint.roomFull": "通话已满员（最多 9 人）",
+    "hint.serviceUnreachable": "通话服务连接失败，请检查网络后重试",
+    "hint.serviceUnavailable": "通话服务暂时不可用，请稍后重试",
     "hint.roomIdCopied": "已复制房间号 {room}",
     "hint.roomIdCopyFailed": "复制不了，请手动记下房间号 {room}",
     "hint.peerRejected": "{uid} 已拒接",
@@ -400,6 +404,8 @@ export const MESSAGES: Record<Locale, Record<MessageKey, string>> = {
     "hint.micFailed": "Can't open the microphone. They can't hear you",
     "hint.cameraDenied": "No camera access",
     "hint.roomFull": "The call is full (max 9)",
+    "hint.serviceUnreachable": "Couldn't connect to the call service. Check your network and try again",
+    "hint.serviceUnavailable": "The call service is unavailable. Please try again later",
     "hint.roomIdCopied": "Room ID {room} copied",
     "hint.roomIdCopyFailed": "Couldn't copy. Room ID: {room}",
     "hint.peerRejected": "{uid} declined",

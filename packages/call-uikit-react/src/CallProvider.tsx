@@ -11,6 +11,8 @@ import { initialCallView, reduceCallView, showsIncomingPage } from './state/call
 import type { CallViewState } from './state/callView.js';
 import type { PermissionQuery } from './state/permissions.js';
 import { browserPermissionQuery } from './state/permissions.js';
+import type { TokenProvider } from './session/kitSession.js';
+import { useKitSession } from './session/useKitSession.js';
 import { subscribeEngine } from './subscribeEngine.js';
 import { callMotion } from './theme.js';
 import type { CallActions, PublishedCids } from './useCallActions.js';
@@ -153,6 +155,15 @@ export interface CallProviderProps {
   readonly locale?: Locale;
   /** 按语言覆盖个别文案（只写要改的 key，key 见 `MessageKey`）。 */
   readonly messages?: MessageOverrides;
+  /**
+   * 从你的后台取一张 RTC 接入票（server `docs/design/KIT_TOKEN_PROVIDER_DESIGN.md`）。
+   *
+   * **给了它，登录归 Kit**：挂载即取票登录，失败按退避重试（网络恢复 / 回到前台立即再试），
+   * 票快过期自动续、`kickedOut{authExpired}` 自动重登，拨号 / 加入前没登上会先补一次；
+   * 卸载时登出。宿主**不要再自己调 `engine.login` / `logout`**。
+   * 不给：与 2.1.x 一致，宿主自己管登录。三端同名同义。
+   */
+  readonly tokenProvider?: TokenProvider;
 }
 
 /** 结束画面的默认停留时长。见 `format/endReason.ts`：实际时长按原因分档。 */
@@ -165,14 +176,17 @@ export function CallProvider({
   allowManualUidInput = false,
   permissionQuery = browserPermissionQuery, bannerFirst = true,
   incomingRingtone = DEFAULT_INCOMING_RINGTONE, ringbackTone = DEFAULT_RINGBACK_TONE, ringtoneMuted = false,
-  endWatchdogMs = END_WATCHDOG_MS, locale = 'zh-CN', messages,
+  endWatchdogMs = END_WATCHDOG_MS, locale = 'zh-CN', messages, tokenProvider,
 }: CallProviderProps): ReactNode {
   // 渲染期同步设置：子组件与 reducer 里的 t() 在同一轮渲染里就要拿到新语言。幂等，重复调用无副作用。
   setLocale(locale, messages);
   const [state, dispatch] = useReducer(reduceCallView, initialCallView);
   const cids = useRef<PublishedCids>({ mic: '', cam: '' });
   const gate = usePermissionGate(engine, dispatch, permissionQuery);
-  const { actions, publishFor, joinCall } = useCallActions({ engine, state, dispatch, cids, gate, endWatchdogMs });
+  const ensureReady = useKitSession(engine, tokenProvider);
+  const { actions, publishFor, joinCall } = useCallActions({
+    engine, state, dispatch, cids, gate, endWatchdogMs, ensureReady,
+  });
   useRingingPreview({ engine, state, dispatch, query: permissionQuery, pageShown: showsIncomingPage(state, bannerFirst) });
   useRingtone({ engine, state, muted: ringtoneMuted, incomingRingtone, ringbackTone });
 
