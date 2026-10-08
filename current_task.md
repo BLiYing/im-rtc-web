@@ -7,7 +7,7 @@
 
 ## 当前焦点
 
-- **10-07 Kit `tokenProvider`（2.2.0 待发，未提交）**：`<CallProvider tokenProvider>` 由 Kit 取票登录、退避重试、拨号 / 加入 / 进会议前补登录、续票、`authExpired` 重登；`actions.ensureReady()`；拨号回 2007 出提示。逻辑在 `src/session/kitSession.ts`（纯类）+ `useKitSession.ts`，测试 `kitSession.test.ts` / `tokenProvider.test.tsx`。`test.sh` 17 步绿。设计 server `docs/design/KIT_TOKEN_PROVIDER_DESIGN.md`。**待**：im-web 宿主切本地包档联调。
+- **10-08 SDK 2.2.0 已发版：Kit `tokenProvider`**：`<CallProvider tokenProvider>` 由 Kit 取票登录、退避重试、拨号 / 加入 / 进会议前补登录、续票、`authExpired` 重登；`actions.ensureReady()`；拨号回 2007 出提示。逻辑在 `src/session/kitSession.ts`（纯类）+ `useKitSession.ts`，测试 `kitSession.test.ts` / `tokenProvider.test.tsx`。`test.sh` 17 步绿。设计 server `docs/design/KIT_TOKEN_PROVIDER_DESIGN.md`。im-web 宿主已接入（Chrome 实测通过），公网包档两个 Demo 构建过。
 - **09-27 demo-react 登录面板加「调试密钥登录」开关**：原先 `App.tsx` 里是个 `USE_DEBUG_KEY_LOGIN=true`
   的临时常量（`org.webrtc` 改名联调用，本该验完就改回 `demoLogin`、不该提交），这次正式收成
   `LoginPanel` 里一个默认关的勾选框（跟「合成音视频源」同一处、同一种写法），勾上才跳过服务端
